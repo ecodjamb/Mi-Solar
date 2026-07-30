@@ -1,4 +1,4 @@
-// Mi Solar V5.3 — archivo actualizado para reemplazo completo del repositorio.
+// Mi Solar V6 — archivo actualizado para reemplazo completo del repositorio.
 import { md5, tumRequest } from './tumcapp.js';
 import { clearCookie, openSession, sessionCookie } from './session.js';
 

@@ -1,4 +1,4 @@
-// Mi Solar V5.3 — archivo actualizado para reemplazo completo del repositorio.
+// Mi Solar V6 — archivo actualizado para reemplazo completo del repositorio.
 import crypto from 'node:crypto';
 
 export const BASE_URL = 'https://www.tumcapp.com/app/api/mobile';

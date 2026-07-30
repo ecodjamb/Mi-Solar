@@ -1,0 +1,3 @@
+Mi Solar V6.0.0 — Living Dashboard
+Build target: Netlify / Node 20 / Vite dist
+Timezone: America/Santiago

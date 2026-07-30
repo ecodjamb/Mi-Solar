@@ -1,9 +1,8 @@
 import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
 
+// Mi Solar V6 — configuración de build.
 export default defineConfig({
-  plugins: [react()],
   publicDir: false,
   server: { port: 5173 },
-  build: { sourcemap: true }
+  build: { sourcemap: true, target: 'es2022' }
 });

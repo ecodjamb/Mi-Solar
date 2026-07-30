@@ -1,5 +1,2 @@
-# Carpeta heredada neutralizada
-
-Esta carpeta existe únicamente para reemplazar los archivos de la V4 al subir la V5.3 a GitHub.
-
-Vite está configurado con `publicDir: false`, por lo que estos archivos **no se copian a `dist` ni se publican en Netlify**.
+# Carpeta neutral V6
+Esta carpeta existe únicamente para reemplazar restos visibles de V3/V4 en GitHub. Vite usa `publicDir: false`; estos archivos no forman parte del build publicado.

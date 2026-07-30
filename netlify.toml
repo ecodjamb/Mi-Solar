@@ -1,3 +1,4 @@
+# Mi Solar V6 — configuración única para GitHub + Netlify.
 [build]
   command = "npm run build"
   publish = "dist"
@@ -8,6 +9,11 @@
   NPM_FLAGS = "--no-audit --no-fund"
 
 [[redirects]]
+  from = "/api/weather"
+  to = "/.netlify/functions/weather"
+  status = 200
+
+[[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/api/:splat"
   status = 200
@@ -16,3 +22,8 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

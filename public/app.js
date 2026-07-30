@@ -1,1 +1,1 @@
-// Archivo heredado neutralizado. Mi Solar V5.3 usa React/Vite desde /src.
+// Mi Solar V6: archivo neutral para reemplazar la app JavaScript antigua.

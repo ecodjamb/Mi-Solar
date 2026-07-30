@@ -1,6 +1,6 @@
 {
-  "name": "mi-solar-v5-3-clean-replacement",
-  "version": "5.3.0",
+  "name": "mi-solar-v6-living-dashboard",
+  "version": "6.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,15 +10,18 @@
     "test": "node tests/signature.test.js"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
-    "echarts": "latest",
-    "lucide-react": "latest",
-    "react": "latest",
-    "react-dom": "latest"
+    "echarts": "5.5.1",
+    "lucide-react": "0.468.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
   },
   "devDependencies": {
-    "typescript": "latest",
-    "vite": "latest"
+    "typescript": "5.6.3",
+    "vite": "5.4.10",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1"
   },
-  "engines": {"node": ">=20"}
+  "engines": {
+    "node": ">=20"
+  }
 }

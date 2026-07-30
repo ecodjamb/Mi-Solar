@@ -1,33 +1,31 @@
-# Mi Solar V5.3 — reemplazo limpio y despliegue Netlify
+# Mi Solar V6 — Living Dashboard
 
-Esta entrega conserva las correcciones de V5.2 y agrega una estructura preparada para reemplazar los archivos visibles de V3/V4 al arrastrar el proyecto completo sobre el repositorio.
+Versión completa para reemplazar la aplicación anterior en el mismo repositorio.
 
-## Qué incluye
+## Incluye
 
-- Aplicación React + Vite + TypeScript dentro de `src/`.
-- Backend completo actualizado en `netlify/functions/`.
-- Pruebas actualizadas en `tests/`.
-- Archivos antiguos de `public/` reemplazados por versiones neutras.
-- `publicDir: false` en Vite: la carpeta antigua `public` no se copia a `dist` ni puede reemplazar la aplicación compilada.
-- Día e históricos definidos por `America/Santiago`.
-- Auditoría técnica y cobertura del día.
-- PV1, PV2 y Total Solar en kWh diarios.
+- React + TypeScript + Vite.
+- Backend Netlify Functions para Tumcapp/i.Solar.
+- Día calendario completo filtrado en `America/Santiago`.
+- PV1, PV2 y Total Solar.
+- Flujo energético direccional.
+- Dashboard responsive para escritorio, tablet y teléfono.
+- Casa dinámica por hora local y clima.
+- Decoraciones mensuales sorpresa y celebraciones familiares.
+- Cumpleaños: Mateo 12/04, Vichi 16/05, Caro 24/08, Tomás 14/10 y Papá 22/12.
+- Modo entretenido activable/desactivable.
+- Frase práctica diaria con humor ligero.
+- Mejor día, calidad de cobertura, costos, gráficos y sección técnica.
+- Clima mediante Open-Meteo, sin exponer credenciales.
 
-## Configuración de Netlify
+## Netlify
 
-La configuración ya está incluida en `netlify.toml`:
+- Build command: `npm run build`
+- Publish directory: `dist`
+- Functions directory: `netlify/functions`
+- Base directory: vacío
+- Node: 20
 
-```text
-Build command: npm run build
-Publish directory: dist
-Functions directory: netlify/functions
-Node: 20
-```
+## Implementación
 
-En Netlify, deja el **Base directory vacío** y la rama de producción en `main`.
-
-## Subida a GitHub
-
-Descomprime el ZIP y arrastra **todos los elementos internos** a la raíz del repositorio. No subas la carpeta contenedora ni el ZIP.
-
-Después ejecuta en Netlify: **Clear cache and deploy site**.
+Sube todo el contenido de este proyecto a la raíz de GitHub y haz commit en `main`. Netlify desplegará automáticamente. Para evitar caché antigua: **Deploys → Trigger deploy → Clear cache and deploy site**.

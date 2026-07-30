@@ -1,3 +1,4 @@
+// Componente legado conservado para compatibilidad V6; Inicio usa LivingHome.
 import { Battery, House, PanelsTopLeft, RadioTower, Server } from 'lucide-react';
 import { batteryChargePower, batteryDischargePower, batterySoc, detectPvCount, gridPower, loadPower, n, pvCurrent, pvPower, pvVoltage, watts } from '../utils/energy';
 import type { HistoryRow, Realtime } from '../types';
