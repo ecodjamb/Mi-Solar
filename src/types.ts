@@ -1,0 +1,28 @@
+export type Device = { deviceSn:string; nickName?:string; onlineStatus?:number };
+export type Realtime = Record<string, unknown>;
+export type HistoryRow = Record<string, unknown>;
+export type DailyEnergy = {
+  date:string;
+  solar:number;
+  pv1:number;
+  pv2:number;
+  load:number;
+  grid:number;
+  gridImport:number;
+  gridExport:number;
+  charge:number;
+  discharge:number;
+  samples:number;
+  firstSample?:string;
+  lastSample?:string;
+};
+export type PageKey = 'home'|'charts'|'costs'|'equipment'|'technical';
+export type TechnicalItem = {
+  key:string;
+  label:string;
+  value:number|string|null;
+  unit?:string;
+  source?:string;
+  status?:'ok'|'warning'|'critical'|'info';
+};
+export type TechnicalSection = { title:string; items:TechnicalItem[] };

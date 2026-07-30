@@ -1,24 +1,25 @@
-# Mi Solar V4 — Smart Dashboard
+# Mi Solar V5.2 — Auditoría técnica y día Santiago
 
-Aplicación web responsiva para monitoreo de instalaciones solares conectadas a Tumcapp/i.Solar.
+Versión revisada para reforzar la exactitud de horas, fechas, históricos y valores técnicos.
 
-## Incluye
+## Cambios principales
 
-- Dashboard sobrio y moderno, optimizado para escritorio, tablet y celular.
-- Flujo energético dinámico con dirección correcta, grosor y velocidad según potencia.
-- Visualización automática de un MPPT o de PV1 + PV2, incluyendo Total Solar.
-- Histórico diario y mensual con Chart.js.
-- Tarjeta de mejor día de producción calculada desde datos históricos disponibles.
-- Estadísticas, récords, comparación PV1/PV2 y salud del sistema.
-- Pestañas de Equipos, Costos y Modo Técnico.
-- Corrección horaria Asia/Shanghai → America/Santiago.
+- El día se define siempre como 00:00–24:00 de `America/Santiago`.
+- La consulta a Tumcapp se amplía a días calendario completos de Asia/Shanghai y luego se filtran estrictamente las muestras por fecha chilena.
+- Se eliminan muestras duplicadas antes de integrar energía.
+- La integración ignora vacíos excesivos para no inventar energía durante períodos sin datos.
+- Se separan importación y exportación de red.
+- Se auditan muestras, primera y última hora del día y cobertura del histórico.
+- Se agregó un catálogo técnico por secciones: MPPT, salida AC, red, batería, inversor y estados digitales.
+- Se ampliaron alias de campos para distintas variantes de firmware/Tumcapp.
+- Se muestran campos no catalogados para descubrir nuevas variables disponibles.
+- Hora de Santiago, hora del último dato del inversor y hora de consulta de la app visibles por separado.
+- Estadísticas PV1/PV2 y Total Solar se calculan en kWh del día chileno.
 
 ## Despliegue
 
-Configurado para Netlify mediante `netlify.toml`.
-
-```bash
-npm test
+```text
+Build command: npm run build
+Publish directory: dist
+Functions directory: netlify/functions
 ```
-
-Las estimaciones económicas no sustituyen la facturación de la distribuidora.
