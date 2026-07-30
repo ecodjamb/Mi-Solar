@@ -22,7 +22,7 @@ import {
   groupDailyEnergy,health,inverterTemperature,kwh,loadPower,outputFrequency,outputVoltage,parseApiTime,pvPower,technicalCatalog,watts
 } from './utils/energy';
 
-const APP_VERSION='6.6.0';
+const APP_VERSION='6.7.0';
 const REFRESH_MS={realtime:30_000,day:5*60_000,week:30*60_000,month:2*60*60_000,weather:15*60_000,radiation:60*60_000} as const;
 const emptyEnergy={solar:0,pv1:0,pv2:0,load:0,grid:0,gridImport:0,gridExport:0,charge:0,discharge:0,samples:0};
 const sumDays=(days:DailyEnergy[])=>days.reduce((a,d)=>({solar:a.solar+d.solar,pv1:a.pv1+d.pv1,pv2:a.pv2+d.pv2,load:a.load+d.load,grid:a.grid+d.grid,gridImport:a.gridImport+d.gridImport,gridExport:a.gridExport+d.gridExport,charge:a.charge+d.charge,discharge:a.discharge+d.discharge,samples:a.samples+d.samples}),{...emptyEnergy});
@@ -239,7 +239,7 @@ export default function App(){
         </section>
         <DailyQuote/>
         <SimpleEnergyFlow data={realtime} history={monthRows} today={today}/>
-        <HouseIllustration weather={weather} funMode={funMode}/>
+        <HouseIllustration weather={weather} funMode={funMode} siteName={device?.nickName||'Casa ECO Arrayán'}/>
         <div className="home-grid secondary-home-grid"><aside className="side-stack">
           <section className="panel health-card"><small>Estado del sistema</small><strong>{health(realtime)}/100</strong><p>{health(realtime)>90?'Excelente · sin anomalías relevantes':'Conviene revisar algunos parámetros'}</p></section>
           <section className="panel best-card"><small>Mejor día de producción</small><strong>{best?kwh(best.solar):'—'}</strong><p>{best?new Date(`${best.date}T12:00`).toLocaleDateString('es-CL',{dateStyle:'long'}):'Aún sin histórico suficiente'}</p></section>
