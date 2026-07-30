@@ -13,7 +13,7 @@ function SeasonalSVG({theme,birthday}:{theme:string;birthday:string|null}){
    {theme==='school'&&<><rect x="95" y="374" width="38" height="47" rx="8"/><path d="M101 374q12-22 26 0"/><path d="M143 407l34-20m-28 27l34-20"/></>}
    {theme==='mateo-month'&&<g className="motorbike"><circle cx="105" cy="413" r="17"/><circle cx="174" cy="413" r="17"/><path d="M105 413l24-34 30 34h-54l32-16 17-26"/></g>}
    {theme==='vichi-month'&&<><circle cx="116" cy="402" r="24" className="basketball"/><path d="M93 402h46M116 378c-10 12-10 36 0 48M116 378c10 12 10 36 0 48"/></>}
-   {theme==='winter'&&<><path className="smoke" d="M612 204c-27-21 14-34-6-55 33 18 8 38 25 53"/><circle cx="111" cy="409" r="18"/><circle cx="136" cy="404" r="25"/><circle cx="164" cy="410" r="17"/></>}
+   {theme==='winter'&&<><path className="smoke" d="M516 174c-24-22 12-34-7-55 31 18 8 38 22 53"/><circle cx="111" cy="409" r="18"/><circle cx="136" cy="404" r="25"/><circle cx="164" cy="410" r="17"/></>}
    {theme==='caro-month'&&<><circle cx="100" cy="372" r="15"/><circle cx="132" cy="356" r="17"/><circle cx="164" cy="376" r="15"/><path d="M100 387l24 35m8-49l-7 49m39-31l-38 31"/></>}
    {theme==='patriotic'&&<><path d="M85 347v78"/><path d="M87 351h64v38H87z"/><path d="M87 351h25v19H87z"/><path d="M112 351h39v19h-39z"/><path d="M87 370h64v19H87z"/><path className="kite" d="M188 351l25 22-25 22-25-22z"/><path d="M188 395q-16 18 3 31"/></>}
    {theme==='tomas-month'&&<><circle cx="124" cy="402" r="25" className="football"/><path d="M124 377l12 9-5 15h-15l-5-15zm-13 9l-14 4m34-4l15 4m-30 11l-8 17m23-17l8 17"/></>}

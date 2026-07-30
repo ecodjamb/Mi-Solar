@@ -1,22 +1,12 @@
-# Cambios V6.1
+# Mi Solar V6.2 — Precision Analytics
 
-## Inicio
-- Casa vectorial de mayor detalle, con paisaje, paneles, jardín, árboles, montañas y luces nocturnas.
-- Amanecer, día, atardecer y noche.
-- Fase lunar aproximada visible.
-- Nubes, lluvia y tormenta según clima.
-- Decoraciones sorpresa mensuales y celebraciones familiares.
-- Flujo energético conservado y reorganizado para móvil.
-
-## Gráficos
-- Tacómetro de consumo instantáneo de 0 a 10.000 W.
-- Zona roja desde 5.000 W.
-- Consumo acumulado: día, semana y mes.
-- Generación solar acumulada: día, semana y mes.
-- Importación de red acumulada: día, semana y mes.
-- PV1 vs PV2 medido en kWh acumulados del día.
-
-## Técnico
-- Resumen de cobertura y muestras.
-- Parámetros usados ordenados por sistema.
-- Variables adicionales no usadas en el dashboard, presentadas como tarjetas.
+- Corrige la superposición del valor en el tacómetro.
+- Reordena los gráficos acumulados con tarjetas más anchas y márgenes uniformes.
+- Separa importación, exportación, carga y descarga de batería para auditar el balance mensual.
+- Agrega menú independiente de Radiación con producción teórica versus real y pronóstico.
+- Agrega potencia solar esperada en el minuto y energía teórica acumulada del día.
+- Amplía Open-Meteo con radiación, nubosidad, precipitación, amanecer y atardecer.
+- Agrega respaldo meteorológico MET Norway cuando Open-Meteo no responde.
+- Muestra proveedor, actualización y error meteorológico en pantalla.
+- Corrige el origen del humo para que salga desde la chimenea.
+- Mejora leyendas y tooltips del gráfico principal.

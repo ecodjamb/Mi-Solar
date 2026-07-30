@@ -1,18 +1,19 @@
-# Mi Solar V6.1 — Living Analytics
+# Mi Solar V6.2 — Precision Analytics
 
-Versión con escena viva de la casa, fases lunares, clima y decoraciones sorpresa; más analítica energética acumulada para día, semana y mes.
-
-## Incluye
-- Casa vectorial SVG responsive con día, amanecer, atardecer, noche, clima y fase lunar.
-- Sorpresas estacionales y cumpleaños familiares.
-- Flujo energético PV1/PV2, Total Solar, red, batería, inversor y casa.
-- Tacómetro de consumo instantáneo de 0 a 10.000 W, zona roja sobre 5.000 W.
-- 9 gráficos acumulados: consumo, solar y red para día, semana y mes.
-- Panel técnico ordenado con parámetros catalogados y variables adicionales.
-- Día, semana y mes filtrados usando America/Santiago.
+Versión enfocada en precisión de acumulados, legibilidad de gráficos, clima redundante y proyección fotovoltaica.
 
 ## Netlify
-- Build: `npm run build`
-- Publish: `dist`
-- Functions: `netlify/functions`
-- Node: 20
+
+- Build command: `npm run build`
+- Publish directory: `dist`
+- Functions directory: `netlify/functions`
+- Node: 20+
+
+## Proveedores meteorológicos
+
+1. Open-Meteo: clima, nubosidad, precipitación y radiación solar.
+2. MET Norway: respaldo de clima cuando el proveedor principal no responde.
+
+## Modelo solar
+
+La app calibra un factor histórico usando producción real diaria y radiación diaria. Luego calcula potencia esperada actual, producción teórica acumulada del día y proyección de días futuros.
