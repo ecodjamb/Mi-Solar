@@ -145,7 +145,10 @@ export async function handler(event) {
       const list = [];
       let pageNum = 1;
       let total = Infinity;
+      const startedAt = Date.now();
+      const softDeadlineMs = 8000;
       while (list.length < total && pageNum <= maxPages) {
+        if (Date.now() - startedAt > softDeadlineMs) break;
         const result = await tumRequest('workInfo/getHistoricalData', {
           params: {
             deviceSn: sn,
@@ -165,7 +168,7 @@ export async function handler(event) {
         if (!data.hasNextPage || rows.length === 0) break;
         pageNum += 1;
       }
-      return json(200, { list, total, truncated: list.length < total }, { 'Set-Cookie': sessionCookie(session) });
+      return json(200, { list, total, truncated: list.length < total, pages: pageNum, elapsedMs: Date.now()-startedAt }, { 'Set-Cookie': sessionCookie(session) });
     }
 
     const summary = route.match(/^devices\/([^/]+)\/summary$/);

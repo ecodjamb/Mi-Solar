@@ -1,12 +1,7 @@
-# Mi Solar V6.2 — Precision Analytics
+# Mi Solar V6.4
 
-- Corrige la superposición del valor en el tacómetro.
-- Reordena los gráficos acumulados con tarjetas más anchas y márgenes uniformes.
-- Separa importación, exportación, carga y descarga de batería para auditar el balance mensual.
-- Agrega menú independiente de Radiación con producción teórica versus real y pronóstico.
-- Agrega potencia solar esperada en el minuto y energía teórica acumulada del día.
-- Amplía Open-Meteo con radiación, nubosidad, precipitación, amanecer y atardecer.
-- Agrega respaldo meteorológico MET Norway cuando Open-Meteo no responde.
-- Muestra proveedor, actualización y error meteorológico en pantalla.
-- Corrige el origen del humo para que salga desde la chimenea.
-- Mejora leyendas y tooltips del gráfico principal.
+- Corrige pérdida de datos por consultas paralelas y renovación de token Tumcapp.
+- Serializa las llamadas API y añade tiempo máximo y errores visibles.
+- Simplifica el flujo principal: inversor al centro; paneles arriba izquierda; batería abajo izquierda; casa arriba derecha; red abajo derecha.
+- Muestra acumulados del día bajo paneles, batería, casa y red.
+- Reordena el flujo especialmente para celular.

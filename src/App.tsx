@@ -3,7 +3,7 @@ import { Battery, CircleDollarSign, House, RadioTower, RefreshCw, Sun } from 'lu
 import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
 import KpiCard from './components/KpiCard';
-import LivingHome from './components/living/LivingHome';
+import SimpleEnergyFlow from './components/SimpleEnergyFlow';
 import DailyQuote from './components/DailyQuote';
 import FunModeToggle from './components/FunModeToggle';
 import EChart from './components/EChart';
@@ -12,7 +12,6 @@ import EnergyMetricChart from './components/EnergyMetricChart';
 import SolarForecastPage from './components/SolarForecastPage';
 import { api } from './services/api';
 import { fetchWeather, type WeatherData } from './services/weather';
-import { weatherCodeToMood } from './utils/living';
 import { accumulatedTheoreticalToday, calibrateSolarModel, expectedPowerNow } from './utils/solarForecast';
 import type { DailyEnergy, Device, HistoryRow, PageKey, Realtime } from './types';
 import { cumulativeDays, dayGrid, dayLoad, daySolar } from './utils/charts';
@@ -53,26 +52,49 @@ export default function App(){
   const expectedSolarNow=useMemo(()=>expectedPowerNow(weather.hourly,solarModel),[weather.hourly,solarModel,clock]);
   const theoreticalToday=useMemo(()=>accumulatedTheoreticalToday(weather.hourly,solarModel),[weather.hourly,solarModel,clock]);
 
-  async function refresh(sn=selected){
-    if(!sn)return; setLoading(true); setFetchError('');
-    try{
-      const dayRange=chileDayApiRange(),weekApi=chileWeekApiRange(),monthRange=chileMonthApiRange();
-      const [r,s,h,w,m]=await Promise.all([
-        api<{data:Realtime}>(`devices/${sn}/realtime`),
-        api<{data:Realtime}>(`devices/${sn}/summary`),
-        api<{list:HistoryRow[];total:number;truncated?:boolean}>(`devices/${sn}/history?start=${encodeURIComponent(dayRange.start)}&end=${encodeURIComponent(dayRange.end)}&maxPages=60`),
-        api<{list:HistoryRow[];total:number;truncated?:boolean}>(`devices/${sn}/history?start=${encodeURIComponent(weekApi.start)}&end=${encodeURIComponent(weekApi.end)}&maxPages=100`),
-        api<{list:HistoryRow[];total:number;truncated?:boolean}>(`devices/${sn}/history?start=${encodeURIComponent(monthRange.start)}&end=${encodeURIComponent(monthRange.end)}&maxPages=250`)
-      ]);
-      setRealtime(r.data||{});setSummary(s.data||{});setRawDayRows(h.list||[]);setRawWeekRows(w.list||[]);setRawMonthRows(m.list||[]);setLastFetch(new Date());
-      if(h.truncated||w.truncated||m.truncated)setFetchError('El histórico llegó truncado; algunos acumulados podrían estar incompletos.');
-    }catch(err){setFetchError(err instanceof Error?err.message:'No fue posible actualizar los datos.');}finally{setLoading(false);}
+  async function refreshRealtime(sn=selected){
+    if(!sn)return;
+    setLoading(true);
+    const results=await Promise.allSettled([
+      api<{data:Realtime}>(`devices/${sn}/realtime`),
+      api<{data:Realtime}>(`devices/${sn}/summary`)
+    ]);
+    const errors:string[]=[];
+    if(results[0].status==='fulfilled') setRealtime(results[0].value.data||{}); else errors.push(`Tiempo real: ${results[0].reason?.message||'sin respuesta'}`);
+    if(results[1].status==='fulfilled') setSummary(results[1].value.data||{}); else errors.push(`Resumen: ${results[1].reason?.message||'sin respuesta'}`);
+    if(results.some(x=>x.status==='fulfilled')) setLastFetch(new Date());
+    if(errors.length) setFetchError(errors.join(' · '));
+    setLoading(false);
+  }
+
+  async function refreshHistory(sn=selected){
+    if(!sn)return;
+    const dayRange=chileDayApiRange(),weekApi=chileWeekApiRange(),monthRange=chileMonthApiRange();
+    const requests=[
+      api<{list:HistoryRow[];total:number;truncated?:boolean}>(`devices/${sn}/history?start=${encodeURIComponent(dayRange.start)}&end=${encodeURIComponent(dayRange.end)}&maxPages=16`),
+      api<{list:HistoryRow[];total:number;truncated?:boolean}>(`devices/${sn}/history?start=${encodeURIComponent(weekApi.start)}&end=${encodeURIComponent(weekApi.end)}&maxPages=28`),
+      api<{list:HistoryRow[];total:number;truncated?:boolean}>(`devices/${sn}/history?start=${encodeURIComponent(monthRange.start)}&end=${encodeURIComponent(monthRange.end)}&maxPages=50`)
+    ];
+    const [h,w,m]=await Promise.allSettled(requests);
+    const warnings:string[]=[];
+    if(h.status==='fulfilled'){setRawDayRows(h.value.list||[]);if(h.value.truncated)warnings.push('Día incompleto');}else warnings.push(`Histórico diario: ${h.reason?.message||'sin respuesta'}`);
+    if(w.status==='fulfilled'){setRawWeekRows(w.value.list||[]);if(w.value.truncated)warnings.push('Semana incompleta');}else warnings.push(`Histórico semanal: ${w.reason?.message||'sin respuesta'}`);
+    if(m.status==='fulfilled'){setRawMonthRows(m.value.list||[]);if(m.value.truncated)warnings.push('Mes incompleto');}else warnings.push(`Histórico mensual: ${m.reason?.message||'sin respuesta'}`);
+    if(warnings.length) setFetchError(prev=>[prev,...warnings].filter(Boolean).join(' · '));
+  }
+
+  async function refreshAll(sn=selected){
+    if(!sn)return;
+    setFetchError('');
+    await refreshRealtime(sn);
+    void refreshHistory(sn);
   }
 
   useEffect(()=>{const timer=setInterval(()=>setClock(formatClock()),1000);return()=>clearInterval(timer)},[]);
   useEffect(()=>{api<{authenticated:boolean}>('session').then(x=>setAuth(x.authenticated)).catch(()=>setAuth(false))},[]);
-  useEffect(()=>{if(!auth)return;api<{devices:Device[]}>('devices').then(x=>{setDevices(x.devices||[]);const sn=x.devices?.[0]?.deviceSn||'';setSelected(sn);if(sn)refresh(sn)})},[auth]);
-  useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>refresh(selected),15000);return()=>clearInterval(t)},[auth,selected]);
+  useEffect(()=>{if(!auth)return;api<{devices:Device[]}>('devices').then(x=>{setDevices(x.devices||[]);const sn=x.devices?.[0]?.deviceSn||'';setSelected(sn);if(sn)refreshAll(sn)}).catch(err=>setFetchError(`Equipos: ${err instanceof Error?err.message:'sin respuesta'}`))},[auth]);
+  useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>refreshRealtime(selected),15000);return()=>clearInterval(t)},[auth,selected]);
+  useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>refreshHistory(selected),5*60*1000);return()=>clearInterval(t)},[auth,selected]);
   useEffect(()=>{if(!auth||!device)return;const loadWeather=()=>fetchWeather(device.nickName||'').then(setWeather).catch(()=>setWeather({}));loadWeather();const t=setInterval(loadWeather,10*60*1000);return()=>clearInterval(t)},[auth,device?.deviceSn]);
 
   const chartOption=useMemo(()=>({backgroundColor:'transparent',tooltip:{trigger:'axis'},legend:{textStyle:{color:'#9fb2ba'}},grid:{left:48,right:18,top:42,bottom:40},xAxis:{type:'category',data:history.map(r=>{const d=parseApiTime(r.currentTime??r.createTime??r.collectTime??r.dataTime??r.time);return d?d.toLocaleTimeString('es-CL',{timeZone:'America/Santiago',hour:'2-digit',minute:'2-digit'}):''}),axisLabel:{color:'#789099'},axisLine:{lineStyle:{color:'#27404a'}}},yAxis:{type:'value',name:'W',nameTextStyle:{color:'#789099'},axisLabel:{color:'#789099'},splitLine:{lineStyle:{color:'rgba(110,150,160,.12)'}}},series:[{name:'Solar',type:'line',smooth:true,showSymbol:false,data:history.map(r=>pvPower(r,1)+pvPower(r,2)),lineStyle:{width:2,color:'#efbd34'},areaStyle:{opacity:.1,color:'#efbd34'}},{name:'Casa',type:'line',smooth:true,showSymbol:false,data:history.map(loadPower),lineStyle:{color:'#a96fff'}},{name:'Red importada',type:'line',smooth:true,showSymbol:false,data:history.map(r=>Math.max(0,gridPower(r))),lineStyle:{color:'#4f9fff'}},{name:'Batería descarga',type:'line',smooth:true,showSymbol:false,data:history.map(batteryDischargePower),lineStyle:{color:'#4bdd80'}}]}),[history]);
@@ -96,10 +118,10 @@ export default function App(){
   const rawUnknown=Object.keys({...summary,...realtime}).filter(key=>!catalog.some(section=>section.items.some(item=>item.source===key))).sort();
 
   return <div className="shell"><Sidebar page={page} setPage={setPage} site={site} onLogout={async()=>{await api('logout',{method:'POST'});setAuth(false)}}/><main className="content">
-    <header className="topbar"><div><select value={selected} onChange={e=>{setSelected(e.target.value);refresh(e.target.value)}}>{devices.map(d=><option key={d.deviceSn} value={d.deviceSn}>{d.nickName||d.deviceSn}</option>)}</select><span className="online">● En línea</span></div><div className="time-box"><strong>{clock}</strong><small>Hora de Santiago</small><small>Último dato del inversor: {updated}</small>{lastFetch&&<small>Consulta de la app: {lastFetch.toLocaleTimeString('es-CL',{timeZone:'America/Santiago'})}</small>}</div><FunModeToggle value={funMode} onChange={v=>{setFunMode(v);localStorage.setItem('funMode',v?'on':'off')}}/><button className="refresh-button" onClick={()=>refresh()} aria-label="Actualizar datos"><RefreshCw className={loading?'spin':''} size={18}/></button></header>
+    <header className="topbar"><div><select value={selected} onChange={e=>{setSelected(e.target.value);refreshAll(e.target.value)}}>{devices.map(d=><option key={d.deviceSn} value={d.deviceSn}>{d.nickName||d.deviceSn}</option>)}</select><span className="online">● En línea</span></div><div className="time-box"><strong>{clock}</strong><small>Hora de Santiago</small><small>Último dato del inversor: {updated}</small>{lastFetch&&<small>Consulta de la app: {lastFetch.toLocaleTimeString('es-CL',{timeZone:'America/Santiago'})}</small>}</div><FunModeToggle value={funMode} onChange={v=>{setFunMode(v);localStorage.setItem('funMode',v?'on':'off')}}/><button className="refresh-button" onClick={()=>refreshAll()} aria-label="Actualizar datos"><RefreshCw className={loading?'spin':''} size={18}/></button></header>
     {fetchError&&<div className="data-warning">{fetchError}</div>}
     {page==='home'&&<><section className="kpi-grid kpi-grid-six"><KpiCard icon={Sun} label="Producción solar" value={watts(solar)} detail={`Hoy: ${kwh(today.solar)} · esperado ahora ${watts(expectedSolarNow)}`} tone="solar"/><KpiCard icon={Sun} label="Solar acumulado del día" value={kwh(today.solar)} detail={`Teórico acumulado: ${kwh(theoreticalToday)} · ${weather.provider||'sin proveedor'}`} tone="solar"/><KpiCard icon={House} label="Consumo actual" value={watts(load)} detail={`Hoy: ${kwh(today.load)}`}/><KpiCard icon={RadioTower} label={grid<0?'Hacia la red':'Desde la red'} value={watts(Math.abs(grid))} detail={`Hoy importado: ${kwh(today.gridImport)}`}/><KpiCard icon={Battery} label="Batería" value={`${soc.toFixed(0)}%`} detail={`${charge>discharge?'Cargando':'Entregando'} ${watts(Math.max(charge,discharge))}`} tone="green"/><KpiCard icon={CircleDollarSign} label="Ahorro estimado" value={clp(savings)} detail="Hoy, vs. sin solar" tone="green"/></section>
-      <DailyQuote/><LivingHome data={realtime} history={monthRows} weather={weatherCodeToMood(weather.weatherCode)} funMode={funMode}/><div className="home-grid secondary-home-grid"><aside className="side-stack"><section className="panel health-card"><small>Estado del sistema</small><strong>{health(realtime)}/100</strong><p>{health(realtime)>90?'Excelente · sin anomalías relevantes':'Conviene revisar algunos parámetros'}</p></section><section className="panel best-card"><small>Mejor día de producción</small><strong>{best?kwh(best.solar):'—'}</strong><p>{best?new Date(`${best.date}T12:00`).toLocaleDateString('es-CL',{dateStyle:'long'}):'Aún sin histórico suficiente'}</p></section><section className={`panel quality-card ${quality.complete?'ok':'warn'}`}><small>Cobertura del día Santiago</small><strong>{today.samples} muestras</strong><p>{quality.complete?'Histórico continuo y actualizado':'Cobertura parcial: el total del día puede estar incompleto'}</p>{quality.first&&quality.last&&<small>{quality.first.toLocaleTimeString('es-CL',{timeZone:'America/Santiago'})} → {quality.last.toLocaleTimeString('es-CL',{timeZone:'America/Santiago'})}</small>}</section></aside><section className={`panel weather-card ${weather.error?'weather-warning':''}`}><small>Condición actual · {weather.provider||'sin proveedor'}</small><strong>{weather.temperature!=null?`${weather.temperature.toFixed(1)} °C`:'Sin dato climático'}</strong><p>{weather.humidity!=null?`Humedad ${weather.humidity}% · Nubes ${Number(weather.cloudCover||0).toFixed(0)}% · Lluvia ${Number(weather.precipitation||0).toFixed(1)} mm · Viento ${Number(weather.windSpeed||0).toFixed(0)} km/h`:'No llegó información meteorológica. Revisa la función weather en Netlify.'}</p>{weather.updatedAt&&<small>Actualizado: {new Date(weather.updatedAt).toLocaleString('es-CL',{timeZone:'America/Santiago'})}</small>}{weather.error&&<small className="error-text">{weather.error}</small>}</section></div>
+      <DailyQuote/><SimpleEnergyFlow data={realtime} history={monthRows} today={today}/><div className="home-grid secondary-home-grid"><aside className="side-stack"><section className="panel health-card"><small>Estado del sistema</small><strong>{health(realtime)}/100</strong><p>{health(realtime)>90?'Excelente · sin anomalías relevantes':'Conviene revisar algunos parámetros'}</p></section><section className="panel best-card"><small>Mejor día de producción</small><strong>{best?kwh(best.solar):'—'}</strong><p>{best?new Date(`${best.date}T12:00`).toLocaleDateString('es-CL',{dateStyle:'long'}):'Aún sin histórico suficiente'}</p></section><section className={`panel quality-card ${quality.complete?'ok':'warn'}`}><small>Cobertura del día Santiago</small><strong>{today.samples} muestras</strong><p>{quality.complete?'Histórico continuo y actualizado':'Cobertura parcial: el total del día puede estar incompleto'}</p>{quality.first&&quality.last&&<small>{quality.first.toLocaleTimeString('es-CL',{timeZone:'America/Santiago'})} → {quality.last.toLocaleTimeString('es-CL',{timeZone:'America/Santiago'})}</small>}</section></aside><section className={`panel weather-card ${weather.error?'weather-warning':''}`}><small>Condición actual · {weather.provider||'sin proveedor'}</small><strong>{weather.temperature!=null?`${weather.temperature.toFixed(1)} °C`:'Sin dato climático'}</strong><p>{weather.humidity!=null?`Humedad ${weather.humidity}% · Nubes ${Number(weather.cloudCover||0).toFixed(0)}% · Lluvia ${Number(weather.precipitation||0).toFixed(1)} mm · Viento ${Number(weather.windSpeed||0).toFixed(0)} km/h`:'No llegó información meteorológica. Revisa la función weather en Netlify.'}</p>{weather.updatedAt&&<small>Actualizado: {new Date(weather.updatedAt).toLocaleString('es-CL',{timeZone:'America/Santiago'})}</small>}{weather.error&&<small className="error-text">{weather.error}</small>}</section></div>
       <section className="panel chart-panel"><header className="section-head"><div><small>Producción y consumo</small><h2>Hoy · horario de Santiago</h2></div></header><EChart option={chartOption}/></section></>}
     {page==='charts'&&<section className="analytics-page">
       <header className="analytics-title"><div><small>Análisis energético</small><h1>Gráficos y acumulados</h1><p>Todos los cortes diarios se calculan con el día calendario de Santiago de Chile.</p></div><section className="panel gauge-card"><PowerGauge value={load}/><div className="gauge-note"><span className="safe-dot"/>0–5 kW normal <span className="danger-dot"/>más de 5 kW alto</div></section></header>
