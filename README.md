@@ -1,18 +1,18 @@
-# Mi Solar V6.0.1 — Living Dashboard
+# Mi Solar V6.1 — Living Analytics
 
-Corrección de compilación para Netlify. Esta entrega reemplaza V6.0 y evita que los tipos internos de Apache ECharts bloqueen el despliegue.
+Versión con escena viva de la casa, fases lunares, clima y decoraciones sorpresa; más analítica energética acumulada para día, semana y mes.
 
-## Despliegue
+## Incluye
+- Casa vectorial SVG responsive con día, amanecer, atardecer, noche, clima y fase lunar.
+- Sorpresas estacionales y cumpleaños familiares.
+- Flujo energético PV1/PV2, Total Solar, red, batería, inversor y casa.
+- Tacómetro de consumo instantáneo de 0 a 10.000 W, zona roja sobre 5.000 W.
+- 9 gráficos acumulados: consumo, solar y red para día, semana y mes.
+- Panel técnico ordenado con parámetros catalogados y variables adicionales.
+- Día, semana y mes filtrados usando America/Santiago.
 
-- Build command: `npm run build`
-- Publish directory: `dist`
-- Functions directory: `netlify/functions`
+## Netlify
+- Build: `npm run build`
+- Publish: `dist`
+- Functions: `netlify/functions`
 - Node: 20
-
-## Validación
-
-- `npm run build` usa Vite para generar la aplicación de producción.
-- `npm run typecheck` queda disponible como comprobación adicional, pero no bloquea el despliegue de Netlify.
-- `npm test` valida la firma Tumcapp.
-
-Incluye el Living Dashboard, horario de Santiago, históricos, PV1/PV2, Total Solar, modo entretenido, cumpleaños, frases y vista técnica ordenada.

@@ -1,6 +1,6 @@
 {
-  "name": "mi-solar-v6-living-dashboard",
-  "version": "6.0.1",
+  "name": "mi-solar-v6-1-living-analytics",
+  "version": "6.1.0",
   "private": true,
   "type": "module",
   "scripts": {

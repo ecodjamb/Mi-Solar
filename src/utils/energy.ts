@@ -156,3 +156,24 @@ export function dataQuality(rows:HistoryRow[],expectedDate=formatSiteDate()){
   const coverageEnd=last?Math.max(0,(expectedEnd.getTime()-last.getTime())/36e5):24;
   return {samples:filtered.length,first,last,coverageStartHours:coverageStart,coverageEndHours:coverageEnd,complete:filtered.length>=2&&coverageStart<=1&&coverageEnd<=1.5};
 }
+
+export function siteWeekDateRange(date=formatSiteDate()){
+  const [y,m,d]=date.split('-').map(Number);
+  const weekday=new Date(Date.UTC(y,m-1,d,12)).getUTCDay();
+  const daysFromMonday=(weekday+6)%7;
+  const start=dateAdd(date,-daysFromMonday);
+  const end=dateAdd(start,7);
+  return {start,end};
+}
+export function chileWeekApiRange(date=formatSiteDate()){
+  const range=siteWeekDateRange(date); const startUtc=zonedLocalToUtc(`${range.start} 00:00:00`,SITE_TZ); const endUtc=zonedLocalToUtc(`${range.end} 00:00:00`,SITE_TZ);
+  return {start:`${siteDateKeyInTz(startUtc,API_TZ)} 00:00:00`,end:`${siteDateKeyInTz(new Date(endUtc.getTime()-1),API_TZ)} 23:59:59`,siteStart:range.start,siteEnd:range.end};
+}
+export function filterRowsForSiteRange(rows:HistoryRow[],start:string,endExclusive:string){
+  return dedupeRows(rows).filter(r=>{const t=rowTimestamp(r);if(!t)return false;const key=siteDateKey(t);return key>=start&&key<endExclusive;}).sort((a,b)=>Number(rowTimestamp(a))-Number(rowTimestamp(b)));
+}
+export function groupDailyEnergy(rows:HistoryRow[]){
+  const groups=new Map<string,HistoryRow[]>();
+  dedupeRows(rows).forEach(r=>{const t=rowTimestamp(r);if(!t)return;const key=siteDateKey(t);groups.set(key,[...(groups.get(key)||[]),r]);});
+  return [...groups].map(([date,group])=>({...dailyEnergy(group),date})).sort((a,b)=>a.date.localeCompare(b.date));
+}

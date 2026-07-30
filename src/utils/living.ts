@@ -66,3 +66,17 @@ export function weatherCodeToMood(code?:number):WeatherMood{
   if((code>=71&&code<=77)||(code>=85&&code<=86))return 'snow';
   return 'cloudy';
 }
+
+export function moonPhase(date=siteNow()){
+  const knownNewMoon=Date.UTC(2000,0,6,18,14,0);
+  const synodic=29.53058867;
+  const age=((date.getTime()-knownNewMoon)/86400000%synodic+synodic)%synodic;
+  if(age<1.85||age>=27.68)return {icon:'🌑',label:'Luna nueva'};
+  if(age<5.54)return {icon:'🌒',label:'Creciente'};
+  if(age<9.23)return {icon:'🌓',label:'Cuarto creciente'};
+  if(age<12.92)return {icon:'🌔',label:'Gibosa creciente'};
+  if(age<16.61)return {icon:'🌕',label:'Luna llena'};
+  if(age<20.30)return {icon:'🌖',label:'Gibosa menguante'};
+  if(age<23.99)return {icon:'🌗',label:'Cuarto menguante'};
+  return {icon:'🌘',label:'Menguante'};
+}
