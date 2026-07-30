@@ -56,30 +56,45 @@ export async function tumRequest(path, { params = {}, token = '', vrtKey = '', m
     vrt: calculateVrt(params, vrtKey)
   };
 
-  const response = await fetch(url, {
-    method: upperMethod,
-    headers,
-    body: upperMethod === 'GET' ? undefined : encoded,
-    redirect: 'manual'
-  });
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      const response = await fetch(url, {
+        method: upperMethod,
+        headers,
+        body: upperMethod === 'GET' ? undefined : encoded,
+        redirect: 'manual',
+        signal: controller.signal
+      }).finally(() => clearTimeout(timer));
 
-  const text = await response.text();
-  let payload;
-  try {
-    payload = JSON.parse(text);
-  } catch {
-    throw new Error(`Tumcapp devolvió una respuesta no JSON (${response.status}).`);
+      const text = await response.text();
+      let payload;
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        throw new Error(`Tumcapp devolvió una respuesta no JSON (${response.status}).`);
+      }
+
+      if (!response.ok || Number(payload.code) !== 0) {
+        const error = new Error(payload.message || `Tumcapp respondió ${response.status}`);
+        error.status = response.status >= 400 ? response.status : 502;
+        error.tumCode = payload.code;
+        throw error;
+      }
+
+      return {
+        payload,
+        token: response.headers.get('token') || token
+      };
+    } catch (error) {
+      lastError = error;
+      const status = Number(error?.status || 0);
+      const retryable = !status || [408, 429, 500, 502, 503, 504].includes(status);
+      if (!retryable || attempt === 2) break;
+      await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+    }
   }
-
-  if (!response.ok || Number(payload.code) !== 0) {
-    const error = new Error(payload.message || `Tumcapp respondió ${response.status}`);
-    error.status = response.status >= 400 ? response.status : 502;
-    error.tumCode = payload.code;
-    throw error;
-  }
-
-  return {
-    payload,
-    token: response.headers.get('token') || token
-  };
+  throw lastError;
 }

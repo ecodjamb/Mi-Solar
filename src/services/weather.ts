@@ -48,16 +48,16 @@ async function directOpenMeteo(lat:number,lon:number):Promise<WeatherData>{
 
 export async function fetchWeather(site:string){
  const {lat,lon}=siteCoordinates(site);
+ // Open-Meteo directo funciona con CORS y evita depender de una función Netlify adicional.
  try{
-  const proxied=await api<WeatherData>(`weather?lat=${lat}&lon=${lon}`);
-  if(proxied.temperature!=null||proxied.hourly?.length)return proxied;
-  throw new Error(proxied.error||'El proxy meteorológico respondió vacío');
- }catch(proxyError){
+  return await directOpenMeteo(lat,lon);
+ }catch(directError){
   try{
-   const direct=await directOpenMeteo(lat,lon);
-   return {...direct,error:`Respaldo directo activo: ${proxyError instanceof Error?proxyError.message:'falló el proxy'}`};
-  }catch(directError){
-   throw new Error(`Clima no disponible. Proxy: ${proxyError instanceof Error?proxyError.message:'error'}; directo: ${directError instanceof Error?directError.message:'error'}`);
+   const proxied=await api<WeatherData>(`weather?lat=${lat}&lon=${lon}`);
+   if(proxied.temperature!=null||proxied.hourly?.length)return {...proxied,error:undefined};
+   throw new Error(proxied.error||'El proxy meteorológico respondió vacío');
+  }catch(proxyError){
+   throw new Error(`Clima no disponible. Directo: ${directError instanceof Error?directError.message:'error'}; proxy: ${proxyError instanceof Error?proxyError.message:'error'}`);
   }
  }
 }

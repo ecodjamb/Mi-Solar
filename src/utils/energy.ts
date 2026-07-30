@@ -177,3 +177,15 @@ export function groupDailyEnergy(rows:HistoryRow[]){
   dedupeRows(rows).forEach(r=>{const t=rowTimestamp(r);if(!t)return;const key=siteDateKey(t);groups.set(key,[...(groups.get(key)||[]),r]);});
   return [...groups].map(([date,group])=>({...dailyEnergy(group),date})).sort((a,b)=>a.date.localeCompare(b.date));
 }
+
+/** Converts an arbitrary Santiago date range [start, endExclusive) to complete API/China calendar days. */
+export function chileSiteRangeApiRange(siteStart:string,siteEndExclusive:string){
+  const startUtc=zonedLocalToUtc(`${siteStart} 00:00:00`,SITE_TZ);
+  const endUtc=zonedLocalToUtc(`${siteEndExclusive} 00:00:00`,SITE_TZ);
+  return {
+    start:`${siteDateKeyInTz(startUtc,API_TZ)} 00:00:00`,
+    end:`${siteDateKeyInTz(new Date(endUtc.getTime()-1),API_TZ)} 23:59:59`,
+    siteStart,
+    siteEnd:siteEndExclusive
+  };
+}

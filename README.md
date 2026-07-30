@@ -23,3 +23,16 @@ Tumcapp puede renovar el token después de cada respuesta. Las versiones anterio
 - Publish directory: `dist`
 - Functions directory: `netlify/functions`
 - Base directory: vacío
+
+
+## Política de actualización V6.6
+
+- Tiempo real: cada 30 segundos.
+- Histórico del día: cada 5 minutos.
+- Histórico de la semana: cada 30 minutos.
+- Histórico del mes: cada 2 horas.
+- Clima actual: cada 15 minutos.
+- Radiación y pronóstico solar: cada 1 hora.
+- El reloj local sigue actualizándose cada segundo, sin consultar servidores.
+
+Las consultas históricas se ejecutan separadas del tiempo real para reducir carga y evitar que un fallo mensual bloquee el dashboard.
