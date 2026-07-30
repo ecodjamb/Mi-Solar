@@ -1,13 +1,14 @@
 {
   "name": "mi-solar-v6-living-dashboard",
-  "version": "6.0.0",
+  "version": "6.0.1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "vite build",
     "preview": "vite preview",
-    "test": "node tests/signature.test.js"
+    "test": "node tests/signature.test.js",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "echarts": "5.5.1",

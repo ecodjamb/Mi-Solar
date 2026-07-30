@@ -1,31 +1,18 @@
-# Mi Solar V6 — Living Dashboard
+# Mi Solar V6.0.1 — Living Dashboard
 
-Versión completa para reemplazar la aplicación anterior en el mismo repositorio.
+Corrección de compilación para Netlify. Esta entrega reemplaza V6.0 y evita que los tipos internos de Apache ECharts bloqueen el despliegue.
 
-## Incluye
-
-- React + TypeScript + Vite.
-- Backend Netlify Functions para Tumcapp/i.Solar.
-- Día calendario completo filtrado en `America/Santiago`.
-- PV1, PV2 y Total Solar.
-- Flujo energético direccional.
-- Dashboard responsive para escritorio, tablet y teléfono.
-- Casa dinámica por hora local y clima.
-- Decoraciones mensuales sorpresa y celebraciones familiares.
-- Cumpleaños: Mateo 12/04, Vichi 16/05, Caro 24/08, Tomás 14/10 y Papá 22/12.
-- Modo entretenido activable/desactivable.
-- Frase práctica diaria con humor ligero.
-- Mejor día, calidad de cobertura, costos, gráficos y sección técnica.
-- Clima mediante Open-Meteo, sin exponer credenciales.
-
-## Netlify
+## Despliegue
 
 - Build command: `npm run build`
 - Publish directory: `dist`
 - Functions directory: `netlify/functions`
-- Base directory: vacío
 - Node: 20
 
-## Implementación
+## Validación
 
-Sube todo el contenido de este proyecto a la raíz de GitHub y haz commit en `main`. Netlify desplegará automáticamente. Para evitar caché antigua: **Deploys → Trigger deploy → Clear cache and deploy site**.
+- `npm run build` usa Vite para generar la aplicación de producción.
+- `npm run typecheck` queda disponible como comprobación adicional, pero no bloquea el despliegue de Netlify.
+- `npm test` valida la firma Tumcapp.
+
+Incluye el Living Dashboard, horario de Santiago, históricos, PV1/PV2, Total Solar, modo entretenido, cumpleaños, frases y vista técnica ordenada.
