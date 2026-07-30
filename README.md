@@ -1,25 +1,33 @@
-# Mi Solar V5.2 — Auditoría técnica y día Santiago
+# Mi Solar V5.3 — reemplazo limpio y despliegue Netlify
 
-Versión revisada para reforzar la exactitud de horas, fechas, históricos y valores técnicos.
+Esta entrega conserva las correcciones de V5.2 y agrega una estructura preparada para reemplazar los archivos visibles de V3/V4 al arrastrar el proyecto completo sobre el repositorio.
 
-## Cambios principales
+## Qué incluye
 
-- El día se define siempre como 00:00–24:00 de `America/Santiago`.
-- La consulta a Tumcapp se amplía a días calendario completos de Asia/Shanghai y luego se filtran estrictamente las muestras por fecha chilena.
-- Se eliminan muestras duplicadas antes de integrar energía.
-- La integración ignora vacíos excesivos para no inventar energía durante períodos sin datos.
-- Se separan importación y exportación de red.
-- Se auditan muestras, primera y última hora del día y cobertura del histórico.
-- Se agregó un catálogo técnico por secciones: MPPT, salida AC, red, batería, inversor y estados digitales.
-- Se ampliaron alias de campos para distintas variantes de firmware/Tumcapp.
-- Se muestran campos no catalogados para descubrir nuevas variables disponibles.
-- Hora de Santiago, hora del último dato del inversor y hora de consulta de la app visibles por separado.
-- Estadísticas PV1/PV2 y Total Solar se calculan en kWh del día chileno.
+- Aplicación React + Vite + TypeScript dentro de `src/`.
+- Backend completo actualizado en `netlify/functions/`.
+- Pruebas actualizadas en `tests/`.
+- Archivos antiguos de `public/` reemplazados por versiones neutras.
+- `publicDir: false` en Vite: la carpeta antigua `public` no se copia a `dist` ni puede reemplazar la aplicación compilada.
+- Día e históricos definidos por `America/Santiago`.
+- Auditoría técnica y cobertura del día.
+- PV1, PV2 y Total Solar en kWh diarios.
 
-## Despliegue
+## Configuración de Netlify
+
+La configuración ya está incluida en `netlify.toml`:
 
 ```text
 Build command: npm run build
 Publish directory: dist
 Functions directory: netlify/functions
+Node: 20
 ```
+
+En Netlify, deja el **Base directory vacío** y la rama de producción en `main`.
+
+## Subida a GitHub
+
+Descomprime el ZIP y arrastra **todos los elementos internos** a la raíz del repositorio. No subas la carpeta contenedora ni el ZIP.
+
+Después ejecuta en Netlify: **Clear cache and deploy site**.

@@ -1,3 +1,4 @@
+// Mi Solar V5.3 — archivo actualizado para reemplazo completo del repositorio.
 import crypto from 'node:crypto';
 
 const COOKIE_NAME = 'isolar_session';
