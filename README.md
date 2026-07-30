@@ -1,15 +1,24 @@
-# Mi Solar V3
+# Mi Solar V4 — Smart Dashboard
 
-Dashboard solar responsivo con diseño inspirado en interfaces de energía modernas.
+Aplicación web responsiva para monitoreo de instalaciones solares conectadas a Tumcapp/i.Solar.
 
-## Novedades
-- Inicio simplificado con un solo gráfico principal.
-- Dashboard de flujo energético renovado.
-- Sección independiente de gráficos históricos.
-- Gráficos diarios, acumulados, origen de energía y SOC de batería.
-- Nueva pestaña de costos y ahorro con tarifa configurable.
-- Corrección de zona horaria Tumcapp (Asia/Shanghai) a Chile (America/Santiago).
-- Diseño responsivo para escritorio, tablet y móvil.
+## Incluye
+
+- Dashboard sobrio y moderno, optimizado para escritorio, tablet y celular.
+- Flujo energético dinámico con dirección correcta, grosor y velocidad según potencia.
+- Visualización automática de un MPPT o de PV1 + PV2, incluyendo Total Solar.
+- Histórico diario y mensual con Chart.js.
+- Tarjeta de mejor día de producción calculada desde datos históricos disponibles.
+- Estadísticas, récords, comparación PV1/PV2 y salud del sistema.
+- Pestañas de Equipos, Costos y Modo Técnico.
+- Corrección horaria Asia/Shanghai → America/Santiago.
 
 ## Despliegue
-Sube todos los archivos a la raíz del repositorio. Netlify detectará `netlify.toml` y publicará `public/` con las funciones de `netlify/functions/`.
+
+Configurado para Netlify mediante `netlify.toml`.
+
+```bash
+npm test
+```
+
+Las estimaciones económicas no sustituyen la facturación de la distribuidora.
