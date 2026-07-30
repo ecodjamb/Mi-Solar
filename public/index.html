@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#050b0e" />
+  <title>Mi Solar</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><div class="brand-mark">☀</div><div><div class="eyebrow">CENTRO DE ENERGÍA</div><h1>Mi Solar</h1></div></div>
+      <div class="top-actions"><button id="refreshBtn" class="icon-btn hidden" aria-label="Actualizar">↻</button><button id="logoutBtn" class="ghost hidden">Cerrar sesión</button></div>
+    </header>
+
+    <section id="loginView" class="card login-card">
+      <div class="login-mark">☀</div><h2>Tu energía, en tiempo real</h2><p>Usa las mismas credenciales de tu cuenta i.Solar.</p>
+      <form id="loginForm"><label>Usuario o correo<input id="username" autocomplete="username" required /></label><label>Contraseña<input id="password" type="password" autocomplete="current-password" required /></label><button id="loginBtn" class="primary" type="submit">Ingresar</button></form>
+      <div id="loginError" class="error hidden"></div>
+    </section>
+
+    <section id="appView" class="hidden">
+      <div class="hero-row"><div><div class="eyebrow">MONITOREO EN LÍNEA</div><h2 id="welcome">Tus instalaciones</h2><p id="counts" class="muted"></p></div><select id="deviceSelect" class="device-select"></select></div>
+      <nav class="app-tabs" aria-label="Secciones"><button class="tab active" data-view="home">Inicio</button><button class="tab" data-view="charts">Gráficos</button><button class="tab" data-view="costs">Costos</button><button class="tab" data-view="technical">Técnico</button></nav>
+      <div id="appError" class="error hidden"></div>
+
+      <section id="detail" class="hidden">
+        <div class="system-head"><div><div id="detailSn" class="eyebrow"></div><h2 id="detailName">Instalación</h2><div id="lastUpdate" class="muted"></div></div><div id="liveStatus" class="live-pill">Actualizando…</div></div>
+
+        <section id="view-home" class="view active">
+          <div class="today-grid">
+            <article class="hero-card solar-card"><div class="card-label">Energía solar hoy</div><div class="hero-value"><span id="todaySolar">—</span><small>kWh</small></div><div id="todayComparison" class="microcopy">Calculando…</div></article>
+            <article class="stat-card"><div class="card-label">Consumo hoy</div><div class="stat-value"><span id="todayLoad">—</span><small>kWh</small></div><div id="loadTrend" class="stat-note">—</div></article>
+            <article class="stat-card"><div class="card-label">Desde la red</div><div class="stat-value"><span id="todayGrid">—</span><small>kWh</small></div><div id="gridShare" class="stat-note">—</div></article>
+            <article class="stat-card"><div class="card-label">Ahorro estimado</div><div class="stat-value money"><span id="todaySavings">—</span></div><div id="selfSupplyMini" class="stat-note">—</div></article>
+          </div>
+
+          <section class="card energy-flow-card">
+            <div class="section-title-row"><div><div class="card-label">Flujo instantáneo</div><h3>Ahora</h3></div><div id="workMode" class="mode-pill">—</div></div>
+            <div class="flow-layout">
+              <div class="flow-stage">
+                <div class="flow-node solar-node"><div class="node-icon">☀</div><strong id="solarNow">0 W</strong><span>Solar</span></div>
+                <div class="flow-node home-node"><div class="node-icon">⌂</div><strong id="loadNow">0 W</strong><span>Casa</span></div>
+                <div class="flow-node battery-node"><div class="node-icon">▰</div><strong id="batterySoc">—%</strong><span id="batteryNow">Batería</span></div>
+                <div class="flow-node grid-node"><div class="node-icon">⚡</div><strong id="gridNow">0 W</strong><span>Red</span></div>
+                <div class="hub"><span>Mi Solar</span><small id="balanceNow">Balanceando</small></div>
+                <svg class="flow-lines" viewBox="0 0 100 100" preserveAspectRatio="none"><path id="lineSolar" d="M50 18 L50 42"/><path id="lineHome" d="M50 58 L50 82"/><path id="lineBattery" d="M19 50 L42 50"/><path id="lineGrid" d="M58 50 L81 50"/></svg>
+              </div>
+              <aside class="live-summary"><div><span>Producción actual</span><strong id="solarNowSide">0 W</strong></div><div><span>Demanda actual</span><strong id="loadNowSide">0 W</strong></div><div><span>Fuente principal</span><strong id="sourceNow">—</strong></div><div><span>Estado batería</span><strong id="batteryStateSide">—</strong></div></aside>
+            </div>
+            <div class="instant-grid"><div><span>PV1</span><strong id="pv1Now">0 W</strong></div><div><span>PV2</span><strong id="pv2Now">0 W</strong></div><div><span>Voltaje batería</span><strong id="batteryVoltage">— V</strong></div><div><span>Temperatura</span><strong id="temperature">— °C</strong></div><div><span>Frecuencia red</span><strong id="gridFrequency">— Hz</strong></div><div><span>Voltaje red</span><strong id="gridVoltage">— V</strong></div></div>
+          </section>
+
+          <section class="card chart-card main-chart"><div class="section-title-row"><div><div class="card-label">Producción y consumo</div><h3>Hoy</h3></div><div class="legend"><span class="solar-dot">Solar</span><span class="load-dot">Casa</span><span class="grid-dot">Red</span></div></div><div class="chart-wrap chart-main"><canvas id="todayChart"></canvas></div><div id="chartEmpty" class="empty hidden">Todavía no hay suficientes muestras.</div></section>
+
+          <div class="insights-grid"><article class="card insight-card"><div class="card-label">Radiación equivalente</div><div class="insight-value"><span id="solarYield">—</span><small>kWh/kWp</small></div><p>Horas solares equivalentes según producción y potencia instalada.</p></article><article class="card insight-card"><div class="card-label">Autonomía solar</div><div class="insight-value"><span id="selfSupply">—</span><small>%</small></div><p>Consumo cubierto sin depender de la red.</p></article><article class="card insight-card"><div class="card-label">Salud del sistema</div><div class="health-row"><div class="health-ring"><span id="healthScore">—</span></div><div><strong id="healthLabel">Analizando</strong><p id="healthText">Revisando producción y estados.</p></div></div></article></div>
+        </section>
+
+        <section id="view-charts" class="view">
+          <div class="page-heading"><div><div class="eyebrow">HISTÓRICOS</div><h2>Gráficos de energía</h2><p class="muted">Explora el comportamiento diario y mensual de tu instalación.</p></div><div class="range-switch"><button class="active" data-range="month">Mes</button><button data-range="week">7 días</button></div></div>
+          <div class="chart-kpis"><article class="mini-kpi"><span>Producción del mes</span><strong><span id="monthTotal">—</span> kWh</strong></article><article class="mini-kpi"><span>Mejor día</span><strong id="bestDay">—</strong></article><article class="mini-kpi"><span>Promedio diario</span><strong id="dailyAverage">—</strong></article><article class="mini-kpi"><span>Dependencia de red</span><strong id="monthGridShare">—</strong></article></div>
+          <div class="chart-grid"><section class="card chart-card wide"><div class="section-title-row"><div><div class="card-label">Generación diaria</div><h3>Solar, consumo y red</h3></div></div><div class="chart-wrap"><canvas id="monthChart"></canvas></div></section><section class="card chart-card"><div><div class="card-label">Energía acumulada</div><h3>Avance del mes</h3></div><div class="chart-wrap"><canvas id="cumulativeChart"></canvas></div></section><section class="card chart-card"><div><div class="card-label">Origen de energía</div><h3>Solar vs red</h3></div><div class="chart-wrap donut"><canvas id="sourceChart"></canvas></div></section><section class="card chart-card wide"><div><div class="card-label">Batería</div><h3>Nivel durante el día</h3></div><div class="chart-wrap"><canvas id="socChart"></canvas></div></section></div>
+        </section>
+
+        <section id="view-costs" class="view">
+          <div class="page-heading"><div><div class="eyebrow">ECONOMÍA</div><h2>Costos y ahorro</h2><p class="muted">Estimaciones basadas en la tarifa configurada.</p></div><label class="tariff-field">Tarifa eléctrica CLP/kWh<input id="tariffInput" type="number" min="1" step="1" value="250" /></label></div>
+          <div class="cost-grid"><article class="cost-card featured"><span>Ahorro estimado hoy</span><strong id="costSavingToday">—</strong><small>Energía solar autoconsumida</small></article><article class="cost-card"><span>Costo de red hoy</span><strong id="costGridToday">—</strong><small id="gridKwhToday">— kWh importados</small></article><article class="cost-card"><span>Ahorro del mes</span><strong id="costSavingMonth">—</strong><small>Estimación acumulada</small></article><article class="cost-card"><span>Costo de red del mes</span><strong id="costGridMonth">—</strong><small>Según históricos disponibles</small></article></div>
+          <section class="card cost-detail"><div><div class="card-label">Resumen mensual</div><h3>Qué parte de tu energía pagaste</h3></div><div class="cost-bars"><div><span>Solar aprovechada</span><div class="bar"><i id="solarCostBar"></i></div><strong id="solarCostPct">—</strong></div><div><span>Energía desde red</span><div class="bar"><i id="gridCostBar"></i></div><strong id="gridCostPct">—</strong></div></div><p class="note">Los costos son estimaciones. No incluyen cargos fijos, horarios punta, impuestos ni diferencias de facturación de la distribuidora.</p></section>
+        </section>
+
+        <section id="view-technical" class="view"><details class="technical card" open><summary>Datos técnicos del inversor</summary><pre id="rawData"></pre></details></section>
+      </section>
+    </section>
+  </main>
+</body>
+</html>
