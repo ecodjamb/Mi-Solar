@@ -2,6 +2,7 @@
 import crypto from 'node:crypto';
 
 const COOKIE_NAME = 'isolar_session';
+export const SESSION_IDLE_MS = 24 * 60 * 60 * 1000;
 
 function key() {
   const configured = process.env.SESSION_SECRET || 'isolar-v2-change-this-secret-in-netlify';
@@ -44,7 +45,7 @@ export function openSession(cookieHeader = '') {
 
 export function sessionCookie(session) {
   const secure = process.env.NODE_ENV === 'production' || Boolean(process.env.NETLIFY);
-  return `${COOKIE_NAME}=${sealSession(session)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800${secure ? '; Secure' : ''}`;
+  return `${COOKIE_NAME}=${sealSession(session)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secure ? '; Secure' : ''}`;
 }
 
 export function clearCookie() {

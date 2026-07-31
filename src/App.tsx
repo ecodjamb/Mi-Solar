@@ -20,12 +20,15 @@ import type { DailyEnergy, Device, HistoryRow, PageKey, Realtime } from './types
 import { cumulativeDays, dayGrid, dayLoad, daySolar } from './utils/charts';
 import { siteProfile,siteStorageKey } from './utils/site';
 import {
-  batteryChargePower,batteryDischargePower,batterySoc,batteryVoltage,chileDayApiRange,chileSiteRangeApiRange,chileWeekApiRange,clp,dailyEnergy,dataQuality,
+  batteryChargePower,batteryDischargePower,batterySoc,batteryVoltage,chileDayApiChunks,chileSiteRangeApiRange,chileWeekApiRange,clp,dailyEnergy,dataQuality,
   detectPvCount,filterRowsForSiteDate,filterRowsForSiteMonth,filterRowsForSiteRange,formatClock,formatDate,formatSiteDate,gridFrequency,gridPower,gridVoltage,
   groupDailyEnergy,health,inverterTemperature,kwh,loadPower,outputFrequency,outputVoltage,parseApiTime,pvPower,technicalCatalog,watts
 } from './utils/energy';
 
-const APP_VERSION='6.8.0';
+const APP_VERSION='6.10.0';
+const SESSION_IDLE_MS=24*60*60_000;
+const ACTIVITY_PING_MS=5*60_000;
+const LAST_ACTIVITY_KEY='miSolarLastUserActivity';
 const REFRESH_MS={realtime:30_000,day:5*60_000,week:30*60_000,month:2*60*60_000,weather:15*60_000,radiation:60*60_000} as const;
 const emptyEnergy={solar:0,pv1:0,pv2:0,load:0,grid:0,gridImport:0,gridExport:0,charge:0,discharge:0,samples:0};
 const sumDays=(days:DailyEnergy[])=>days.reduce((a,d)=>({solar:a.solar+d.solar,pv1:a.pv1+d.pv1,pv2:a.pv2+d.pv2,load:a.load+d.load,grid:a.grid+d.grid,gridImport:a.gridImport+d.gridImport,gridExport:a.gridExport+d.gridExport,charge:a.charge+d.charge,discharge:a.discharge+d.discharge,samples:a.samples+d.samples}),{...emptyEnergy});
@@ -117,14 +120,31 @@ export default function App(){
 
   async function refreshDayHistory(sn=selected){
     if(!sn)return;
+    const chunks=chileDayApiChunks(siteDate,new Date(),6);
+    const rows:HistoryRow[]=[];
+    const warnings:string[]=[];
     try{
-      const range=chileDayApiRange();
-      const response=await fetchHistoryRange(sn,range.start,range.end,18);
-      if(response.list?.length)setRawDayRows(response.list);
+      for(let i=0;i<chunks.length;i+=1){
+        const chunk=chunks[i];
+        setHistoryProgress(`Actualizando el día hasta ahora: tramo ${i+1} de ${chunks.length}`);
+        try{
+          const response=await fetchHistoryRange(sn,chunk.start,chunk.end,8);
+          rows.push(...(response.list||[]));
+          if(response.truncated)warnings.push(`tramo ${i+1} parcial`);
+        }catch(error){
+          warnings.push(`tramo ${i+1} sin respuesta`);
+        }
+      }
+      if(rows.length)setRawDayRows(rows);
       markUpdated('day');
-      setHistoryMessage(response.truncated?'El día llegó parcial; se volverá a completar automáticamente.':'');
+      const filtered=filterRowsForSiteDate(rows,siteDate);
+      const last=filtered.length?parseApiTime(filtered[filtered.length-1].currentTime??filtered[filtered.length-1].createTime??filtered[filtered.length-1].collectTime??filtered[filtered.length-1].dataTime??filtered[filtered.length-1].time):null;
+      const lastLabel=last?last.toLocaleTimeString('es-CL',{timeZone:'America/Santiago',hour:'2-digit',minute:'2-digit'}):'sin muestras';
+      setHistoryMessage(warnings.length?`Día actualizado hasta ${lastLabel}, con observaciones: ${warnings.join(', ')}.`:`Día completo hasta el momento de consulta · última muestra ${lastLabel}.`);
     }catch(error){
       setHistoryMessage(`Histórico diario temporalmente no disponible: ${error instanceof Error?error.message:'error'}`);
+    }finally{
+      setHistoryProgress('');
     }
   }
 
@@ -183,6 +203,42 @@ export default function App(){
 
   useEffect(()=>{const timer=setInterval(()=>setClock(formatClock()),1000);return()=>clearInterval(timer)},[]);
   useEffect(()=>{api<{authenticated:boolean}>('session').then(x=>setAuth(x.authenticated)).catch(()=>setAuth(false))},[]);
+  useEffect(()=>{
+    if(!auth)return;
+    let lastPing=0;
+    const registerActivity=()=>{
+      const now=Date.now();
+      localStorage.setItem(LAST_ACTIVITY_KEY,String(now));
+      if(now-lastPing>=ACTIVITY_PING_MS){
+        lastPing=now;
+        void api<{ok:boolean;expiresAt:number}>('activity',{method:'POST'}).catch((error)=>{
+          if((error as {status?:number})?.status===401)setAuth(false);
+        });
+      }
+    };
+    const checkIdle=()=>{
+      const last=Number(localStorage.getItem(LAST_ACTIVITY_KEY)||0);
+      if(last&&Date.now()-last>=SESSION_IDLE_MS){
+        void api('logout',{method:'POST'}).catch(()=>undefined).finally(()=>setAuth(false));
+      }
+    };
+    registerActivity();
+    const events:[keyof WindowEventMap,EventListenerOrEventListenerObject,AddEventListenerOptions?][]=[
+      ['pointerdown',registerActivity,{passive:true}],
+      ['keydown',registerActivity],
+      ['touchstart',registerActivity,{passive:true}],
+      ['scroll',registerActivity,{passive:true}]
+    ];
+    events.forEach(([name,handler,options])=>window.addEventListener(name,handler,options));
+    const onVisibility=()=>{if(document.visibilityState==='visible')registerActivity()};
+    document.addEventListener('visibilitychange',onVisibility);
+    const idleTimer=window.setInterval(checkIdle,60_000);
+    return()=>{
+      events.forEach(([name,handler,options])=>window.removeEventListener(name,handler,options));
+      document.removeEventListener('visibilitychange',onVisibility);
+      window.clearInterval(idleTimer);
+    };
+  },[auth]);
   useEffect(()=>{if(!auth)return;api<{devices:Device[]}>('devices').then(x=>{setDevices(x.devices||[]);const sn=x.devices?.[0]?.deviceSn||'';setSelected(sn);if(sn)void refreshAll(sn)}).catch(()=>setSyncMessage('No fue posible cargar los equipos.'))},[auth]);
   useEffect(()=>{if(!device)return;const tariffKey=siteStorageKey('tariffCLP',device.nickName||'');const feedKey=siteStorageKey('feedInTariffCLP',device.nickName||'');setTariff(Number(localStorage.getItem(tariffKey))||profile.defaultTariff);setFeedInTariff(Number(localStorage.getItem(feedKey))||profile.defaultFeedInTariff)},[device?.deviceSn]);
   useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>void refreshRealtime(selected),REFRESH_MS.realtime);return()=>clearInterval(t)},[auth,selected]);

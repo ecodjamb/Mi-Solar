@@ -104,6 +104,36 @@ export function chileDayApiRange(date=formatSiteDate()){
   const bounds=siteDayBoundsUtc(date); const apiStartKey=siteDateKeyInTz(bounds.start,API_TZ); const apiEndKey=siteDateKeyInTz(new Date(bounds.end.getTime()-1),API_TZ);
   return {start:`${apiStartKey} 00:00:00`,end:`${apiEndKey} 23:59:59`,siteDate:date};
 }
+
+/**
+ * Divide el día local del sitio en tramos pequeños y convierte cada tramo a
+ * horas exactas del servidor (Asia/Shanghai). Esto evita que el límite de
+ * registros o la paginación de Tumcapp deje el gráfico detenido al mediodía.
+ * Para el día actual, el último tramo termina en el minuto presente.
+ */
+export function chileDayApiChunks(date=formatSiteDate(), now=new Date(), chunkHours=6){
+  const bounds=siteDayBoundsUtc(date);
+  const isToday=date===formatSiteDate(now);
+  const effectiveEnd=isToday?new Date(Math.min(now.getTime(),bounds.end.getTime())):bounds.end;
+  const chunks:{start:string;end:string;siteDate:string;index:number}[]=[];
+  let cursor=bounds.start.getTime();
+  let index=0;
+  const step=Math.max(1,chunkHours)*60*60*1000;
+  while(cursor<effectiveEnd.getTime()){
+    const next=Math.min(cursor+step,effectiveEnd.getTime());
+    // El endpoint trabaja con intervalos inclusivos; restamos un segundo para
+    // evitar duplicados exactos entre bloques (igual se deduplican al unir).
+    chunks.push({
+      start:apiFormat(new Date(cursor)),
+      end:apiFormat(new Date(Math.max(cursor,next-1000))),
+      siteDate:date,
+      index
+    });
+    cursor=next;
+    index+=1;
+  }
+  return chunks;
+}
 function siteDateKeyInTz(d:Date,tz:string){const p=zonedParts(d,tz);return `${p.year}-${p.month}-${p.day}`;}
 export function chileMonthApiRange(date=formatSiteDate()){
   const [y,m]=date.split('-').map(Number); const start=`${y}-${String(m).padStart(2,'0')}-01`; const nextMonth=new Date(Date.UTC(y,m,1)).toISOString().slice(0,10);

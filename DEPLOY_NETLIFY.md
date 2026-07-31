@@ -1,10 +1,9 @@
-# Despliegue en Netlify
+# Despliegue Netlify — v6.9.0
 
-1. Subir todo el contenido de esta carpeta a la raíz del repositorio.
-2. Hacer commit en `main` para publicar, o en una rama para conservarlo sin desplegar.
-3. Netlify debe usar:
+1. Subir todo el contenido de esta carpeta a GitHub.
+2. Commit sugerido: `Mi Solar V6.9 - día completo y nubes realistas`.
+3. Netlify debe conservar:
    - Build command: `npm run build`
    - Publish directory: `dist`
    - Functions directory: `netlify/functions`
    - Base directory: vacío
-4. No es necesario cambiar ninguna variable de entorno existente.

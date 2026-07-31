@@ -1,6 +1,6 @@
 // Mi Solar V6 — archivo actualizado para reemplazo completo del repositorio.
 import { md5, tumRequest } from './tumcapp.js';
-import { clearCookie, openSession, sessionCookie } from './session.js';
+import { clearCookie, openSession, sessionCookie, SESSION_IDLE_MS } from './session.js';
 
 const json = (statusCode, body, extraHeaders = {}) => ({
   statusCode,
@@ -90,7 +90,8 @@ export async function handler(event) {
         vrtKey,
         username: data.userInfo?.userName || String(username).trim(),
         nickname: data.userInfo?.nickName || String(username).trim(),
-        expiresAt: Date.now() + 8 * 60 * 60 * 1000
+        lastActivityAt: Date.now(),
+        expiresAt: Date.now() + SESSION_IDLE_MS
       };
       return json(200, { user: { username: session.username, nickname: session.nickname } }, {
         'Set-Cookie': sessionCookie(session)
@@ -109,8 +110,22 @@ export async function handler(event) {
       const session = openSession(event.headers?.cookie || event.headers?.Cookie || '');
       return json(200, {
         authenticated: Boolean(session?.token && session?.vrtKey),
-        user: session ? { username: session.username, nickname: session.nickname } : null
+        user: session ? { username: session.username, nickname: session.nickname } : null,
+        expiresAt: session?.expiresAt || null,
+        idleTimeoutMs: SESSION_IDLE_MS
       });
+    }
+
+    if (method === 'POST' && route === 'activity') {
+      const session = requireSession(event);
+      const now = Date.now();
+      session.lastActivityAt = now;
+      session.expiresAt = now + SESSION_IDLE_MS;
+      return json(200, {
+        ok: true,
+        expiresAt: session.expiresAt,
+        idleTimeoutMs: SESSION_IDLE_MS
+      }, { 'Set-Cookie': sessionCookie(session) });
     }
 
     if (method === 'GET' && route === 'devices') {
@@ -146,7 +161,7 @@ export async function handler(event) {
       let pageNum = 1;
       let total = Infinity;
       const startedAt = Date.now();
-      const softDeadlineMs = 8000;
+      const softDeadlineMs = 9000;
       while (list.length < total && pageNum <= maxPages) {
         if (Date.now() - startedAt > softDeadlineMs) break;
         const result = await tumRequest('workInfo/getHistoricalData', {
@@ -165,7 +180,12 @@ export async function handler(event) {
         const rows = Array.isArray(data.list) ? data.list : [];
         list.push(...rows);
         total = Number(data.total ?? list.length);
-        if (!data.hasNextPage || rows.length === 0) break;
+        if (rows.length === 0) break;
+        const flagSaysMore = data.hasNextPage === true || data.hasNextPage === 1 || data.hasNextPage === '1' || data.hasNextPage === 'true';
+        const totalSaysMore = Number.isFinite(total) && list.length < total;
+        // Algunas respuestas no incluyen hasNextPage aunque total indique una
+        // segunda página. Priorizamos total para no cortar el día al mediodía.
+        if (!flagSaysMore && !totalSaysMore) break;
         pageNum += 1;
       }
       return json(200, { list, total, truncated: list.length < total, pages: pageNum, elapsedMs: Date.now()-startedAt }, { 'Set-Cookie': sessionCookie(session) });

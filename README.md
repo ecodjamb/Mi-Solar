@@ -1,24 +1,17 @@
-# Mi Solar v6.8.0 — Multi-sitio preciso
+# Mi Solar v6.10.0 — Día completo y nubes realistas
 
-Versión enfocada en separar completamente El Arrayán y Puerto Montt.
+Esta versión corrige el histórico diario que podía detenerse cerca de las 12:00.
 
-## Mejoras
+## Cambios
 
-- Gráfico de las últimas tres horas en Inicio: consumo total, PV1+PV2 y batería neta.
-- Cambio de instalación limpia todos los datos anteriores antes de consultar el nuevo equipo.
-- Mejor día, históricos, costos y radiación se calculan únicamente con el equipo seleccionado.
-- Perfiles separados:
-  - El Arrayán: 8,68 kWp y coordenadas de El Arrayán.
-  - Puerto Montt: 1,80 kWp y coordenadas de Puerto Montt.
-- Tarifas separadas por instalación en el almacenamiento local.
-- Cobertura diaria rediseñada y explicada como porcentaje del periodo transcurrido.
-- Radiación y proyección muestran el nombre de la instalación activa.
-- Casa Viva mejorada:
-  - escenas específicas para cada propiedad;
-  - iluminación nocturna cálida;
-  - nubes más naturales y separadas de la luna;
-  - humo ajustado por casa.
-- Versión visible: v6.8.0.
+- El día se descarga en tramos de seis horas desde las 00:00 locales hasta el minuto actual.
+- Cada tramo pagina todas las respuestas indicadas por `total`, aunque Tumcapp omita `hasNextPage`.
+- Los bloques se unen y deduplican antes de calcular consumos y energías.
+- El botón **Actualizar** repite inmediatamente la descarga hasta la hora de la consulta.
+- Funciona igual para Arrayán y Puerto Montt, usando la fecha local de Chile y el equipo seleccionado.
+- La app muestra la hora de la última muestra realmente recibida.
+- Nubes rediseñadas como nubes, con distribución profesional y sin superponerse con la luna.
+- Versión visible: **v6.10.0**.
 
 ## Netlify
 
@@ -27,7 +20,11 @@ Versión enfocada en separar completamente El Arrayán y Puerto Montt.
 - Functions directory: `netlify/functions`
 - Base directory: vacío
 
-## Validación
 
-- Pruebas MD5/VRT superadas.
-- Todos los archivos TypeScript/TSX pasan validación sintáctica.
+## Sesión persistente V6.10
+
+- La sesión permanece iniciada durante 24 horas.
+- Cada interacción real del usuario (clic, toque, teclado o desplazamiento) renueva el plazo de 24 horas.
+- Las actualizaciones automáticas de datos no cuentan como actividad del usuario.
+- Tras 24 horas sin interacción, la app cierra la sesión automáticamente.
+- La cookie de sesión es HttpOnly, cifrada, SameSite=Lax y Secure en Netlify.
