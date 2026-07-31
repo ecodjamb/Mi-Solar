@@ -1,3 +1,4 @@
+import { siteProfile } from '../utils/site';
 import { api } from './api';
 
 export type RadiationDay={date:string;shortwaveKwhM2:number;weatherCode?:number};
@@ -9,9 +10,8 @@ export type WeatherData={
 };
 
 export function siteCoordinates(site:string){
- const s=site.toLowerCase();
- if(s.includes('puerto'))return {lat:-41.4693,lon:-72.9424,label:'Puerto Montt'};
- return {lat:-33.347,lon:-70.515,label:'El Arrayán'};
+ const profile=siteProfile(site);
+ return {lat:profile.latitude,lon:profile.longitude,label:profile.shortLabel};
 }
 
 function normalizeOpenMeteo(payload:any, provider='Open-Meteo directo'):WeatherData{

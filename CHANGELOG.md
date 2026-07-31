@@ -1,10 +1,13 @@
-# Mi Solar V6.7.0 — Gemelos visuales reales
+# Changelog
 
-- Casa Viva usa fotografías reales de Casa ECO Arrayán y Casa Puerto Montt.
-- Cuatro escenas locales precargadas por propiedad: amanecer, día, atardecer y noche.
-- Selección automática de la casa según el equipo activo.
-- Clima visual: nubes, lluvia, tormenta y fase lunar.
-- Decoraciones sorpresa por mes y celebraciones familiares.
-- Humo alineado con la chimenea específica de cada propiedad.
-- Imágenes empaquetadas dentro del build de Vite para evitar rutas rotas.
-- Diseño responsive para escritorio y celular.
+## 6.8.0
+
+- Se agregó gráfico de las últimas tres horas en Inicio.
+- Se corrigió la mezcla temporal de datos al cambiar entre instalaciones.
+- Mejor día del mes aislado por equipo seleccionado.
+- Configuración independiente por sitio para potencia instalada, coordenadas y tarifas.
+- Radiación, clima, costos e históricos vinculados explícitamente a la instalación activa.
+- Nueva tarjeta didáctica de cobertura del registro diario.
+- Mejoras visuales nocturnas de ambas casas.
+- Nubes más realistas y mejor composición con la luna.
+- Humo reposicionado en Casa ECO Arrayán y Casa Puerto Montt.

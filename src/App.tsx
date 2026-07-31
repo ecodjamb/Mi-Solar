@@ -11,18 +11,21 @@ import PowerGauge from './components/PowerGauge';
 import EnergyMetricChart from './components/EnergyMetricChart';
 import SolarForecastPage from './components/SolarForecastPage';
 import HouseIllustration from './components/HouseIllustration';
+import RecentEnergyChart from './components/RecentEnergyChart';
+import CoverageCard from './components/CoverageCard';
 import { api } from './services/api';
 import { fetchWeather, type WeatherData } from './services/weather';
 import { accumulatedTheoreticalToday, calibrateSolarModel, expectedPowerNow, theoreticalDayKwh } from './utils/solarForecast';
 import type { DailyEnergy, Device, HistoryRow, PageKey, Realtime } from './types';
 import { cumulativeDays, dayGrid, dayLoad, daySolar } from './utils/charts';
+import { siteProfile,siteStorageKey } from './utils/site';
 import {
   batteryChargePower,batteryDischargePower,batterySoc,batteryVoltage,chileDayApiRange,chileSiteRangeApiRange,chileWeekApiRange,clp,dailyEnergy,dataQuality,
   detectPvCount,filterRowsForSiteDate,filterRowsForSiteMonth,filterRowsForSiteRange,formatClock,formatDate,formatSiteDate,gridFrequency,gridPower,gridVoltage,
   groupDailyEnergy,health,inverterTemperature,kwh,loadPower,outputFrequency,outputVoltage,parseApiTime,pvPower,technicalCatalog,watts
 } from './utils/energy';
 
-const APP_VERSION='6.7.0';
+const APP_VERSION='6.8.0';
 const REFRESH_MS={realtime:30_000,day:5*60_000,week:30*60_000,month:2*60*60_000,weather:15*60_000,radiation:60*60_000} as const;
 const emptyEnergy={solar:0,pv1:0,pv2:0,load:0,grid:0,gridImport:0,gridExport:0,charge:0,discharge:0,samples:0};
 const sumDays=(days:DailyEnergy[])=>days.reduce((a,d)=>({solar:a.solar+d.solar,pv1:a.pv1+d.pv1,pv2:a.pv2+d.pv2,load:a.load+d.load,grid:a.grid+d.grid,gridImport:a.gridImport+d.gridImport,gridExport:a.gridExport+d.gridExport,charge:a.charge+d.charge,discharge:a.discharge+d.discharge,samples:a.samples+d.samples}),{...emptyEnergy});
@@ -56,8 +59,8 @@ export default function App(){
   const [rawWeekRows,setRawWeekRows]=useState<HistoryRow[]>([]);
   const [rawMonthRows,setRawMonthRows]=useState<HistoryRow[]>([]);
   const [loading,setLoading]=useState(false);
-  const [tariff,setTariff]=useState(Number(localStorage.getItem('tariffCLP'))||250);
-  const [feedInTariff,setFeedInTariff]=useState(Number(localStorage.getItem('feedInTariffCLP'))||0);
+  const [tariff,setTariff]=useState(250);
+  const [feedInTariff,setFeedInTariff]=useState(0);
   const [lastFetch,setLastFetch]=useState<Date|null>(null);
   const [syncMessage,setSyncMessage]=useState('');
   const [historyMessage,setHistoryMessage]=useState('');
@@ -75,6 +78,8 @@ export default function App(){
   const combinedWeekRows=useMemo(()=>[...rawWeekRows,...rawDayRows],[rawWeekRows,rawDayRows]);
   const weekRows=useMemo(()=>filterRowsForSiteRange(combinedWeekRows,weekRange.siteStart,weekRange.siteEnd),[combinedWeekRows,weekRange.siteStart,weekRange.siteEnd]);
   const device=devices.find(d=>d.deviceSn===selected);
+  const profile=siteProfile(device?.nickName||'');
+  const siteLabel=profile.shortLabel;
   const solar=pvPower(realtime,1)+pvPower(realtime,2),load=loadPower(realtime),grid=gridPower(realtime),charge=batteryChargePower(realtime),discharge=batteryDischargePower(realtime),soc=batterySoc(realtime);
   const today=useMemo(()=>({...dailyEnergy(history),date:siteDate}),[history,siteDate]);
   const quality=useMemo(()=>dataQuality(rawDayRows,siteDate),[rawDayRows,siteDate]);
@@ -83,7 +88,7 @@ export default function App(){
   const best=useMemo(()=>daily.reduce<DailyEnergy|null>((a,b)=>!a||b.solar>a.solar?b:a,null),[daily]);
   const week=useMemo(()=>sumDays(weekDaily),[weekDaily]);
   const month=useMemo(()=>sumDays(daily),[daily]);
-  const installedWp=Number(localStorage.getItem('installedWp'))||8680;
+  const installedWp=Number(localStorage.getItem(siteStorageKey('installedWp',device?.nickName||'')))||profile.installedWp;
   const solarModel=useMemo(()=>calibrateSolarModel(daily,weather.dailyRadiation||[],installedWp,today),[daily,weather.dailyRadiation,installedWp,today]);
   const expectedSolarNow=useMemo(()=>expectedPowerNow(weather.hourly,solarModel),[weather.hourly,solarModel,clock]);
   const theoreticalToday=useMemo(()=>accumulatedTheoreticalToday(weather.hourly,solarModel),[weather.hourly,solarModel,clock]);
@@ -159,6 +164,13 @@ export default function App(){
     setHistoryMessage(warnings.length?`Histórico mensual parcial: ${warnings.join(', ')}.`:'Mes completo descargado y ajustado a Santiago.');
   }
 
+  function switchDevice(sn:string){
+    setSelected(sn);
+    setRealtime({});setSummary({});setRawDayRows([]);setRawWeekRows([]);setRawMonthRows([]);
+    setSyncMessage('');setHistoryMessage('');setHistoryProgress('');setWeather({});setLastFetch(null);
+    void refreshAll(sn);
+  }
+
   async function refreshAll(sn=selected){
     if(!sn)return;
     setSyncMessage('');
@@ -172,6 +184,7 @@ export default function App(){
   useEffect(()=>{const timer=setInterval(()=>setClock(formatClock()),1000);return()=>clearInterval(timer)},[]);
   useEffect(()=>{api<{authenticated:boolean}>('session').then(x=>setAuth(x.authenticated)).catch(()=>setAuth(false))},[]);
   useEffect(()=>{if(!auth)return;api<{devices:Device[]}>('devices').then(x=>{setDevices(x.devices||[]);const sn=x.devices?.[0]?.deviceSn||'';setSelected(sn);if(sn)void refreshAll(sn)}).catch(()=>setSyncMessage('No fue posible cargar los equipos.'))},[auth]);
+  useEffect(()=>{if(!device)return;const tariffKey=siteStorageKey('tariffCLP',device.nickName||'');const feedKey=siteStorageKey('feedInTariffCLP',device.nickName||'');setTariff(Number(localStorage.getItem(tariffKey))||profile.defaultTariff);setFeedInTariff(Number(localStorage.getItem(feedKey))||profile.defaultFeedInTariff)},[device?.deviceSn]);
   useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>void refreshRealtime(selected),REFRESH_MS.realtime);return()=>clearInterval(t)},[auth,selected]);
   useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>void refreshDayHistory(selected),REFRESH_MS.day);return()=>clearInterval(t)},[auth,selected]);
   useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>void refreshWeekHistory(selected),REFRESH_MS.week);return()=>clearInterval(t)},[auth,selected,weekRange.siteStart,weekRange.siteEnd]);
@@ -219,8 +232,8 @@ export default function App(){
     <Sidebar page={page} setPage={setPage} site={device?.nickName||'Mi instalación'} onLogout={async()=>{await api('logout',{method:'POST'});setAuth(false)}}/>
     <main className="content">
       <header className="topbar">
-        <div><select value={selected} onChange={e=>{setSelected(e.target.value);refreshAll(e.target.value)}}>{devices.map(d=><option key={d.deviceSn} value={d.deviceSn}>{d.nickName||d.deviceSn}</option>)}</select><span className="online">● En línea</span></div>
-        <div className="time-box"><strong>{clock}</strong><small>Hora de Santiago</small><small>Último dato: {formatDate(realtime.currentTime||realtime.createTime)}</small><small>Consulta: {lastFetch?lastFetch.toLocaleTimeString('es-CL'):'—'} · v{APP_VERSION}</small></div>
+        <div><select value={selected} onChange={e=>switchDevice(e.target.value)}>{devices.map(d=><option key={d.deviceSn} value={d.deviceSn}>{d.nickName||d.deviceSn}</option>)}</select><span className="online">● En línea</span></div>
+        <div className="time-box"><strong>{clock}</strong><small>Hora de Chile</small><small>Último dato: {formatDate(realtime.currentTime||realtime.createTime)}</small><small>Consulta: {lastFetch?lastFetch.toLocaleTimeString('es-CL'):'—'} · v{APP_VERSION}</small></div>
         <FunModeToggle value={funMode} onChange={v=>{setFunMode(v);localStorage.setItem('funMode',v?'on':'off')}}/>
         <button className="refresh-button" onClick={()=>refreshAll()}><RefreshCw className={loading?'spin':''}/><span>Actualizar</span></button>
       </header>
@@ -239,29 +252,29 @@ export default function App(){
         </section>
         <DailyQuote/>
         <SimpleEnergyFlow data={realtime} history={monthRows} today={today}/>
+        <RecentEnergyChart rows={history} siteLabel={siteLabel}/>
         <HouseIllustration weather={weather} funMode={funMode} siteName={device?.nickName||'Casa ECO Arrayán'}/>
         <div className="home-grid secondary-home-grid"><aside className="side-stack">
           <section className="panel health-card"><small>Estado del sistema</small><strong>{health(realtime)}/100</strong><p>{health(realtime)>90?'Excelente · sin anomalías relevantes':'Conviene revisar algunos parámetros'}</p></section>
-          <section className="panel best-card"><small>Mejor día de producción</small><strong>{best?kwh(best.solar):'—'}</strong><p>{best?new Date(`${best.date}T12:00`).toLocaleDateString('es-CL',{dateStyle:'long'}):'Aún sin histórico suficiente'}</p></section>
-          <section className={`panel quality-card ${quality.complete?'ok':'warn'}`}><small>Cobertura del día Santiago</small><strong>{today.samples} muestras</strong><p>{quality.complete?'Histórico continuo y actualizado':'Cobertura parcial: el total del día puede estar incompleto'}</p>{quality.first&&quality.last&&<small>{quality.first.toLocaleTimeString('es-CL',{timeZone:'America/Santiago'})} → {quality.last.toLocaleTimeString('es-CL',{timeZone:'America/Santiago'})}</small>}</section>
-        </aside><section className={`panel weather-card ${weather.error?'weather-warning':''}`}><small>Condición actual · {weather.provider||'sin proveedor'}</small><strong>{weather.temperature!=null?`${weather.temperature.toFixed(1)} °C`:'Sin dato climático'}</strong><p>{weather.humidity!=null?`Humedad ${weather.humidity}% · Nubes ${Number(weather.cloudCover||0).toFixed(0)}% · Lluvia ${Number(weather.precipitation||0).toFixed(1)} mm · Viento ${Number(weather.windSpeed||0).toFixed(0)} km/h`:'No llegó información meteorológica.'}</p>{weather.updatedAt&&<small>Actualizado: {new Date(weather.updatedAt).toLocaleString('es-CL',{timeZone:'America/Santiago'})}</small>}{weather.error&&<small className="error-text">{weather.error}</small>}</section></div>
-        <section className="panel chart-panel"><header className="section-head"><div><small>Producción y consumo</small><h2>Hoy · horario de Santiago</h2></div></header><EChart option={chartOption}/></section>
+          <section className="panel best-card"><small>Mejor día del mes · {siteLabel}</small><strong>{best?kwh(best.solar):'—'}</strong><p>{best?new Date(`${best.date}T12:00`).toLocaleDateString('es-CL',{dateStyle:'long'}):'Aún sin histórico suficiente'}</p></section>
+        </aside><CoverageCard today={today} first={quality.first} last={quality.last} siteLabel={siteLabel}/><section className={`panel weather-card ${weather.error?'weather-warning':''}`}><small>Condición actual · {weather.provider||'sin proveedor'}</small><strong>{weather.temperature!=null?`${weather.temperature.toFixed(1)} °C`:'Sin dato climático'}</strong><p>{weather.humidity!=null?`Humedad ${weather.humidity}% · Nubes ${Number(weather.cloudCover||0).toFixed(0)}% · Lluvia ${Number(weather.precipitation||0).toFixed(1)} mm · Viento ${Number(weather.windSpeed||0).toFixed(0)} km/h`:'No llegó información meteorológica.'}</p>{weather.updatedAt&&<small>Actualizado: {new Date(weather.updatedAt).toLocaleString('es-CL',{timeZone:'America/Santiago'})}</small>}{weather.error&&<small className="error-text">{weather.error}</small>}</section></div>
+        <section className="panel chart-panel"><header className="section-head"><div><small>Producción y consumo</small><h2>Hoy · {siteLabel} · horario de Chile</h2></div></header><EChart option={chartOption}/></section>
       </>}
 
       {page==='charts'&&<section className="analytics-page">
-        <header className="analytics-title"><div><small>Análisis energético</small><h1>Gráficos y acumulados</h1><p>Todos los cortes diarios se calculan con el día calendario de Santiago de Chile.</p></div><section className="panel gauge-card"><PowerGauge value={load}/><div className="gauge-note"><span className="safe-dot"/>0–5 kW normal <span className="danger-dot"/>más de 5 kW alto</div></section></header>
-        <section className="panel pv-day-card"><header><div><small>Aporte fotovoltaico acumulado de hoy</small><h2>PV1 vs. PV2</h2></div><strong>{kwh(today.solar)}</strong></header><div className="pv-day-row"><span>PV1</span><div className="pv-day-track"><i style={{width:`${today.solar?Math.max(2,today.pv1/today.solar*100):0}%`}}/></div><b>{kwh(today.pv1)}</b></div>{detectPvCount(realtime,monthRows)===2&&<div className="pv-day-row pv2-day"><span>PV2</span><div className="pv-day-track"><i style={{width:`${today.solar?Math.max(2,today.pv2/today.solar*100):0}%`}}/></div><b>{kwh(today.pv2)}</b></div>}<p>Datos integrados desde las 00:00 de Santiago; no son los watts instantáneos.</p></section>
+        <header className="analytics-title"><div><small>Análisis energético</small><h1>Gráficos y acumulados</h1><p>Todos los cortes pertenecen exclusivamente a la instalación seleccionada y usan el día calendario de Chile.</p></div><section className="panel gauge-card"><PowerGauge value={load}/><div className="gauge-note"><span className="safe-dot"/>0–5 kW normal <span className="danger-dot"/>más de 5 kW alto</div></section></header>
+        <section className="panel pv-day-card"><header><div><small>Aporte fotovoltaico acumulado de hoy</small><h2>PV1 vs. PV2</h2></div><strong>{kwh(today.solar)}</strong></header><div className="pv-day-row"><span>PV1</span><div className="pv-day-track"><i style={{width:`${today.solar?Math.max(2,today.pv1/today.solar*100):0}%`}}/></div><b>{kwh(today.pv1)}</b></div>{detectPvCount(realtime,monthRows)===2&&<div className="pv-day-row pv2-day"><span>PV2</span><div className="pv-day-track"><i style={{width:`${today.solar?Math.max(2,today.pv2/today.solar*100):0}%`}}/></div><b>{kwh(today.pv2)}</b></div>}<p>Datos integrados desde las 00:00 de Chile; no son los watts instantáneos.</p></section>
         <div className="analytics-section"><h2>Consumo acumulado</h2><div className="metric-chart-grid"><EnergyMetricChart title="Consumo del día" subtitle="Desde las 00:00" labels={dayLoadSeries.labels} values={dayLoadSeries.values} color="#aa73ff"/><EnergyMetricChart title="Consumo de la semana" subtitle="Semana actual" labels={weekLoadSeries.labels} values={weekLoadSeries.values} color="#aa73ff"/><EnergyMetricChart title="Consumo del mes" subtitle="Mes en curso" labels={monthLoadSeries.labels} values={monthLoadSeries.values} color="#aa73ff"/></div></div>
         <div className="analytics-section"><h2>Generación solar acumulada</h2><div className="metric-chart-grid"><EnergyMetricChart title="Generación del día" subtitle="PV1 + PV2" labels={daySolarSeries.labels} values={daySolarSeries.values} color="#efbd34"/><EnergyMetricChart title="Generación de la semana" subtitle="PV1 + PV2" labels={weekSolarSeries.labels} values={weekSolarSeries.values} color="#efbd34"/><EnergyMetricChart title="Generación del mes" subtitle="PV1 + PV2" labels={monthSolarSeries.labels} values={monthSolarSeries.values} color="#efbd34"/></div></div>
         <div className="analytics-section"><h2>Aporte acumulado de la red</h2><div className="metric-chart-grid"><EnergyMetricChart title="Red del día" subtitle="Energía importada" labels={dayGridSeries.labels} values={dayGridSeries.values} color="#4f9fff"/><EnergyMetricChart title="Red de la semana" subtitle="Energía importada" labels={weekGridSeries.labels} values={weekGridSeries.values} color="#4f9fff"/><EnergyMetricChart title="Red del mes" subtitle="Energía importada" labels={monthGridSeries.labels} values={monthGridSeries.values} color="#4f9fff"/></div></div>
         <section className="analytics-summary-grid"><article className="panel stat"><small>Consumo semana</small><strong>{kwh(week.load)}</strong></article><article className="panel stat"><small>Solar semana</small><strong>{kwh(week.solar)}</strong></article><article className="panel stat"><small>Red semana</small><strong>{kwh(week.gridImport)}</strong></article><article className="panel stat"><small>Consumo mes</small><strong>{kwh(month.load)}</strong></article><article className="panel stat"><small>Solar mes</small><strong>{kwh(month.solar)}</strong></article><article className="panel stat"><small>Red importada mes</small><strong>{kwh(month.gridImport)}</strong></article><article className="panel stat"><small>Red exportada mes</small><strong>{kwh(month.gridExport)}</strong></article><article className="panel stat"><small>Carga batería mes</small><strong>{kwh(month.charge)}</strong></article><article className="panel stat"><small>Descarga batería mes</small><strong>{kwh(month.discharge)}</strong></article></section>
       </section>}
 
-      {page==='solar'&&<SolarForecastPage actual={daily} weather={weather} installedWp={installedWp} today={today}/>} 
+      {page==='solar'&&<SolarForecastPage actual={daily} weather={weather} installedWp={installedWp} today={today} siteLabel={siteLabel}/>} 
 
       {page==='costs'&&<section className="solar-forecast-page">
-        <header className="page-heading"><div><small>Costos reales acumulados</small><h1>Costos y ahorro</h1><p>El ahorro usa solar autoconsumida: generación menos exportación. La energía exportada se valoriza con una tarifa independiente.</p></div></header>
-        <section className="cost-form-grid"><section className="panel form-card"><h2>Tarifa de compra</h2><label>CLP por kWh<input type="number" value={tariff} onChange={e=>{const v=Number(e.target.value);setTariff(v);localStorage.setItem('tariffCLP',String(v))}}/></label></section><section className="panel form-card"><h2>Tarifa de inyección</h2><label>CLP por kWh exportado<input type="number" value={feedInTariff} onChange={e=>{const v=Number(e.target.value);setFeedInTariff(v);localStorage.setItem('feedInTariffCLP',String(v))}}/></label></section></section>
+        <header className="page-heading"><div><small>Costos reales acumulados · {siteLabel}</small><h1>Costos y ahorro</h1><p>El ahorro usa solar autoconsumida: generación menos exportación. La energía exportada se valoriza con una tarifa independiente.</p></div></header>
+        <section className="cost-form-grid"><section className="panel form-card"><h2>Tarifa de compra</h2><label>CLP por kWh<input type="number" value={tariff} onChange={e=>{const v=Number(e.target.value);setTariff(v);localStorage.setItem(siteStorageKey('tariffCLP',device?.nickName||''),String(v))}}/></label></section><section className="panel form-card"><h2>Tarifa de inyección</h2><label>CLP por kWh exportado<input type="number" value={feedInTariff} onChange={e=>{const v=Number(e.target.value);setFeedInTariff(v);localStorage.setItem(siteStorageKey('feedInTariffCLP',device?.nickName||''),String(v))}}/></label></section></section>
         <section className="cost-grid">
           <article className="panel stat"><small>Ahorro real hoy</small><strong>{clp(avoided(today))}</strong><p>{kwh(selfConsumed(today))} autoconsumidos</p></article>
           <article className="panel stat"><small>Ahorro real semana</small><strong>{clp(avoided(week))}</strong><p>{kwh(selfConsumed(week))} autoconsumidos</p></article>

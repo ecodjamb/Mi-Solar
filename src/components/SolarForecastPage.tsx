@@ -3,7 +3,7 @@ import type { DailyEnergy } from '../types';
 import type { WeatherData } from '../services/weather';
 import { calibrateSolarModel,theoreticalSeries,theoreticalDayKwh } from '../utils/solarForecast';
 
-export default function SolarForecastPage({actual,weather,installedWp=8680,today}:{actual:DailyEnergy[];weather:WeatherData;installedWp?:number;today?:DailyEnergy}){
+export default function SolarForecastPage({actual,weather,installedWp=8680,today,siteLabel='El Arrayán'}:{actual:DailyEnergy[];weather:WeatherData;installedWp?:number;today?:DailyEnergy;siteLabel?:string}){
  const radiation=weather.dailyRadiation||[];
  const model=calibrateSolarModel(actual,radiation,installedWp,today);
  const theoretical=theoreticalSeries(radiation,model);
@@ -24,7 +24,7 @@ export default function SolarForecastPage({actual,weather,installedWp=8680,today
   ]
  };
  return <section className="solar-forecast-page">
-  <header className="page-heading"><div><small>Radiación y rendimiento</small><h1>Histórico y proyección solar</h1><p>El modelo se calibra con días completos reales del inversor y radiación de Open-Meteo. El día actual se corrige con el comportamiento observado hasta este minuto.</p></div><div className="provider-chip">Fuente: {weather.provider||'Sin conexión meteorológica'}</div></header>
+  <header className="page-heading"><div><small>Radiación y rendimiento · {siteLabel}</small><h1>Histórico y proyección solar</h1><p>El modelo se calibra únicamente con días completos de la instalación seleccionada y la radiación meteorológica de su ubicación. El día actual se corrige con el comportamiento observado hasta este minuto.</p></div><div className="provider-chip">Fuente: {weather.provider||'Sin conexión meteorológica'}</div></header>
   <section className="forecast-kpis">
    <article className="panel stat"><small>Potencia instalada</small><strong>{model.installedKwp.toFixed(2)} kWp</strong></article>
    <article className="panel stat"><small>Factor histórico real</small><strong>{Math.round(model.factor*100)}%</strong><p>{model.sampleDays} días completos usados</p></article>

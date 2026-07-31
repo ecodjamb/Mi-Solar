@@ -1,21 +1,33 @@
-# Mi Solar V6.7 — Casa Viva Real
+# Mi Solar v6.8.0 — Multi-sitio preciso
 
-Aplicación React/Vite para monitoreo Tumcapp con un gemelo visual de cada propiedad.
+Versión enfocada en separar completamente El Arrayán y Puerto Montt.
 
-## Casa Viva
+## Mejoras
 
-La app incluye escenas precargadas derivadas de las fotos reales de:
-
-- Casa ECO Arrayán
-- Casa Puerto Montt
-
-Cada propiedad tiene escenas de amanecer, día, atardecer y noche. Las imágenes están importadas desde `src/assets`, por lo que Vite las incorpora a `dist` y Netlify no depende de rutas públicas antiguas.
-
-También se aplican clima, fase lunar, decoraciones mensuales sorpresa y cumpleaños familiares.
+- Gráfico de las últimas tres horas en Inicio: consumo total, PV1+PV2 y batería neta.
+- Cambio de instalación limpia todos los datos anteriores antes de consultar el nuevo equipo.
+- Mejor día, históricos, costos y radiación se calculan únicamente con el equipo seleccionado.
+- Perfiles separados:
+  - El Arrayán: 8,68 kWp y coordenadas de El Arrayán.
+  - Puerto Montt: 1,80 kWp y coordenadas de Puerto Montt.
+- Tarifas separadas por instalación en el almacenamiento local.
+- Cobertura diaria rediseñada y explicada como porcentaje del periodo transcurrido.
+- Radiación y proyección muestran el nombre de la instalación activa.
+- Casa Viva mejorada:
+  - escenas específicas para cada propiedad;
+  - iluminación nocturna cálida;
+  - nubes más naturales y separadas de la luna;
+  - humo ajustado por casa.
+- Versión visible: v6.8.0.
 
 ## Netlify
 
-- Build: `npm run build`
-- Publish: `dist`
-- Functions: `netlify/functions`
-- Node: 20
+- Build command: `npm run build`
+- Publish directory: `dist`
+- Functions directory: `netlify/functions`
+- Base directory: vacío
+
+## Validación
+
+- Pruebas MD5/VRT superadas.
+- Todos los archivos TypeScript/TSX pasan validación sintáctica.
