@@ -13,6 +13,7 @@ import SolarForecastPage from './components/SolarForecastPage';
 import HouseIllustration from './components/HouseIllustration';
 import RecentEnergyChart from './components/RecentEnergyChart';
 import CoverageCard from './components/CoverageCard';
+import DataQualityCard from './components/DataQualityCard';
 import { api } from './services/api';
 import { fetchWeather, type WeatherData } from './services/weather';
 import { accumulatedTheoreticalToday, calibrateSolarModel, expectedPowerNow, theoreticalDayKwh } from './utils/solarForecast';
@@ -140,7 +141,7 @@ export default function App(){
       markUpdated('day');
       const filtered=filterRowsForSiteDate(rows,siteDate);
       const last=filtered.length?parseApiTime(filtered[filtered.length-1].currentTime??filtered[filtered.length-1].createTime??filtered[filtered.length-1].collectTime??filtered[filtered.length-1].dataTime??filtered[filtered.length-1].time):null;
-      const lastLabel=last?last.toLocaleTimeString('es-CL',{timeZone:'America/Santiago',hour:'2-digit',minute:'2-digit'}):'sin muestras';
+      const lastLabel=last?last.toLocaleTimeString('es-CL',{timeZone:'America/Santiago',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}):'sin muestras';
       setHistoryMessage(warnings.length?`Día actualizado hasta ${lastLabel}, con observaciones: ${warnings.join(', ')}.`:`Día completo hasta el momento de consulta · última muestra ${lastLabel}.`);
     }catch(error){
       setHistoryMessage(`Histórico diario temporalmente no disponible: ${error instanceof Error?error.message:'error'}`);
@@ -264,7 +265,7 @@ export default function App(){
     backgroundColor:'transparent',
     tooltip:{trigger:'axis',confine:true,formatter:(params:any[])=>{const p=params?.[0];if(!p)return '';return `<strong>${p.axisValue}</strong><br/>${params.map(x=>`${x.marker}${x.seriesName}: <b>${Number(x.value).toLocaleString('es-CL')} W</b>`).join('<br/>')}`}},
     legend:{top:0,textStyle:{color:'#9fb2ba'}},grid:{left:48,right:18,top:58,bottom:40,containLabel:true},
-    xAxis:{type:'category',data:history.map(r=>{const d=parseApiTime(r.currentTime??r.createTime??r.collectTime??r.dataTime??r.time);return d?d.toLocaleTimeString('es-CL',{timeZone:'America/Santiago',hour:'2-digit',minute:'2-digit'}):''}),axisLabel:{color:'#789099',hideOverlap:true},axisLine:{lineStyle:{color:'#27404a'}}},
+    xAxis:{type:'category',data:history.map(r=>{const d=parseApiTime(r.currentTime??r.createTime??r.collectTime??r.dataTime??r.time);return d?d.toLocaleTimeString('es-CL',{timeZone:'America/Santiago',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}):''}),axisLabel:{color:'#789099',hideOverlap:true},axisLine:{lineStyle:{color:'#27404a'}}},
     yAxis:{type:'value',name:'W',nameTextStyle:{color:'#789099'},axisLabel:{color:'#789099'},splitLine:{lineStyle:{color:'rgba(110,150,160,.12)'}}},
     series:[
       {name:'Solar PV1 + PV2',type:'line',smooth:true,showSymbol:false,data:history.map(r=>pvPower(r,1)+pvPower(r,2)),lineStyle:{width:3,color:'#efbd34'},areaStyle:{opacity:.08,color:'#efbd34'}},
@@ -293,7 +294,7 @@ export default function App(){
     <main className="content">
       <header className="topbar">
         <div><select value={selected} onChange={e=>switchDevice(e.target.value)}>{devices.map(d=><option key={d.deviceSn} value={d.deviceSn}>{d.nickName||d.deviceSn}</option>)}</select><span className="online">● En línea</span></div>
-        <div className="time-box"><strong>{clock}</strong><small>Hora de Chile</small><small>Último dato: {formatDate(realtime.currentTime||realtime.createTime)}</small><small>Consulta: {lastFetch?lastFetch.toLocaleTimeString('es-CL'):'—'} · v{APP_VERSION}</small></div>
+        <div className="time-box"><strong>{clock}</strong><small>Hora de Chile</small><small>Último dato: {formatDate(realtime.currentTime||realtime.createTime)}</small><small>Consulta: {lastFetch?lastFetch.toLocaleTimeString('es-CL',{timeZone:'America/Santiago',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}):'—'} · v{APP_VERSION}</small></div>
         <FunModeToggle value={funMode} onChange={v=>{setFunMode(v);localStorage.setItem('funMode',v?'on':'off')}}/>
         <button className="refresh-button" onClick={()=>refreshAll()}><RefreshCw className={loading?'spin':''}/><span>Actualizar</span></button>
       </header>
@@ -318,6 +319,7 @@ export default function App(){
           <section className="panel health-card"><small>Estado del sistema</small><strong>{health(realtime)}/100</strong><p>{health(realtime)>90?'Excelente · sin anomalías relevantes':'Conviene revisar algunos parámetros'}</p></section>
           <section className="panel best-card"><small>Mejor día del mes · {siteLabel}</small><strong>{best?kwh(best.solar):'—'}</strong><p>{best?new Date(`${best.date}T12:00`).toLocaleDateString('es-CL',{dateStyle:'long'}):'Aún sin histórico suficiente'}</p></section>
         </aside><CoverageCard today={today} first={quality.first} last={quality.last} siteLabel={siteLabel}/><section className={`panel weather-card ${weather.error?'weather-warning':''}`}><small>Condición actual · {weather.provider||'sin proveedor'}</small><strong>{weather.temperature!=null?`${weather.temperature.toFixed(1)} °C`:'Sin dato climático'}</strong><p>{weather.humidity!=null?`Humedad ${weather.humidity}% · Nubes ${Number(weather.cloudCover||0).toFixed(0)}% · Lluvia ${Number(weather.precipitation||0).toFixed(1)} mm · Viento ${Number(weather.windSpeed||0).toFixed(0)} km/h`:'No llegó información meteorológica.'}</p>{weather.updatedAt&&<small>Actualizado: {new Date(weather.updatedAt).toLocaleString('es-CL',{timeZone:'America/Santiago'})}</small>}{weather.error&&<small className="error-text">{weather.error}</small>}</section></div>
+        <DataQualityCard realtimeAvailable={Object.keys(realtime).length>0} daySamples={today.samples} weekSamples={week.samples} monthSamples={month.samples} weatherAvailable={weather.temperature!=null} radiationAvailable={Boolean(weather.hourly?.length||weather.dailyRadiation?.length)} updates={lastSectionUpdate}/>
         <section className="panel chart-panel"><header className="section-head"><div><small>Producción y consumo</small><h2>Hoy · {siteLabel} · horario de Chile</h2></div></header><EChart option={chartOption}/></section>
       </>}
 

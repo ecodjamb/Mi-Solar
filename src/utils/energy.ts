@@ -78,8 +78,8 @@ export function parseApiTime(v:unknown){
   return Number.isNaN(d.getTime())?null:d;
 }
 export function rowTimestamp(r:HistoryRow){return parseApiTime(r.currentTime??r.createTime??r.collectTime??r.dataTime??r.time);}
-export function formatDate(v:unknown){const d=parseApiTime(v);return d?d.toLocaleString('es-CL',{timeZone:SITE_TZ,dateStyle:'short',timeStyle:'medium'}):'—';}
-export function formatClock(d=new Date()){return d.toLocaleTimeString('es-CL',{timeZone:SITE_TZ,hour:'2-digit',minute:'2-digit',second:'2-digit'});}
+export function formatDate(v:unknown){const d=parseApiTime(v);return d?d.toLocaleString('es-CL',{timeZone:SITE_TZ,day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}):'—';}
+export function formatClock(d=new Date()){return d.toLocaleTimeString('es-CL',{timeZone:SITE_TZ,hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});}
 export function formatSiteDate(d=new Date()){return d.toLocaleDateString('en-CA',{timeZone:SITE_TZ});}
 export function siteDateKey(d:Date){return d.toLocaleDateString('en-CA',{timeZone:SITE_TZ});}
 

@@ -1,4 +1,4 @@
-# Mi Solar V8.1
+# Mi Solar V8.3
 
 Aplicación Vite + React con backend nativo de Vercel para consultar Tumcapp/i.Solar.
 
