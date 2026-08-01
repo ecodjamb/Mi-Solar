@@ -1,9 +1,9 @@
-# Mi Solar v8.3.1
+# Mi Solar v8.3.2
 
 - Eliminado definitivamente el artefacto triangular amarillo del flujo de batería.
 - Se retiraron todos los marcadores SVG de flecha, origen del renderizado defectuoso.
 - Se añadieron partículas luminosas pequeñas para indicar dirección sin rellenos ni triángulos.
-- Corregida la insignia lateral para mostrar v8.3.1 de forma consistente con login, técnico y API.
+- Corregida la insignia lateral para mostrar v8.3.2 de forma consistente con login, técnico y API.
 
 # Mi Solar V8.3.0
 

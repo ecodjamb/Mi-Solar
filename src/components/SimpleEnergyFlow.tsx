@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Battery, House, Info, PanelsTopLeft, RadioTower, Server, type LucideIcon } from 'lucide-react';
 import type { DailyEnergy, HistoryRow, Realtime } from '../types';
 import {
@@ -33,16 +34,86 @@ function cleanDetails(details: Detail[]) {
 
 function FlowDetails({ title, details }: { title: string; details: Detail[] }) {
   const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0, width: 320 });
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const closeTimer = useRef<number | null>(null);
   const items = cleanDetails(details);
+
+  const cancelClose = () => {
+    if (closeTimer.current !== null) {
+      window.clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  };
+  const scheduleClose = () => {
+    cancelClose();
+    closeTimer.current = window.setTimeout(() => setOpen(false), 220);
+  };
+
+  const updatePosition = () => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const width = Math.min(340, viewportWidth - 24);
+    const estimatedHeight = Math.min(420, 54 + items.length * 35);
+    const below = rect.bottom + 10;
+    const above = rect.top - estimatedHeight - 10;
+    const top = below + estimatedHeight <= viewportHeight - 12 ? below : Math.max(12, above);
+    const left = Math.min(Math.max(12, rect.right - width), viewportWidth - width - 12);
+    setPosition({ top, left, width });
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    updatePosition();
+  }, [open, items.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onViewportChange = () => updatePosition();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    const onPointer = (event: PointerEvent) => {
+      const target = event.target as globalThis.Node;
+      if (triggerRef.current?.contains(target) || popoverRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    window.addEventListener('resize', onViewportChange);
+    window.addEventListener('scroll', onViewportChange, true);
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onPointer);
+    return () => {
+      window.removeEventListener('resize', onViewportChange);
+      window.removeEventListener('scroll', onViewportChange, true);
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPointer);
+    };
+  }, [open]);
+
   if (!items.length) return null;
-  return <div className={`flow-details-wrap ${open ? 'is-open' : ''}`}>
-    <button className="flow-details-trigger" type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+  const popover = open ? <div
+    ref={popoverRef}
+    className="flow-details-popover flow-details-portal"
+    onMouseEnter={cancelClose}
+    onMouseLeave={scheduleClose}
+    role="dialog"
+    aria-modal="false"
+    aria-label={`Parámetros de ${title}`}
+    style={{ top: position.top, left: position.left, width: position.width }}
+  >
+    <header><strong>{title}</strong><button type="button" onClick={() => setOpen(false)} aria-label="Cerrar detalles">×</button></header>
+    <dl>{items.map((item) => <div key={item.label}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl>
+  </div> : null;
+
+  return <div className={`flow-details-wrap ${open ? 'is-open' : ''}`} onMouseEnter={() => { cancelClose(); setOpen(true); }} onMouseLeave={scheduleClose}>
+    <button ref={triggerRef} className="flow-details-trigger" type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
       <Info size={15}/><span>Detalles</span>
     </button>
-    <div className="flow-details-popover" role="status" aria-label={`Parámetros de ${title}`}>
-      <strong>{title}</strong>
-      <dl>{items.map((item) => <div key={item.label}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl>
-    </div>
+    {popover && createPortal(popover, document.body)}
   </div>;
 }
 
