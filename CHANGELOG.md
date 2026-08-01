@@ -1,11 +1,15 @@
 # Changelog
 
-## 8.0.0 — Vercel Stable
+## 8.1.0
 
-- Migración completa de la última versión estable Netlify V6.10 a Vercel.
-- Backend nativo en `/api`.
-- Eliminación total de carpetas y configuración Netlify.
-- Reescritura SPA para evitar 404 al recargar rutas.
-- Sesión cifrada con vencimiento tras 24 horas sin actividad.
-- Conserva el dashboard y las funcionalidades de V6.10.
-- Base de trabajo para V8.1.
+- Arquitectura 100% Vercel consolidada.
+- Caché local aislado por número de serie: Arrayán y Puerto Montt no comparten datos.
+- Al cambiar de instalación se muestran únicamente los últimos datos válidos de ese equipo mientras llega la actualización.
+- El caché vence a las 24 horas para no reutilizar acumulados de días anteriores.
+- Política de actualización centralizada: tiempo real 30 s, día 5 min, semana 30 min, mes 2 h, clima 15 min y radiación 1 h.
+- Sesión de 24 horas de inactividad conservada.
+- Endpoint `/api/health` y versión visible actualizados a 8.1.0.
+
+## 8.0.0
+
+- Migración estable desde Netlify a Vercel.

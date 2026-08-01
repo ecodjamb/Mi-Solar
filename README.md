@@ -1,31 +1,21 @@
-# Mi Solar V8 — Vercel Stable
+# Mi Solar V8.1
 
-Versión Vercel construida a partir de la última versión estable de Netlify (V6.10), conservando:
+Aplicación Vite + React con backend nativo de Vercel para consultar Tumcapp/i.Solar.
 
-- login Tumcapp/i.Solar;
-- sesión cifrada de 24 horas de inactividad;
-- equipos múltiples;
-- tiempo real e históricos;
-- clima y radiación;
-- dashboard, gráficos, costos, Casa Viva y modo técnico.
+## Mejoras de esta versión
 
-## Plataforma
+- Datos independientes por instalación y número de serie.
+- Caché resiliente de último dato válido, sin mezclar Arrayán y Puerto Montt.
+- Actualizaciones separadas por sección para reducir errores del servidor.
+- Sesión persistente de 24 horas de inactividad.
+- Clima y radiación por coordenadas de la instalación seleccionada.
 
-- Frontend: React + Vite + TypeScript
-- Backend: Vercel Functions en `/api`
-- Build: `npm run build`
-- Output: `dist`
+## Vercel
 
-## Variable obligatoria
+- Framework: Vite
+- Build command: `npm run build`
+- Output directory: `dist`
+- Root directory: vacío
+- Variable requerida: `SESSION_SECRET`
 
-Configura en Vercel:
-
-`SESSION_SECRET` = cadena aleatoria larga (mínimo 32 caracteres).
-
-## Verificación
-
-Después del despliegue abre:
-
-`/api/health`
-
-Debe responder con `version: 8.0.0`.
+Prueba del backend: `/api/health`.

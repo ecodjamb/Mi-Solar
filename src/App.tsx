@@ -19,17 +19,18 @@ import { accumulatedTheoreticalToday, calibrateSolarModel, expectedPowerNow, the
 import type { DailyEnergy, Device, HistoryRow, PageKey, Realtime } from './types';
 import { cumulativeDays, dayGrid, dayLoad, daySolar } from './utils/charts';
 import { siteProfile,siteStorageKey } from './utils/site';
+import { APP_VERSION, REFRESH_POLICY, SESSION_POLICY } from './config';
+import { readSiteCache, writeSiteCache } from './services/siteCache';
 import {
   batteryChargePower,batteryDischargePower,batterySoc,batteryVoltage,chileDayApiChunks,chileSiteRangeApiRange,chileWeekApiRange,clp,dailyEnergy,dataQuality,
   detectPvCount,filterRowsForSiteDate,filterRowsForSiteMonth,filterRowsForSiteRange,formatClock,formatDate,formatSiteDate,gridFrequency,gridPower,gridVoltage,
   groupDailyEnergy,health,inverterTemperature,kwh,loadPower,outputFrequency,outputVoltage,parseApiTime,pvPower,technicalCatalog,watts
 } from './utils/energy';
 
-const APP_VERSION='8.0.0';
-const SESSION_IDLE_MS=24*60*60_000;
-const ACTIVITY_PING_MS=5*60_000;
-const LAST_ACTIVITY_KEY='miSolarLastUserActivity';
-const REFRESH_MS={realtime:30_000,day:5*60_000,week:30*60_000,month:2*60*60_000,weather:15*60_000,radiation:60*60_000} as const;
+const SESSION_IDLE_MS=SESSION_POLICY.idleMs;
+const ACTIVITY_PING_MS=SESSION_POLICY.activityPingMs;
+const LAST_ACTIVITY_KEY=SESSION_POLICY.storageKey;
+const REFRESH_MS=REFRESH_POLICY;
 const emptyEnergy={solar:0,pv1:0,pv2:0,load:0,grid:0,gridImport:0,gridExport:0,charge:0,discharge:0,samples:0};
 const sumDays=(days:DailyEnergy[])=>days.reduce((a,d)=>({solar:a.solar+d.solar,pv1:a.pv1+d.pv1,pv2:a.pv2+d.pv2,load:a.load+d.load,grid:a.grid+d.grid,gridImport:a.gridImport+d.gridImport,gridExport:a.gridExport+d.gridExport,charge:a.charge+d.charge,discharge:a.discharge+d.discharge,samples:a.samples+d.samples}),{...emptyEnergy});
 
@@ -111,8 +112,8 @@ export default function App(){
     ]);
     const rtOk=realtimeResult[0].status==='fulfilled';
     const summaryOk=realtimeResult[1].status==='fulfilled';
-    if(realtimeResult[0].status==='fulfilled')setRealtime(realtimeResult[0].value.data||{});
-    if(realtimeResult[1].status==='fulfilled')setSummary(realtimeResult[1].value.data||{});
+    if(realtimeResult[0].status==='fulfilled'){const value=realtimeResult[0].value.data||{};setRealtime(value);writeSiteCache(sn,{realtime:value});}
+    if(realtimeResult[1].status==='fulfilled'){const value=realtimeResult[1].value.data||{};setSummary(value);writeSiteCache(sn,{summary:value});}
     if(rtOk||summaryOk){setLastFetch(new Date());markUpdated('realtime');setSyncMessage(rtOk&&summaryOk?'':'Actualización parcial: se conservaron los últimos datos disponibles.');}
     else setSyncMessage('No se pudo actualizar ahora. La app mantiene los últimos valores y reintentará en 30 segundos.');
     setLoading(false);
@@ -135,7 +136,7 @@ export default function App(){
           warnings.push(`tramo ${i+1} sin respuesta`);
         }
       }
-      if(rows.length)setRawDayRows(rows);
+      if(rows.length){setRawDayRows(rows);writeSiteCache(sn,{dayRows:rows});}
       markUpdated('day');
       const filtered=filterRowsForSiteDate(rows,siteDate);
       const last=filtered.length?parseApiTime(filtered[filtered.length-1].currentTime??filtered[filtered.length-1].createTime??filtered[filtered.length-1].collectTime??filtered[filtered.length-1].dataTime??filtered[filtered.length-1].time):null;
@@ -154,7 +155,7 @@ export default function App(){
     try{
       const range=chileSiteRangeApiRange(weekRange.siteStart,weekRange.siteEnd);
       const response=await fetchHistoryRange(sn,range.start,range.end,24);
-      if(response.list?.length)setRawWeekRows(response.list);
+      if(response.list?.length){setRawWeekRows(response.list);writeSiteCache(sn,{weekRows:response.list});}
       markUpdated('week');
       if(response.truncated)setHistoryMessage('La semana llegó parcial; se completará automáticamente en la próxima actualización.');
     }catch(error){
@@ -179,15 +180,18 @@ export default function App(){
         warnings.push(`${chunk.siteStart}–${addDays(chunk.siteEnd,-1)} sin respuesta`);
       }
     }
-    if(rows.length){setRawMonthRows(rows);markUpdated('month');}
+    if(rows.length){setRawMonthRows(rows);writeSiteCache(sn,{monthRows:rows});markUpdated('month');}
     setHistoryProgress('');
     setHistoryMessage(warnings.length?`Histórico mensual parcial: ${warnings.join(', ')}.`:'Mes completo descargado y ajustado a Santiago.');
   }
 
   function switchDevice(sn:string){
     setSelected(sn);
-    setRealtime({});setSummary({});setRawDayRows([]);setRawWeekRows([]);setRawMonthRows([]);
-    setSyncMessage('');setHistoryMessage('');setHistoryProgress('');setWeather({});setLastFetch(null);
+    const cached=readSiteCache(sn);
+    setRealtime(cached?.realtime||{});setSummary(cached?.summary||{});
+    setRawDayRows(cached?.dayRows||[]);setRawWeekRows(cached?.weekRows||[]);setRawMonthRows(cached?.monthRows||[]);
+    setSyncMessage(cached?'Mostrando el último dato válido mientras se actualiza la instalación.':'');
+    setHistoryMessage('');setHistoryProgress('');setWeather({});setLastFetch(cached?.savedAt?new Date(cached.savedAt):null);
     void refreshAll(sn);
   }
 
@@ -239,7 +243,7 @@ export default function App(){
       window.clearInterval(idleTimer);
     };
   },[auth]);
-  useEffect(()=>{if(!auth)return;api<{devices:Device[]}>('devices').then(x=>{setDevices(x.devices||[]);const sn=x.devices?.[0]?.deviceSn||'';setSelected(sn);if(sn)void refreshAll(sn)}).catch(()=>setSyncMessage('No fue posible cargar los equipos.'))},[auth]);
+  useEffect(()=>{if(!auth)return;api<{devices:Device[]}>('devices').then(x=>{setDevices(x.devices||[]);const sn=x.devices?.[0]?.deviceSn||'';if(sn)switchDevice(sn)}).catch(()=>setSyncMessage('No fue posible cargar los equipos.'))},[auth]);
   useEffect(()=>{if(!device)return;const tariffKey=siteStorageKey('tariffCLP',device.nickName||'');const feedKey=siteStorageKey('feedInTariffCLP',device.nickName||'');setTariff(Number(localStorage.getItem(tariffKey))||profile.defaultTariff);setFeedInTariff(Number(localStorage.getItem(feedKey))||profile.defaultFeedInTariff)},[device?.deviceSn]);
   useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>void refreshRealtime(selected),REFRESH_MS.realtime);return()=>clearInterval(t)},[auth,selected]);
   useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>void refreshDayHistory(selected),REFRESH_MS.day);return()=>clearInterval(t)},[auth,selected]);
@@ -344,7 +348,7 @@ export default function App(){
 
       {page==='equipment'&&<section className="equipment-grid">{[['Paneles',`PV1 ${watts(pvPower(realtime,1))}${detectPvCount(realtime,monthRows)===2?` · PV2 ${watts(pvPower(realtime,2))}`:''}`],['Inversor',String(summary.workMode||realtime.workMode||'—')],['Batería',`${soc.toFixed(0)}% · ${batteryVoltage(realtime).toFixed(1)} V`],['Red',`${watts(Math.abs(grid))} · ${gridVoltage(realtime).toFixed(1)} V · ${gridFrequency(realtime).toFixed(1)} Hz`],['Salida AC',`${outputVoltage(realtime).toFixed(1)} V · ${outputFrequency(realtime).toFixed(1)} Hz`],['Temperatura',`${inverterTemperature(realtime).toFixed(1)} °C`]].map(([a,b])=><article className="panel equipment-card" key={a}><h2>{a}</h2><p>{b}</p></article>)}</section>}
 
-      {page==='technical'&&<section className="technical-page"><section className="technical-summary"><article className="panel"><small>Versión de la app</small><strong>v{APP_VERSION}</strong></article><article className="panel"><small>Política de actualización</small><strong>30 s · 5 min · 30 min · 2 h</strong><p>Tiempo real · día · semana · mes</p></article><article className="panel"><small>Datos catalogados</small><strong>{catalog.reduce((n,s)=>n+s.items.filter(i=>i.value!==null).length,0)}</strong></article><article className="panel"><small>Muestras hoy</small><strong>{today.samples}</strong></article><article className="panel"><small>Muestras mes</small><strong>{month.samples}</strong></article></section><section className="technical-grid">{catalog.map(section=><article className="panel technical-section" key={section.title}><h2>{section.title}</h2>{section.items.map(item=><div className="technical-row" key={item.key}><span>{item.label}</span><strong>{item.value===null?'—':`${typeof item.value==='number'?item.value.toLocaleString('es-CL',{maximumFractionDigits:2}):item.value}${item.unit?` ${item.unit}`:''}`}</strong><small>{item.source||'campo no disponible'}</small></div>)}</article>)}</section><section className="panel technical"><h2>Parámetros disponibles no usados en el dashboard</h2><p>Se muestran aquí para mantener el inicio limpio y facilitar futuras estadísticas.</p><div className="unknown-parameter-grid">{rawUnknown.map(key=><div className="unknown-parameter" key={key}><span>{key}</span><strong>{String((realtime as Record<string,unknown>)[key]??(summary as Record<string,unknown>)[key]??'—')}</strong></div>)}</div><details><summary>Auditoría completa en JSON</summary><pre>{JSON.stringify({version:APP_VERSION,refreshPolicyMs:REFRESH_MS,lastSectionUpdate,realtime,summary,today,week,month,quality,solarModel},null,2)}</pre></details></section></section>}
+      {page==='technical'&&<section className="technical-page"><section className="technical-summary"><article className="panel"><small>Versión de la app</small><strong>v{APP_VERSION}</strong></article><article className="panel"><small>Política de actualización</small><strong>30 s · 5 min · 30 min · 2 h</strong><p>Tiempo real · día · semana · mes</p></article><article className="panel"><small>Datos catalogados</small><strong>{catalog.reduce((n,s)=>n+s.items.filter(i=>i.value!==null).length,0)}</strong></article><article className="panel"><small>Muestras hoy</small><strong>{today.samples}</strong></article><article className="panel"><small>Muestras mes</small><strong>{month.samples}</strong></article></section><section className="technical-grid">{catalog.map(section=><article className="panel technical-section" key={section.title}><h2>{section.title}</h2>{section.items.map(item=><div className="technical-row" key={item.key}><span>{item.label}</span><strong>{item.value===null?'—':`${typeof item.value==='number'?item.value.toLocaleString('es-CL',{maximumFractionDigits:2}):item.value}${item.unit?` ${item.unit}`:''}`}</strong><small>{item.source||'campo no disponible'}</small></div>)}</article>)}</section><section className="panel technical"><h2>Parámetros disponibles no usados en el dashboard</h2><p>Se muestran aquí para mantener el inicio limpio y facilitar futuras estadísticas.</p><div className="unknown-parameter-grid">{rawUnknown.map(key=><div className="unknown-parameter" key={key}><span>{key}</span><strong>{String((realtime as Record<string,unknown>)[key]??(summary as Record<string,unknown>)[key]??'—')}</strong></div>)}</div><details><summary>Auditoría completa en JSON</summary><pre>{JSON.stringify({version:APP_VERSION,architecture:'Vercel native · caché aislado por equipo',refreshPolicyMs:REFRESH_MS,lastSectionUpdate,realtime,summary,today,week,month,quality,solarModel},null,2)}</pre></details></section></section>}
     </main>
     <MobileNav page={page} setPage={setPage}/>
   </div>;

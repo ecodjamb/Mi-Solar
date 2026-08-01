@@ -1,13 +1,9 @@
-# Despliegue Vercel — Mi Solar V8
+# Despliegue Vercel
 
-1. Sube todo el contenido de esta carpeta a la raíz de GitHub.
-2. En Vercel importa o actualiza el repositorio.
-3. Configuración:
-   - Framework Preset: Vite
-   - Root Directory: vacío
-   - Build Command: npm run build
-   - Output Directory: dist
-   - Install Command: npm install
-4. Agrega `SESSION_SECRET` en Settings → Environment Variables.
-5. Haz Redeploy.
-6. Verifica `/api/health`.
+1. Subir todo el contenido de esta carpeta a la raíz del repositorio GitHub.
+2. En Vercel seleccionar Vite.
+3. Build command: `npm run build`.
+4. Output directory: `dist`.
+5. Root directory: vacío.
+6. Agregar `SESSION_SECRET` como variable de entorno.
+7. Desplegar y comprobar `/api/health`.
