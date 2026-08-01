@@ -141,11 +141,14 @@ export default function SimpleEnergyFlow({ data, history, today }: { data: Realt
       <Node className="simple-house" icon={House} title="Consumo de la casa" value={watts(load)} status="Consumo instantáneo" accumulated={`Acumulado hoy: ${kwh(today.load)}`} details={houseDetails}/>
       <Node className="simple-grid" icon={RadioTower} title="Red eléctrica" value={watts(Math.abs(grid))} status={gridStatus} accumulated={`Hoy: importado ${kwh(today.gridImport)} · exportado ${kwh(today.gridExport)}`} details={gridDetails}/>
       <svg className="simple-flow-lines" viewBox="0 0 1000 620" preserveAspectRatio="none" aria-hidden="true">
-        <defs><marker id="arrowSolar" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path fill="#efbd34" d="M0,0 L0,6 L7,3 z"/></marker><marker id="arrowGreen" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path fill="#45dc80" d="M0,0 L0,6 L7,3 z"/></marker><marker id="arrowPurple" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path fill="#a66dff" d="M0,0 L0,6 L7,3 z"/></marker><marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path fill="#4e9fff" d="M0,0 L0,6 L7,3 z"/></marker></defs>
-        <path className={`sf-line sf-solar ${solar > 5 ? 'active' : ''}`} d="M270 145 C390 145 410 270 480 300" markerEnd="url(#arrowSolar)"/>
-        <path className={`sf-line sf-battery ${Math.max(charge, discharge) > 5 ? 'active' : ''}`} d={charge > discharge ? "M480 325 C410 355 390 485 270 485" : "M270 485 C390 485 410 355 480 325"} markerEnd="url(#arrowGreen)"/>
-        <path className={`sf-line sf-house ${load > 5 ? 'active' : ''}`} d="M535 300 C610 270 630 145 745 145" markerEnd="url(#arrowPurple)"/>
-        <path className={`sf-line sf-grid ${Math.abs(grid) > 5 ? 'active' : ''}`} d={grid >= 0 ? "M745 485 C630 485 610 355 535 325" : "M535 325 C610 355 630 485 745 485"} markerEnd="url(#arrowBlue)"/>
+        <path className={`sf-line sf-solar ${solar > 5 ? 'active' : ''}`} d="M270 145 C390 145 410 270 480 300"/>
+        <path className={`sf-line sf-battery ${Math.max(charge, discharge) > 5 ? 'active' : ''}`} d={charge > discharge ? "M480 325 C410 355 390 485 270 485" : "M270 485 C390 485 410 355 480 325"}/>
+        <path className={`sf-line sf-house ${load > 5 ? 'active' : ''}`} d="M535 300 C610 270 630 145 745 145"/>
+        <path className={`sf-line sf-grid ${Math.abs(grid) > 5 ? 'active' : ''}`} d={grid >= 0 ? "M745 485 C630 485 610 355 535 325" : "M535 325 C610 355 630 485 745 485"}/>
+        {solar > 5 && <circle className="sf-particle sf-particle-solar" r="5"><animateMotion dur="2.2s" repeatCount="indefinite" path="M270 145 C390 145 410 270 480 300"/></circle>}
+        {Math.max(charge, discharge) > 5 && <circle className="sf-particle sf-particle-battery" r="5"><animateMotion dur="2.6s" repeatCount="indefinite" path={charge > discharge ? "M480 325 C410 355 390 485 270 485" : "M270 485 C390 485 410 355 480 325"}/></circle>}
+        {load > 5 && <circle className="sf-particle sf-particle-house" r="5"><animateMotion dur="1.8s" repeatCount="indefinite" path="M535 300 C610 270 630 145 745 145"/></circle>}
+        {Math.abs(grid) > 5 && <circle className="sf-particle sf-particle-grid" r="5"><animateMotion dur="1.8s" repeatCount="indefinite" path={grid >= 0 ? "M745 485 C630 485 610 355 535 325" : "M535 325 C610 355 630 485 745 485"}/></circle>}
       </svg>
     </div>
   </section>;

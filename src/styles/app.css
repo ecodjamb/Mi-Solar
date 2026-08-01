@@ -211,3 +211,11 @@
 .flow-details-popover dt{font-size:11px;color:#8fa8af}
 .flow-details-popover dd{margin:0;text-align:right;font-size:12px;font-weight:700;color:#e4f5f8}
 @media(max-width:680px){.flow-details-wrap{top:8px;right:8px}.flow-details-trigger span{display:none}.flow-details-trigger{padding:6px}.flow-details-popover{position:fixed;left:14px;right:14px;top:auto;bottom:92px;width:auto;max-height:50vh;overflow:auto}.simple-inverter .flow-details-wrap{right:13px;top:10px;bottom:auto;transform:none}.simple-inverter .flow-details-popover{position:fixed;left:14px;right:14px;top:auto;bottom:92px;width:auto;transform:translateY(-5px)}.simple-inverter .flow-details-wrap:hover .flow-details-popover,.simple-inverter .flow-details-wrap:focus-within .flow-details-popover,.simple-inverter .flow-details-wrap.is-open .flow-details-popover{transform:translateY(0)}}
+
+/* v8.3.1: partículas de flujo sin marcadores SVG (evita artefactos triangulares) */
+.sf-particle{pointer-events:none;filter:drop-shadow(0 0 6px currentColor)}
+.sf-particle-solar{fill:#efbd34;color:#efbd34}
+.sf-particle-battery{fill:#45dc80;color:#45dc80}
+.sf-particle-house{fill:#a66dff;color:#a66dff}
+.sf-particle-grid{fill:#4e9fff;color:#4e9fff}
+.version-badge{margin-left:auto;font-size:12px!important;color:#66e29a!important;border:1px solid rgba(102,226,154,.28);background:rgba(40,180,104,.11);border-radius:999px;padding:4px 8px}
