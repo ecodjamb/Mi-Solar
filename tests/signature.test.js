@@ -1,7 +1,7 @@
 // Mi Solar V6 — pruebas de firma Tumcapp.
 // Mi Solar V5.3 — archivo actualizado para reemplazo completo del repositorio.
 import assert from 'node:assert/strict';
-import { calculateVrt, md5 } from '../netlify/functions/tumcapp.js';
+import { calculateVrt, md5 } from '../api/lib/tumcapp.js';
 
 assert.equal(md5('demo-password'), '4b4d9529148d8d9440d7e20c78287f69');
 

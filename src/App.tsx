@@ -25,7 +25,7 @@ import {
   groupDailyEnergy,health,inverterTemperature,kwh,loadPower,outputFrequency,outputVoltage,parseApiTime,pvPower,technicalCatalog,watts
 } from './utils/energy';
 
-const APP_VERSION='6.10.0';
+const APP_VERSION='8.0.0';
 const SESSION_IDLE_MS=24*60*60_000;
 const ACTIVITY_PING_MS=5*60_000;
 const LAST_ACTIVITY_KEY='miSolarLastUserActivity';

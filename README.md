@@ -1,30 +1,31 @@
-# Mi Solar v6.10.0 — Día completo y nubes realistas
+# Mi Solar V8 — Vercel Stable
 
-Esta versión corrige el histórico diario que podía detenerse cerca de las 12:00.
+Versión Vercel construida a partir de la última versión estable de Netlify (V6.10), conservando:
 
-## Cambios
+- login Tumcapp/i.Solar;
+- sesión cifrada de 24 horas de inactividad;
+- equipos múltiples;
+- tiempo real e históricos;
+- clima y radiación;
+- dashboard, gráficos, costos, Casa Viva y modo técnico.
 
-- El día se descarga en tramos de seis horas desde las 00:00 locales hasta el minuto actual.
-- Cada tramo pagina todas las respuestas indicadas por `total`, aunque Tumcapp omita `hasNextPage`.
-- Los bloques se unen y deduplican antes de calcular consumos y energías.
-- El botón **Actualizar** repite inmediatamente la descarga hasta la hora de la consulta.
-- Funciona igual para Arrayán y Puerto Montt, usando la fecha local de Chile y el equipo seleccionado.
-- La app muestra la hora de la última muestra realmente recibida.
-- Nubes rediseñadas como nubes, con distribución profesional y sin superponerse con la luna.
-- Versión visible: **v6.10.0**.
+## Plataforma
 
-## Netlify
+- Frontend: React + Vite + TypeScript
+- Backend: Vercel Functions en `/api`
+- Build: `npm run build`
+- Output: `dist`
 
-- Build command: `npm run build`
-- Publish directory: `dist`
-- Functions directory: `netlify/functions`
-- Base directory: vacío
+## Variable obligatoria
 
+Configura en Vercel:
 
-## Sesión persistente V6.10
+`SESSION_SECRET` = cadena aleatoria larga (mínimo 32 caracteres).
 
-- La sesión permanece iniciada durante 24 horas.
-- Cada interacción real del usuario (clic, toque, teclado o desplazamiento) renueva el plazo de 24 horas.
-- Las actualizaciones automáticas de datos no cuentan como actividad del usuario.
-- Tras 24 horas sin interacción, la app cierra la sesión automáticamente.
-- La cookie de sesión es HttpOnly, cifrada, SameSite=Lax y Secure en Netlify.
+## Verificación
+
+Después del despliegue abre:
+
+`/api/health`
+
+Debe responder con `version: 8.0.0`.
