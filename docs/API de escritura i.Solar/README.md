@@ -52,12 +52,21 @@ Respuesta del servidor:
 {"code":0,"message":"successful","data":null}
 ```
 
-### Interpretación actual
+### Mapeo validado
 
 - Slot/comando: `S017`
 - Código de parámetro: `PBDC`
 - Valor enviado: `030`
-- La nomenclatura del comando es consistente con un valor objetivo de **30 %**, pero debe confirmarse con el valor exacto seleccionado en la app oficial antes de marcar el mapeo como completamente validado.
+- Valor seleccionado en la app oficial: **30 %**
+- Estado: **VALIDADO**
+
+Mapa confirmado:
+
+```text
+Battery Capacity Redischarge 30% = {"S017":"PBDC030"}
+```
+
+La evidencia queda confirmada por el usuario: el parámetro fue cambiado y dejado seteado en **30 %** durante la captura.
 
 ### Relación funcional observada por el usuario
 
