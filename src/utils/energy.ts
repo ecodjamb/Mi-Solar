@@ -181,6 +181,8 @@ export function dedupeRows(rows:HistoryRow[]){
   return [...map.values()];
 }
 export function integrate(rows:HistoryRow[], selector:(r:HistoryRow)=>number){
+  const aggregated=rows.some(row=>Number(row.aggregateSamples||0)>0);
+  if(aggregated)return dedupeRows(rows).reduce((wh,row)=>wh+Math.max(0,selector(row))*Math.min(1,Math.max(1,Number(row.aggregateSamples||12))/12),0)/1000;
   const pts=dedupeRows(rows).map(r=>({t:rowTimestamp(r),p:Math.max(0,selector(r))})).filter((x):x is {t:Date;p:number}=>Boolean(x.t)).sort((a,b)=>a.t.getTime()-b.t.getTime());
   if(pts.length<2) return 0;
   const intervals:number[]=[]; for(let i=1;i<pts.length;i++){const h=(pts[i].t.getTime()-pts[i-1].t.getTime())/36e5;if(h>0&&h<=1)intervals.push(h);}
