@@ -48,6 +48,14 @@ export const pvVoltage=(d:Record<string,unknown>,index:1|2)=>firstNumber(d,index
 export const pvCurrent=(d:Record<string,unknown>,index:1|2)=>firstNumber(d,index===1?[...KEYS.pv1Current]:[...KEYS.pv2Current]);
 export const loadPower=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.loadPower]);
 export const gridPower=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.gridPower]);
+export function gridUsage(d:Record<string,unknown>){
+  const status=firstNumberWithSource(d,[...KEYS.statusGrid]);
+  if(status.key)return {active:status.value===1,status:status.value,source:status.key};
+  const power=gridPower(d);
+  return {active:Math.abs(power)>10,status:null,source:'potencia de red (respaldo)'};
+}
+/** Potencia instantánea efectiva. El acumulado diario conserva gridPower sin este filtro. */
+export const effectiveGridPower=(d:Record<string,unknown>)=>gridUsage(d).active?gridPower(d):0;
 export const batteryChargePower=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.chargePower]);
 export const batteryDischargePower=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.dischargePower]);
 export const batterySoc=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.soc]);
@@ -98,6 +106,9 @@ function apiFormat(d:Date){const p=zonedParts(d,API_TZ);return `${p.year}-${p.mo
 function dateAdd(date:string,days:number){const [y,m,d]=date.split('-').map(Number);const x=new Date(Date.UTC(y,m-1,d+days));return x.toISOString().slice(0,10);}
 export function siteDayBoundsUtc(date=formatSiteDate()){
   return {start:zonedLocalToUtc(`${date} 00:00:00`,SITE_TZ),end:zonedLocalToUtc(`${dateAdd(date,1)} 00:00:00`,SITE_TZ)};
+}
+export function siteRangeUtc(start:string,endExclusive:string){
+  return {start:zonedLocalToUtc(`${start} 00:00:00`,SITE_TZ).toISOString(),end:zonedLocalToUtc(`${endExclusive} 00:00:00`,SITE_TZ).toISOString()};
 }
 /** Query widened to complete API calendar days; exact Santiago filtering happens client-side. */
 export function chileDayApiRange(date=formatSiteDate()){
@@ -174,7 +185,7 @@ export function technicalCatalog(d:Record<string,unknown>,summary:Record<string,
   return [
     {title:'Solar / MPPT',items:[item(merged,'pv1Power','Potencia PV1',[...KEYS.pv1Power],'W'),item(merged,'pv1Voltage','Voltaje PV1',[...KEYS.pv1Voltage],'V'),item(merged,'pv1Current','Corriente PV1',[...KEYS.pv1Current],'A'),item(merged,'pv2Power','Potencia PV2',[...KEYS.pv2Power],'W'),item(merged,'pv2Voltage','Voltaje PV2',[...KEYS.pv2Voltage],'V'),item(merged,'pv2Current','Corriente PV2',[...KEYS.pv2Current],'A')]},
     {title:'Salida / cargas',items:[item(merged,'loadPower','Potencia de carga',[...KEYS.loadPower],'W'),item(merged,'loadPercent','Carga del inversor',[...KEYS.loadPercent],'%'),item(merged,'outputVoltage','Voltaje de salida',[...KEYS.outputVoltage],'V'),item(merged,'outputFrequency','Frecuencia de salida',[...KEYS.outputFrequency],'Hz')]},
-    {title:'Red eléctrica',items:[item(merged,'gridPower','Potencia de red',[...KEYS.gridPower],'W'),item(merged,'gridVoltage','Voltaje de red',[...KEYS.gridVoltage],'V'),item(merged,'gridFrequency','Frecuencia de red',[...KEYS.gridFrequency],'Hz')]},
+    {title:'Red eléctrica',items:[item(merged,'gridPower','Potencia de red',[...KEYS.gridPower],'W'),item(merged,'statusGrid','Uso efectivo de red',[...KEYS.statusGrid]),item(merged,'gridVoltage','Voltaje de red',[...KEYS.gridVoltage],'V'),item(merged,'gridFrequency','Frecuencia de red',[...KEYS.gridFrequency],'Hz')]},
     {title:'Batería',items:[item(merged,'soc','Estado de carga',[...KEYS.soc],'%'),item(merged,'batteryVoltage','Voltaje de batería',[...KEYS.batteryVoltage],'V'),item(merged,'batteryCurrent','Corriente de batería',[...KEYS.batteryCurrent],'A'),item(merged,'chargePower','Potencia de carga',[...KEYS.chargePower],'W'),item(merged,'dischargePower','Potencia de descarga',[...KEYS.dischargePower],'W')]},
     {title:'Inversor',items:[textItem(merged,'workMode','Modo de trabajo',[...KEYS.workMode]),item(merged,'temperature','Temperatura interna',[...KEYS.temperature],'°C'),item(merged,'heatsinkTemperature','Temperatura disipador',[...KEYS.heatsinkTemperature],'°C'),item(merged,'statusInverter','Estado inversor',[...KEYS.statusInverter]),item(merged,'fault','Código de falla',[...KEYS.fault1]),item(merged,'warning','Código de advertencia',[...KEYS.warning1])]},
     {title:'Estados digitales',items:[item(merged,'statusSolar1','Estado PV1',[...KEYS.statusSolar1]),item(merged,'statusSolar2','Estado PV2',[...KEYS.statusSolar2]),item(merged,'statusGrid','Estado red',[...KEYS.statusGrid]),item(merged,'statusBattery','Estado batería',[...KEYS.statusBattery]),item(merged,'statusLoad','Estado carga',[...KEYS.statusLoad])]}];

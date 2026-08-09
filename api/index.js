@@ -1,5 +1,6 @@
 import { md5, tumRequest } from './lib/tumcapp.js';
 import { clearCookie, openSession, sessionCookie, SESSION_IDLE_MS } from './lib/session.js';
+import { archiveRows, readArchive } from './lib/archive.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
   res.statusCode = statusCode;
@@ -103,8 +104,8 @@ async function openMeteo(lat, lon) {
   url.searchParams.set('current', 'temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day,cloud_cover,precipitation');
   url.searchParams.set('hourly', 'shortwave_radiation,cloud_cover,precipitation,weather_code');
   url.searchParams.set('daily', 'sunrise,sunset,shortwave_radiation_sum,weather_code');
-  url.searchParams.set('past_days', '31');
-  url.searchParams.set('forecast_days', '7');
+  url.searchParams.set('past_days', '60');
+  url.searchParams.set('forecast_days', '14');
   url.searchParams.set('timezone', 'America/Santiago');
   const response = await fetch(url, { headers: { Accept: 'application/json' } });
   if (!response.ok) throw new Error(`Open-Meteo HTTP ${response.status}`);
@@ -141,7 +142,7 @@ export default async function handler(req, res) {
 
   try {
     if (method === 'GET' && route === 'health') {
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.3.2', time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.6.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), time: new Date().toISOString() });
     }
 
     if (method === 'GET' && route === 'weather') {
@@ -229,6 +230,7 @@ export default async function handler(req, res) {
         params: { deviceSn: sn }, token: session.token, vrtKey: session.vrtKey
       });
       session.token = result.token;
+      try { await archiveRows(sn, [result.payload.data || {}], { bucketMinutes: 5 }); } catch (archiveError) { console.error('Archive realtime:', archiveError); }
       return sendJson(res, 200, { data: result.payload.data || {} }, { 'Set-Cookie': sessionCookie(session) });
     }
 
@@ -271,6 +273,7 @@ export default async function handler(req, res) {
         if (!flagSaysMore && !totalSaysMore) break;
         pageNum += 1;
       }
+      try { await archiveRows(sn, list); } catch (archiveError) { console.error('Archive history:', archiveError); }
       return sendJson(res, 200, {
         list,
         total,
@@ -278,6 +281,18 @@ export default async function handler(req, res) {
         pages: pageNum,
         elapsedMs: Date.now() - startedAt
       }, { 'Set-Cookie': sessionCookie(session) });
+    }
+
+    const archive = route.match(/^devices\/([^/]+)\/archive$/);
+    if (method === 'GET' && archive) {
+      requireSession(req);
+      const sn = decodeURIComponent(archive[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      const start = String(req.query?.start || '');
+      const end = String(req.query?.end || '');
+      if (!start || !end || !Number.isFinite(Date.parse(start)) || !Number.isFinite(Date.parse(end))) return sendJson(res, 400, { error: 'Rango de archivo inválido.' });
+      const stored = await readArchive(sn, new Date(start).toISOString(), new Date(end).toISOString());
+      return sendJson(res, 200, { list: stored.rows, total: stored.rows.length, source: 'misolar-archive', configured: stored.configured });
     }
 
     const summary = route.match(/^devices\/([^/]+)\/summary$/);

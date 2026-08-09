@@ -9,10 +9,12 @@ import {
   batterySoc,
   batteryVoltage,
   detectPvCount,
+  effectiveGridPower,
   firstNumber,
   firstText,
   gridFrequency,
   gridPower,
+  gridUsage,
   gridVoltage,
   heatsinkTemperature,
   inverterTemperature,
@@ -135,12 +137,12 @@ function Node({ className, icon: Icon, title, value, status, accumulated, detail
 
 export default function SimpleEnergyFlow({ data, history, today }: { data: Realtime; history: HistoryRow[]; today: DailyEnergy }) {
   const p1 = pvPower(data, 1), p2 = pvPower(data, 2), solar = p1 + p2;
-  const load = loadPower(data), grid = gridPower(data);
+  const load = loadPower(data), rawGrid = gridPower(data), gridState=gridUsage(data), grid = effectiveGridPower(data);
   const charge = batteryChargePower(data), discharge = batteryDischargePower(data), soc = batterySoc(data);
   const pvCount = detectPvCount(data, history);
   const batteryStatus = charge > discharge ? `Cargando ${watts(charge)}` : discharge > 0 ? `Entregando ${watts(discharge)}` : 'En espera';
   const gridStatus = grid < 0 ? 'Exportando' : grid > 0 ? 'Importando' : 'Sin intercambio';
-  const inverterPower = Math.max(load, solar + Math.max(grid, 0) + discharge);
+  const inverterPower = Math.max(load, solar + discharge);
   const solarStatus = pvCount === 2 ? `PV1 ${watts(p1)} · PV2 ${watts(p2)}` : 'Un MPPT detectado';
   const outV = outputVoltage(data);
   const outF = outputFrequency(data);
@@ -182,7 +184,10 @@ export default function SimpleEnergyFlow({ data, history, today }: { data: Realt
   ];
 
   const gridDetails: Detail[] = [
-    { label: 'Potencia de red', value: watts(Math.abs(grid)) },
+    { label: 'Potencia efectiva', value: watts(Math.abs(grid)) },
+    { label: 'Lectura bruta', value: watts(Math.abs(rawGrid)) },
+    { label: 'Uso efectivo (0/1)', value: gridState.status===null?'Inferido':String(gridState.status) },
+    { label: 'Parámetro de estado', value: gridState.source },
     { label: 'Sentido', value: gridStatus },
     { label: 'Voltaje', value: `${gridVoltage(data).toFixed(1)} V` },
     { label: 'Frecuencia', value: `${gridFrequency(data).toFixed(1)} Hz` },
