@@ -68,3 +68,14 @@ create policy misolar_backend_samples_insert on public.energy_samples for insert
 create policy misolar_backend_samples_update on public.energy_samples for update to anon using ((select private.request_is_misolar())) with check ((select private.request_is_misolar()));
 
 comment on table public.energy_samples is 'Respaldo permanente de telemetría Mi Solar; acceso exclusivo del backend.';
+
+create or replace view public.energy_hourly with (security_invoker = true) as
+select site_id,date_trunc('hour',sample_at) bucket_at,avg(solar_w)::numeric(12,2) solar_w,avg(load_w)::numeric(12,2) load_w,avg(grid_w)::numeric(12,2) grid_w,avg(battery_charge_w)::numeric(12,2) battery_charge_w,avg(battery_discharge_w)::numeric(12,2) battery_discharge_w,avg(battery_soc)::numeric(8,2) battery_soc,count(*)::integer samples
+from public.energy_samples group by site_id,date_trunc('hour',sample_at);
+create or replace view public.energy_daily with (security_invoker = true) as
+select site_id,date_trunc('day',sample_at) bucket_at,avg(solar_w)::numeric(12,2) solar_w,avg(load_w)::numeric(12,2) load_w,avg(grid_w)::numeric(12,2) grid_w,avg(battery_charge_w)::numeric(12,2) battery_charge_w,avg(battery_discharge_w)::numeric(12,2) battery_discharge_w,avg(battery_soc)::numeric(8,2) battery_soc,count(*)::integer samples
+from public.energy_samples group by site_id,date_trunc('day',sample_at);
+revoke all on public.energy_hourly from public,anon,authenticated;
+revoke all on public.energy_daily from public,anon,authenticated;
+grant select on public.energy_hourly to anon;
+grant select on public.energy_daily to anon;

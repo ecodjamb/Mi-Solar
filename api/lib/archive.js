@@ -72,3 +72,22 @@ export async function readArchive(deviceSn,startIso,endIso){
   const rows=await rest(`energy_samples?site_id=eq.${sites[0].id}&sample_at=gte.${encodeURIComponent(startIso)}&sample_at=lt.${encodeURIComponent(endIso)}&select=raw&order=sample_at.asc&limit=20000`);
   return {rows:(rows||[]).map(item=>item.raw),configured:true};
 }
+
+export async function readArchiveSeries(deviceSn,startIso,endIso,resolution='hour'){
+  if(!config())return {rows:[],configured:false};
+  const sites=await rest(`solar_sites?device_sn=eq.${encodeURIComponent(deviceSn)}&select=id&limit=1`);
+  if(!sites?.[0]?.id)return {rows:[],configured:true};
+  const view=resolution==='day'?'energy_daily':'energy_hourly';
+  const rows=await rest(`${view}?site_id=eq.${sites[0].id}&bucket_at=gte.${encodeURIComponent(startIso)}&bucket_at=lt.${encodeURIComponent(endIso)}&select=bucket_at,solar_w,load_w,grid_w,battery_charge_w,battery_discharge_w,battery_soc,samples&order=bucket_at.asc&limit=10000`);
+  return {rows:(rows||[]).map(row=>({
+    currentTime:row.bucket_at,
+    pvInputPower1:Number(row.solar_w||0),
+    pvInputPower2:0,
+    acOutputActivePowerTotal:Number(row.load_w||0),
+    gridPowerInputActiveTotal:Number(row.grid_w||0),
+    batteryChargingPower:Number(row.battery_charge_w||0),
+    batteryDischargingPower:Number(row.battery_discharge_w||0),
+    batteryCapacity:row.battery_soc==null?undefined:Number(row.battery_soc),
+    aggregateSamples:Number(row.samples||0)
+  })),configured:true,resolution};
+}

@@ -1,6 +1,6 @@
 import { md5, tumRequest } from './lib/tumcapp.js';
 import { clearCookie, openSession, sessionCookie, SESSION_IDLE_MS } from './lib/session.js';
-import { archiveRows, readArchive } from './lib/archive.js';
+import { archiveRows, readArchive, readArchiveSeries } from './lib/archive.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
   res.statusCode = statusCode;
@@ -142,7 +142,7 @@ export default async function handler(req, res) {
 
   try {
     if (method === 'GET' && route === 'health') {
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.6.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.7.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), time: new Date().toISOString() });
     }
 
     if (method === 'GET' && route === 'weather') {
@@ -293,6 +293,19 @@ export default async function handler(req, res) {
       if (!start || !end || !Number.isFinite(Date.parse(start)) || !Number.isFinite(Date.parse(end))) return sendJson(res, 400, { error: 'Rango de archivo inválido.' });
       const stored = await readArchive(sn, new Date(start).toISOString(), new Date(end).toISOString());
       return sendJson(res, 200, { list: stored.rows, total: stored.rows.length, source: 'misolar-archive', configured: stored.configured });
+    }
+
+    const archiveSeries = route.match(/^devices\/([^/]+)\/archive-series$/);
+    if (method === 'GET' && archiveSeries) {
+      requireSession(req);
+      const sn = decodeURIComponent(archiveSeries[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      const start = String(req.query?.start || '');
+      const end = String(req.query?.end || '');
+      const resolution = req.query?.resolution === 'day' ? 'day' : 'hour';
+      if (!start || !end || !Number.isFinite(Date.parse(start)) || !Number.isFinite(Date.parse(end))) return sendJson(res, 400, { error: 'Rango de serie inválido.' });
+      const stored = await readArchiveSeries(sn, new Date(start).toISOString(), new Date(end).toISOString(), resolution);
+      return sendJson(res, 200, { list: stored.rows, total: stored.rows.length, source: 'misolar-archive', resolution: stored.resolution, configured: stored.configured });
     }
 
     const summary = route.match(/^devices\/([^/]+)\/summary$/);

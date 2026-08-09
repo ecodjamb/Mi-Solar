@@ -27,6 +27,14 @@
 ## 8.0.0
 
 - Migración estable desde Netlify a Vercel.
+# V8.7.0
+
+- Gráfico histórico unificado y responsivo para escritorio y celular.
+- Períodos seleccionables: 5 h, 12 h, 24 h, 7 d, 14 d, 1 mes, 6 meses y 1 año.
+- Zoom, restauración y exportación incorporados a todos los gráficos.
+- Carga histórica guiada: El Arrayán desde julio de 2026 y Puerto Montt por 12 meses.
+- Series horarias y diarias agregadas en Supabase para consultas extensas eficientes.
+
 # V8.6.0
 
 - Colores de viñetas, puntos y líneas sincronizados en todos los gráficos energéticos.

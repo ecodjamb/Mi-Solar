@@ -8,7 +8,6 @@ import DailyQuote from './components/DailyQuote';
 import FunModeToggle from './components/FunModeToggle';
 import EChart from './components/EChart';
 import PowerGauge from './components/PowerGauge';
-import EnergyMetricChart from './components/EnergyMetricChart';
 import SolarForecastPage from './components/SolarForecastPage';
 import HouseIllustration from './components/HouseIllustration';
 import RecentEnergyChart from './components/RecentEnergyChart';
@@ -16,11 +15,12 @@ import CoverageCard from './components/CoverageCard';
 import DataQualityCard from './components/DataQualityCard';
 import EnergyTimeline from './components/EnergyTimeline';
 import HistoryExplorer from './components/HistoryExplorer';
+import EnergyRangeChart from './components/EnergyRangeChart';
+import HistoricalBackfill from './components/HistoricalBackfill';
 import { api } from './services/api';
 import { fetchWeather, type WeatherData } from './services/weather';
 import { accumulatedTheoreticalToday, calibrateSolarModel, expectedPowerNow, theoreticalDayKwh } from './utils/solarForecast';
 import type { DailyEnergy, Device, HistoryRow, PageKey, Realtime } from './types';
-import { cumulativeDays, dayGrid, dayLoad, daySolar } from './utils/charts';
 import { siteProfile,siteStorageKey } from './utils/site';
 import { APP_VERSION, REFRESH_POLICY, SESSION_POLICY } from './config';
 import { readSiteCache, writeSiteCache } from './services/siteCache';
@@ -283,9 +283,6 @@ export default function App(){
   if(auth===null)return <div className="boot">Cargando Mi Solar…</div>;
   if(!auth)return <Login done={()=>setAuth(true)}/>;
 
-  const dayLoadSeries=dayLoad(history),daySolarSeries=daySolar(history),dayGridSeries=dayGrid(history);
-  const weekLoadSeries=cumulativeDays(weekDaily,'load'),weekSolarSeries=cumulativeDays(weekDaily,'solar'),weekGridSeries=cumulativeDays(weekDaily,'gridImport');
-  const monthLoadSeries=cumulativeDays(daily,'load'),monthSolarSeries=cumulativeDays(daily,'solar'),monthGridSeries=cumulativeDays(daily,'gridImport');
   const selfConsumed=(energy:DailyEnergy)=>Math.max(0,energy.solar-energy.gridExport);
   const avoided=(energy:DailyEnergy)=>selfConsumed(energy)*tariff+energy.gridExport*feedInTariff;
   const gross=(energy:DailyEnergy)=>energy.solar*tariff;
@@ -331,11 +328,11 @@ export default function App(){
 
       {page==='charts'&&<section className="analytics-page">
         <header className="analytics-title"><div><small>Análisis energético</small><h1>Gráficos y acumulados</h1><p>Todos los cortes pertenecen exclusivamente a la instalación seleccionada y usan el día calendario de Chile.</p></div><section className="panel gauge-card"><PowerGauge value={load}/><div className="gauge-note"><span className="safe-dot"/>0–5 kW normal <span className="danger-dot"/>más de 5 kW alto</div></section></header>
+        <EnergyRangeChart deviceSn={selected} siteLabel={siteLabel}/>
+        <section className="analytics-period-summary"><article className="panel"><small>Hoy</small><strong>{kwh(today.solar)}</strong><p>Solar · consumo {kwh(today.load)} · red {kwh(today.gridImport)}</p></article><article className="panel"><small>Esta semana</small><strong>{kwh(week.solar)}</strong><p>Solar · consumo {kwh(week.load)} · red {kwh(week.gridImport)}</p></article><article className="panel"><small>Este mes</small><strong>{kwh(month.solar)}</strong><p>Solar · consumo {kwh(month.load)} · red {kwh(month.gridImport)}</p></article></section>
+        <HistoricalBackfill devices={devices}/>
         <HistoryExplorer deviceSn={selected} siteLabel={siteLabel}/>
         <section className="panel pv-day-card"><header><div><small>Aporte fotovoltaico acumulado de hoy</small><h2>PV1 vs. PV2</h2></div><strong>{kwh(today.solar)}</strong></header><div className="pv-day-row"><span>PV1</span><div className="pv-day-track"><i style={{width:`${today.solar?Math.max(2,today.pv1/today.solar*100):0}%`}}/></div><b>{kwh(today.pv1)}</b></div>{detectPvCount(realtime,monthRows)===2&&<div className="pv-day-row pv2-day"><span>PV2</span><div className="pv-day-track"><i style={{width:`${today.solar?Math.max(2,today.pv2/today.solar*100):0}%`}}/></div><b>{kwh(today.pv2)}</b></div>}<p>Datos integrados desde las 00:00 de Chile; no son los watts instantáneos.</p></section>
-        <div className="analytics-section"><h2>Hoy</h2><div className="metric-chart-grid"><EnergyMetricChart title="Consumo" subtitle="Desde las 00:00" labels={dayLoadSeries.labels} values={dayLoadSeries.values} color="#aa73ff"/><EnergyMetricChart title="Generación solar" subtitle="PV1 + PV2" labels={daySolarSeries.labels} values={daySolarSeries.values} color="#efbd34"/><EnergyMetricChart title="Red importada" subtitle="Energía acumulada" labels={dayGridSeries.labels} values={dayGridSeries.values} color="#4f9fff"/></div></div>
-        <div className="analytics-section"><h2>Esta semana</h2><div className="metric-chart-grid"><EnergyMetricChart title="Consumo" subtitle="Semana actual" labels={weekLoadSeries.labels} values={weekLoadSeries.values} color="#aa73ff"/><EnergyMetricChart title="Generación solar" subtitle="PV1 + PV2" labels={weekSolarSeries.labels} values={weekSolarSeries.values} color="#efbd34"/><EnergyMetricChart title="Red importada" subtitle="Energía acumulada" labels={weekGridSeries.labels} values={weekGridSeries.values} color="#4f9fff"/></div></div>
-        <div className="analytics-section"><h2>Este mes</h2><div className="metric-chart-grid"><EnergyMetricChart title="Consumo" subtitle="Mes en curso" labels={monthLoadSeries.labels} values={monthLoadSeries.values} color="#aa73ff"/><EnergyMetricChart title="Generación solar" subtitle="PV1 + PV2" labels={monthSolarSeries.labels} values={monthSolarSeries.values} color="#efbd34"/><EnergyMetricChart title="Red importada" subtitle="Energía acumulada" labels={monthGridSeries.labels} values={monthGridSeries.values} color="#4f9fff"/></div></div>
         <section className="analytics-summary-grid"><article className="panel stat"><small>Consumo semana</small><strong>{kwh(week.load)}</strong></article><article className="panel stat"><small>Solar semana</small><strong>{kwh(week.solar)}</strong></article><article className="panel stat"><small>Red semana</small><strong>{kwh(week.gridImport)}</strong></article><article className="panel stat"><small>Consumo mes</small><strong>{kwh(month.load)}</strong></article><article className="panel stat"><small>Solar mes</small><strong>{kwh(month.solar)}</strong></article><article className="panel stat"><small>Red importada mes</small><strong>{kwh(month.gridImport)}</strong></article><article className="panel stat"><small>Red exportada mes</small><strong>{kwh(month.gridExport)}</strong></article><article className="panel stat"><small>Carga batería mes</small><strong>{kwh(month.charge)}</strong></article><article className="panel stat"><small>Descarga batería mes</small><strong>{kwh(month.discharge)}</strong></article></section>
       </section>}
 
