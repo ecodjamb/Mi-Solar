@@ -27,6 +27,12 @@
 ## 8.0.0
 
 - Migración estable desde Netlify a Vercel.
+# V8.8.1
+
+- Diagrama de flujo trasladado al primer lugar de la pantalla de inicio.
+- Botón de información del inversor reducido para mantener visible la potencia.
+- Nueva barra diaria y mensual con el consumo total y su cobertura por red o por solar/batería, en kWh y porcentajes.
+
 # V8.8.0
 
 - El diagrama de flujo conserva en celular el diseño radial, las líneas y partículas animadas de escritorio.

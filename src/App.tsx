@@ -17,6 +17,7 @@ import EnergyTimeline from './components/EnergyTimeline';
 import HistoryExplorer from './components/HistoryExplorer';
 import EnergyRangeChart from './components/EnergyRangeChart';
 import HistoricalBackfill from './components/HistoricalBackfill';
+import LoadCoverageBar from './components/LoadCoverageBar';
 import { api } from './services/api';
 import { fetchWeather, type WeatherData } from './services/weather';
 import { accumulatedTheoreticalToday, calibrateSolarModel, expectedPowerNow, theoreticalDayKwh } from './utils/solarForecast';
@@ -305,6 +306,7 @@ export default function App(){
       {historyProgress&&<div className="history-progress">{historyProgress}</div>}
 
       {page==='home'&&<>
+        <SimpleEnergyFlow data={displayedData} history={monthRows} today={today}/>
         <EnergyTimeline rows={history} index={timelineIndex} onChange={setTimelineIndex}/>
         <section className="kpi-grid kpi-grid-six">
           <KpiCard icon={Sun} label="Producción solar" value={watts(solar)} detail={`Hoy: ${kwh(today.solar)} · esperado ahora ${watts(expectedSolarNow)}`} tone="solar"/>
@@ -315,7 +317,7 @@ export default function App(){
           <KpiCard icon={CircleDollarSign} label="Ahorro real hoy" value={clp(savings)} detail={`Autoconsumo ${kwh(selfConsumed(today))}`} tone="green"/>
         </section>
         <DailyQuote/>
-        <SimpleEnergyFlow data={displayedData} history={monthRows} today={today}/>
+        <LoadCoverageBar today={today} month={month}/>
         <RecentEnergyChart rows={history} siteLabel={siteLabel}/>
         <HouseIllustration weather={weather} funMode={funMode} siteName={device?.nickName||'Casa ECO Arrayán'}/>
         <div className="home-grid secondary-home-grid"><aside className="side-stack">
