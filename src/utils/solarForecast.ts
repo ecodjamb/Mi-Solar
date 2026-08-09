@@ -9,13 +9,35 @@ export type SolarModel={
   liveCorrection:number;
   hourlyShade:number[];
   seasonalSamples:{date:string;ratio:number}[];
+  siteKey:'arrayan'|'puerto-montt';
 };
+
+export type SeasonKey='summer'|'autumn'|'winter'|'spring';
+export type SeasonProfile={key:SeasonKey;name:string;months:string;generation:[number,number];nightLoad:[number,number];sunHours:[number,number];radiation:[number,number];balance?:[number,number];generationNote?:string;summary:string;battery:string};
+
+export const SEASON_PROFILES:Record<'arrayan'|'puerto-montt',Record<SeasonKey,SeasonProfile>>={
+  arrayan:{
+    winter:{key:'winter',name:'Invierno',months:'Junio · Julio · Agosto',generation:[6.7,6.7],nightLoad:[18,18],sunHours:[10,10],radiation:[3,4],balance:[-36,-36],generationNote:'Dato real promedio indicado en la infografía.',summary:'Pocas horas de sol, sol muy bajo y sombras fuertes de árboles laterales.',battery:'10 kWh: difícil de llenar; 15 kWh: aún más difícil.'},
+    spring:{key:'spring',name:'Primavera',months:'Septiembre · Octubre · Noviembre',generation:[16,22],nightLoad:[12,12],sunHours:[11,12],radiation:[5,6],balance:[-27,-21],summary:'Sol más alto, menos sombra y generación creciente.',battery:'10 kWh se aprovecha bien; 15 kWh puede llenarse en días buenos.'},
+    summer:{key:'summer',name:'Verano',months:'Diciembre · Enero · Febrero',generation:[30,40],nightLoad:[9,10],sunHours:[14,14],radiation:[8,10],balance:[-13,-3],generationNote:'En días excepcionales puede superar 45 kWh.',summary:'Más horas de sol, sombra mínima y excedentes frecuentes.',battery:'10 kWh se llena temprano; 15 kWh ofrece mejor equilibrio.'},
+    autumn:{key:'autumn',name:'Otoño',months:'Marzo · Abril · Mayo',generation:[14,20],nightLoad:[16,16],sunHours:[11,12],radiation:[5,7],balance:[-29,-23],summary:'Bajan progresivamente el sol, las horas y la generación.',battery:'10 kWh razonable; 15 kWh útil, aunque no se llena todos los días.'}
+  },
+  'puerto-montt':{
+    winter:{key:'winter',name:'Invierno',months:'Junio · Julio · Agosto',generation:[3,6],nightLoad:[5,9],sunHours:[8,9],radiation:[2,3],summary:'Días cortos, nubosidad y lluvia frecuentes; referencia ajustada al rendimiento real local.',battery:'La generación se prioriza para consumo y recuperación mínima de batería.'},
+    spring:{key:'spring',name:'Primavera',months:'Septiembre · Octubre · Noviembre',generation:[5,9],nightLoad:[5,8],sunHours:[11,13],radiation:[3.5,5],summary:'Aumentan las horas de luz, con alta variabilidad por nubosidad costera.',battery:'Mejora la recuperación diaria, pero se conserva margen para días lluviosos.'},
+    summer:{key:'summer',name:'Verano',months:'Diciembre · Enero · Febrero',generation:[7,12],nightLoad:[4,7],sunHours:[14,16],radiation:[4.5,6],summary:'Máxima duración del día; la nubosidad sigue siendo el principal ajuste.',battery:'Mayor probabilidad de carga completa y menor uso del generador.'},
+    autumn:{key:'autumn',name:'Otoño',months:'Marzo · Abril · Mayo',generation:[4,8],nightLoad:[5,8],sunHours:[10,12],radiation:[3,4.5],summary:'La producción disminuye con rapidez y aumenta la dependencia del respaldo.',battery:'Conviene reservar carga para la noche y vigilar varios días consecutivos nublados.'}
+  }
+};
+
+export function seasonForDate(date:string):SeasonKey{const month=Number(date.slice(5,7));if(month===12||month<=2)return'summer';if(month<=5)return'autumn';if(month<=8)return'winter';return'spring'}
+export const seasonProfile=(date:string,siteKey:'arrayan'|'puerto-montt')=>SEASON_PROFILES[siteKey][seasonForDate(date)];
 
 // Perfil inicial de El Arrayán: pérdidas por obstáculos del horizonte, separadas
 // del factor meteorológico. Queda centralizado para recalibrarlo con el documento.
 const ARRAYAN_SHADE=[0,0,0,0,0,0,.28,.48,.64,.76,.84,.9,.92,.9,.86,.8,.7,.55,.3,.08,0,0,0,0];
-function shadeProfile(installedWp:number){
-  if(installedWp<=5000)return Array(24).fill(1);
+function shadeProfile(siteKey:'arrayan'|'puerto-montt'){
+  if(siteKey==='puerto-montt')return Array(24).fill(1);
   // El factor histórico ya incorpora la pérdida diaria total. Normalizar evita
   // contarla dos veces y distribuye esa pérdida en las horas donde ocurre.
   const daylight=ARRAYAN_SHADE.filter(value=>value>0);
@@ -34,7 +56,7 @@ function siteDate(now=new Date()){
   return now.toLocaleDateString('en-CA',{timeZone:'America/Santiago'});
 }
 
-export function calibrateSolarModel(actual:DailyEnergy[],radiation:RadiationDay[],installedWp=8680, todayActual?:DailyEnergy):SolarModel{
+export function calibrateSolarModel(actual:DailyEnergy[],radiation:RadiationDay[],installedWp=8680, todayActual?:DailyEnergy,siteKey:'arrayan'|'puerto-montt'='arrayan'):SolarModel{
   const byDate=new Map(radiation.map(r=>[r.date,r.shortwaveKwhM2]));
   const today=siteDate();
   const completed=actual
@@ -69,8 +91,9 @@ export function calibrateSolarModel(actual:DailyEnergy[],radiation:RadiationDay[
     sampleDays:ratios.length,
     medianErrorPct:median(errors),
     liveCorrection,
-    hourlyShade:shadeProfile(installedWp),
-    seasonalSamples
+    hourlyShade:shadeProfile(siteKey),
+    seasonalSamples,
+    siteKey
   };
 }
 
@@ -91,8 +114,17 @@ export function seasonalFactor(date:string,model:SolarModel){
   return Math.max(.25,Math.min(1.05,model.factor*(1-confidence)+local*confidence));
 }
 
-export const theoreticalDayKwh=(radiationKwhM2:number,model:SolarModel,applyLive=false,date=siteDate())=>
-  Math.max(0,radiationKwhM2*model.installedKwp*seasonalFactor(date,model)*(applyLive?model.liveCorrection:1));
+export const theoreticalDayKwh=(radiationKwhM2:number,model:SolarModel,applyLive=false,date=siteDate())=>{
+  const radiationEstimate=Math.max(0,radiationKwhM2*model.installedKwp*seasonalFactor(date,model)*(applyLive?model.liveCorrection:1));
+  const profile=seasonProfile(date,model.siteKey);
+  const seasonalMid=(profile.generation[0]+profile.generation[1])/2;
+  // La infografía aporta una referencia estacional, no un techo. Cuando ya
+  // existe producción real del día, la observación local debe dominar el modelo.
+  const historyConfidence=applyLive?.9:Math.min(.9,.48+model.sampleDays/24);
+  const blended=radiationEstimate*historyConfidence+seasonalMid*(1-historyConfidence);
+  const upperGuard=Math.max(profile.generation[1]*3,radiationEstimate*1.2);
+  return Math.max(0,Math.min(upperGuard,blended));
+};
 
 export function theoreticalSeries(days:RadiationDay[],model:SolarModel){
   const today=siteDate();

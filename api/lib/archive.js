@@ -91,6 +91,7 @@ export async function readArchiveSeries(deviceSn,startIso,endIso,resolution='hou
     batteryChargingPower:Number(row.battery_charge_w||0),
     batteryDischargingPower:Number(row.battery_discharge_w||0),
     batteryCapacity:row.battery_soc==null?undefined:Number(row.battery_soc),
-    aggregateSamples:Number(row.samples||0)
+    aggregateSamples:Number(row.samples||0),
+    aggregateHours:resolution==='day'?24:1
   })),configured:true,resolution};
 }

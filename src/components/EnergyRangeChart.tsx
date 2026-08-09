@@ -12,7 +12,7 @@ const PERIODS:{key:Period;label:string;hours:number}[]=[
   {key:'6m',label:'6 meses',hours:24*183},{key:'1y',label:'1 año',hours:24*366}
 ];
 
-export default function EnergyRangeChart({deviceSn,siteLabel}:{deviceSn:string;siteLabel:string}){
+export default function EnergyRangeChart({deviceSn,siteLabel,gridLabel='Red activa'}:{deviceSn:string;siteLabel:string;gridLabel?:string}){
   const [period,setPeriod]=useState<Period>('24h');
   const [rows,setRows]=useState<HistoryRow[]>([]);
   const [loading,setLoading]=useState(false);
@@ -43,11 +43,11 @@ export default function EnergyRangeChart({deviceSn,siteLabel}:{deviceSn:string;s
     series:[
       {name:'Solar',type:'line',showSymbol:false,smooth:true,data:seriesRows.map(item=>[item.time.getTime(),pvPower(item.row,1)+pvPower(item.row,2)]),lineStyle:{width:3,color:'#efbd34'},itemStyle:{color:'#efbd34'}},
       {name:'Consumo',type:'line',showSymbol:false,smooth:true,data:seriesRows.map(item=>[item.time.getTime(),loadPower(item.row)]),lineStyle:{width:2,color:'#a96fff'},itemStyle:{color:'#a96fff'}},
-      {name:'Red activa',type:'line',showSymbol:false,smooth:true,data:seriesRows.map(item=>[item.time.getTime(),effectiveGridPower(item.row)]),lineStyle:{width:2,color:'#4f9fff'},itemStyle:{color:'#4f9fff'}},
+      {name:gridLabel,type:'line',showSymbol:false,smooth:true,data:seriesRows.map(item=>[item.time.getTime(),effectiveGridPower(item.row)]),lineStyle:{width:2,color:'#4f9fff'},itemStyle:{color:'#4f9fff'}},
       {name:'Aporte sistema solar',type:'line',showSymbol:false,smooth:true,data:seriesRows.map(item=>[item.time.getTime(),solarSystemToLoadPower(item.row)]),lineStyle:{width:2,color:'#49d984'},itemStyle:{color:'#49d984'}},
       {name:'Batería',type:'line',showSymbol:false,smooth:true,data:seriesRows.map(item=>[item.time.getTime(),batteryDischargePower(item.row)]),lineStyle:{width:2,color:'#4bd98a'},itemStyle:{color:'#4bd98a'}}
     ]
-  }),[seriesRows]);
+  }),[seriesRows,gridLabel]);
 
   return <section className="panel range-chart-panel"><header><div><small>Exploración flexible · {siteLabel}</small><h2><CalendarRange size={21}/> Energía en el tiempo</h2></div><span><ZoomIn size={15}/> Arrastra la barra inferior o usa dos dedos para ampliar</span></header><div className="period-selector" role="group" aria-label="Período del gráfico">{PERIODS.map(item=><button type="button" key={item.key} className={period===item.key?'active':''} onClick={()=>setPeriod(item.key)}>{item.label}</button>)}</div>{loading?<div className="chart-loading">Cargando {selected.label}…</div>:message?<div className="chart-loading">{message}</div>:<EChart className="range-energy-chart" option={option}/>}</section>;
 }

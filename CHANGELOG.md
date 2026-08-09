@@ -27,6 +27,16 @@
 ## 8.0.0
 
 - Migración estable desde Netlify a Vercel.
+# V8.9.0
+
+- Modelo de radiación dividido en invierno, primavera, verano y otoño.
+- Parámetros completos de la infografía de El Arrayán incorporados como referencias estacionales.
+- Modelo estacional independiente para Puerto Montt, calibrado con su clima, potencia e historial real.
+- Base permanente priorizada para semanas, meses, consultas históricas y calibración solar.
+- Puerto Montt homologado como sistema off-grid: el parámetro grid se presenta como generador.
+- Costos redactados en lenguaje más claro y gráfico de torta ampliado con kWh y valor monetario.
+- Proyecciones de costos recalculadas con cada nueva hora consolidada del mes.
+
 # V8.8.6
 
 - Costos organizados por mes y año, con el mes actual seleccionado por defecto.
