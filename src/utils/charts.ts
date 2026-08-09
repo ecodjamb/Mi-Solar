@@ -1,5 +1,5 @@
 import type { DailyEnergy, HistoryRow } from '../types';
-import { batteryDischargePower, gridPower, loadPower, parseApiTime, pvPower } from './energy';
+import { batteryDischargePower, effectiveGridPower, loadPower, parseApiTime, pvPower } from './energy';
 
 export function cumulativeRows(rows:HistoryRow[],selector:(row:HistoryRow)=>number){
   const sorted=[...rows].map(row=>({row,time:parseApiTime(row.currentTime??row.createTime??row.collectTime??row.dataTime??row.time)})).filter((x):x is {row:HistoryRow;time:Date}=>Boolean(x.time)).sort((a,b)=>a.time.getTime()-b.time.getTime());
@@ -17,5 +17,5 @@ export function cumulativeDays(days:DailyEnergy[],key:'solar'|'load'|'gridImport
 
 export const daySolar=(rows:HistoryRow[])=>cumulativeRows(rows,r=>pvPower(r,1)+pvPower(r,2));
 export const dayLoad=(rows:HistoryRow[])=>cumulativeRows(rows,loadPower);
-export const dayGrid=(rows:HistoryRow[])=>cumulativeRows(rows,r=>Math.max(0,gridPower(r)));
+export const dayGrid=(rows:HistoryRow[])=>cumulativeRows(rows,r=>Math.max(0,effectiveGridPower(r)));
 export const dayBattery=(rows:HistoryRow[])=>cumulativeRows(rows,batteryDischargePower);

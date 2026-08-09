@@ -10,6 +10,7 @@ export type DailyEnergy = {
   grid:number;
   gridImport:number;
   gridExport:number;
+  gridToLoad:number;
   charge:number;
   discharge:number;
   solarToLoad:number;

@@ -52,7 +52,9 @@ function sample(siteId,row,{bucketMinutes=0}={}){
   if(bucketMinutes){const size=bucketMinutes*60_000;date.setTime(Math.floor(date.getTime()/size)*size)}
   const pv1=first(row,KEYS.pv1),pv2=first(row,KEYS.pv2);
   const statusKey=KEYS.gridStatus.find(key=>row?.[key]!==undefined&&row?.[key]!==null&&row?.[key]!=='');
-  return {site_id:siteId,sample_at:date.toISOString(),solar_w:pv1+pv2,pv1_w:pv1,pv2_w:pv2,load_w:first(row,KEYS.load),grid_w:first(row,KEYS.grid),grid_active:statusKey?first(row,[statusKey])===1:null,battery_charge_w:first(row,KEYS.charge),battery_discharge_w:first(row,KEYS.discharge),battery_soc:first(row,KEYS.soc),raw:row};
+  const rawGrid=first(row,KEYS.grid);
+  const gridActive=statusKey?first(row,[statusKey])===1:Math.abs(rawGrid)>10;
+  return {site_id:siteId,sample_at:date.toISOString(),solar_w:pv1+pv2,pv1_w:pv1,pv2_w:pv2,load_w:first(row,KEYS.load),grid_w:gridActive?rawGrid:0,grid_active:gridActive,battery_charge_w:first(row,KEYS.charge),battery_discharge_w:first(row,KEYS.discharge),battery_soc:first(row,KEYS.soc),raw:row};
 }
 
 export async function archiveRows(deviceSn,rows,options={}){
@@ -78,13 +80,14 @@ export async function readArchiveSeries(deviceSn,startIso,endIso,resolution='hou
   const sites=await rest(`solar_sites?device_sn=eq.${encodeURIComponent(deviceSn)}&select=id&limit=1`);
   if(!sites?.[0]?.id)return {rows:[],configured:true};
   const view=resolution==='day'?'energy_daily':'energy_hourly';
-  const rows=await rest(`${view}?site_id=eq.${sites[0].id}&bucket_at=gte.${encodeURIComponent(startIso)}&bucket_at=lt.${encodeURIComponent(endIso)}&select=bucket_at,solar_w,load_w,grid_w,battery_charge_w,battery_discharge_w,battery_soc,samples&order=bucket_at.asc&limit=10000`);
+  const rows=await rest(`${view}?site_id=eq.${sites[0].id}&bucket_at=gte.${encodeURIComponent(startIso)}&bucket_at=lt.${encodeURIComponent(endIso)}&select=bucket_at,solar_w,load_w,grid_w,grid_active,battery_charge_w,battery_discharge_w,battery_soc,samples&order=bucket_at.asc&limit=10000`);
   return {rows:(rows||[]).map(row=>({
     currentTime:row.bucket_at,
     pvInputPower1:Number(row.solar_w||0),
     pvInputPower2:0,
     acOutputActivePowerTotal:Number(row.load_w||0),
     gridPowerInputActiveTotal:Number(row.grid_w||0),
+    statusGrid:row.grid_active?1:0,
     batteryChargingPower:Number(row.battery_charge_w||0),
     batteryDischargingPower:Number(row.battery_discharge_w||0),
     batteryCapacity:row.battery_soc==null?undefined:Number(row.battery_soc),

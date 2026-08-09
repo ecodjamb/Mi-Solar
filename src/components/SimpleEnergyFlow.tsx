@@ -215,7 +215,7 @@ export default function SimpleEnergyFlow({ data, history, today }: { data: Realt
         <FlowDetails title="Inversor" details={inverterDetails}/>
       </article>
       <Node className="simple-house" icon={House} title="Consumo de la casa" value={watts(load)} status="Consumo instantáneo" accumulated={`Acumulado hoy: ${kwh(today.load)}`} details={houseDetails}/>
-      <Node className="simple-grid" icon={RadioTower} title="Red eléctrica" value={watts(Math.abs(grid))} status={gridStatus} accumulated={`Hoy: importado ${kwh(today.gridImport)} · exportado ${kwh(today.gridExport)}`} details={gridDetails}/>
+      <Node className="simple-grid" icon={RadioTower} title="Red eléctrica · estado 1" value={watts(Math.abs(grid))} status={gridStatus} accumulated={`Hoy: importado activo ${kwh(today.gridImport)} · exportado ${kwh(today.gridExport)}`} details={gridDetails}/>
       <svg className="simple-flow-lines" viewBox="0 0 1000 620" preserveAspectRatio="none" aria-hidden="true">
         <path className={`sf-line sf-solar ${solar > 5 ? 'active' : ''}`} d="M270 145 C390 145 410 270 480 300"/>
         <path className={`sf-line sf-battery ${Math.max(charge, discharge) > 5 ? 'active' : ''}`} d={charge > discharge ? "M480 325 C410 355 390 485 270 485" : "M270 485 C390 485 410 355 480 325"}/>

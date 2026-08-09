@@ -3,7 +3,7 @@ import { CalendarRange, ZoomIn } from 'lucide-react';
 import EChart from './EChart';
 import { api } from '../services/api';
 import type { HistoryRow } from '../types';
-import { batteryDischargePower, gridPower, loadPower, parseApiTime, pvPower } from '../utils/energy';
+import { batteryDischargePower, effectiveGridPower, loadPower, parseApiTime, pvPower, solarToLoadPower } from '../utils/energy';
 
 type Period='5h'|'12h'|'24h'|'7d'|'14d'|'1m'|'6m'|'1y';
 const PERIODS:{key:Period;label:string;hours:number}[]=[
@@ -43,7 +43,8 @@ export default function EnergyRangeChart({deviceSn,siteLabel}:{deviceSn:string;s
     series:[
       {name:'Solar',type:'line',showSymbol:false,smooth:true,data:seriesRows.map(item=>[item.time.getTime(),pvPower(item.row,1)+pvPower(item.row,2)]),lineStyle:{width:3,color:'#efbd34'},itemStyle:{color:'#efbd34'}},
       {name:'Consumo',type:'line',showSymbol:false,smooth:true,data:seriesRows.map(item=>[item.time.getTime(),loadPower(item.row)]),lineStyle:{width:2,color:'#a96fff'},itemStyle:{color:'#a96fff'}},
-      {name:'Red',type:'line',showSymbol:false,smooth:true,data:seriesRows.map(item=>[item.time.getTime(),gridPower(item.row)]),lineStyle:{width:2,color:'#4f9fff'},itemStyle:{color:'#4f9fff'}},
+      {name:'Red activa',type:'line',showSymbol:false,smooth:true,data:seriesRows.map(item=>[item.time.getTime(),effectiveGridPower(item.row)]),lineStyle:{width:2,color:'#4f9fff'},itemStyle:{color:'#4f9fff'}},
+      {name:'Solar directo estimado',type:'line',showSymbol:false,smooth:true,data:seriesRows.map(item=>[item.time.getTime(),solarToLoadPower(item.row)]),lineStyle:{width:2,color:'#49d984'},itemStyle:{color:'#49d984'}},
       {name:'Batería',type:'line',showSymbol:false,smooth:true,data:seriesRows.map(item=>[item.time.getTime(),batteryDischargePower(item.row)]),lineStyle:{width:2,color:'#4bd98a'},itemStyle:{color:'#4bd98a'}}
     ]
   }),[seriesRows]);

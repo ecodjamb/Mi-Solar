@@ -27,6 +27,14 @@
 ## 8.0.0
 
 - Migración estable desde Netlify a Vercel.
+# V8.8.4
+
+- Regla global de red: potencia e históricos válidos únicamente con `statusGrid = 1`.
+- Gráficos principales, históricos y acumulados migrados al cálculo efectivo centralizado.
+- Costos y ahorro recalculados con red activa y solar directo estimado.
+- Equipos y componentes de compatibilidad alineados con el mismo criterio.
+- Archivo permanente normalizado y vistas horarias/diarias corregidas sin alterar el dato bruto de auditoría.
+
 # V8.8.3
 
 - Red diaria integrada únicamente cuando `statusGrid` está activo en 1.

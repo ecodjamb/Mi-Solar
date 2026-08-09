@@ -8,7 +8,7 @@ export default function LoadCoverageBar({today,month,lastUpdate}:{today:DailyEne
   const [period,setPeriod]=useState<Period>('day');
   const energy=period==='day'?today:month;
   const total=Math.max(0,energy.load);
-  const grid=Math.min(total,Math.max(0,energy.gridImport));
+  const grid=Math.min(total,Math.max(0,energy.gridToLoad));
   const local=Math.max(0,total-grid);
   const batteryToLoad=Math.min(local,Math.max(0,energy.batteryToLoad));
   const solarToLoad=Math.max(0,local-batteryToLoad);
@@ -34,7 +34,7 @@ export default function LoadCoverageBar({today,month,lastUpdate}:{today:DailyEne
       <article><span className="coverage-swatch grid-source"/><div><small>Red activa hacia la casa</small><strong>{kwh(grid)}</strong><b>{gridPercent.toFixed(1)}%</b></div></article>
       <article className="coverage-total"><div><small>Consumo total</small><strong>{kwh(total)}</strong><b>{total>0?'100%':'0%'}</b></div></article>
     </div>
-    <div className="load-energy-destinations"><span><small>Producción solar total</small><strong>{kwh(energy.solar)}</strong></span><span><small>Solar estimado hacia batería</small><strong>{kwh(energy.solarToBattery)}</strong></span><span><small>Carga total de batería</small><strong>{kwh(energy.charge)}</strong></span></div>
+    <div className="load-energy-destinations"><span><small>Producción solar total</small><strong>{kwh(energy.solar)}</strong></span><span><small>Solar estimado hacia batería</small><strong>{kwh(energy.solarToBattery)}</strong></span><span><small>Red activa total</small><strong>{kwh(energy.gridImport)}</strong></span><span><small>Carga total de batería</small><strong>{kwh(energy.charge)}</strong></span></div>
     <p className="load-coverage-note">La red solo se integra cuando <strong>statusGrid = 1</strong>. El aporte solar directo se obtiene del saldo local después de descontar la descarga de batería; el destino de carga solar se estima muestra por muestra.</p>
   </section>;
 }

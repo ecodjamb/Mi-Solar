@@ -56,6 +56,22 @@ export function gridUsage(d:Record<string,unknown>){
 }
 /** Potencia efectiva: cuando existe statusGrid, solo cuenta con estado 1. */
 export const effectiveGridPower=(d:Record<string,unknown>)=>gridUsage(d).active?gridPower(d):0;
+export function powerAllocation(d:Record<string,unknown>){
+  const load=Math.max(0,loadPower(d));
+  const solar=Math.max(0,pvPower(d,1)+pvPower(d,2));
+  const grid=Math.max(0,effectiveGridPower(d));
+  const discharge=Math.max(0,batteryDischargePower(d));
+  const charge=Math.max(0,batteryChargePower(d));
+  const batteryToLoad=Math.min(load,discharge);
+  const remainingAfterBattery=Math.max(0,load-batteryToLoad);
+  const gridToLoad=Math.min(remainingAfterBattery,grid);
+  const solarToLoad=Math.max(0,remainingAfterBattery-gridToLoad);
+  const solarToBattery=Math.min(charge,Math.max(0,solar-solarToLoad));
+  return {load,solar,grid,batteryToLoad,gridToLoad,solarToLoad,solarToBattery};
+}
+export const gridToLoadPower=(d:Record<string,unknown>)=>powerAllocation(d).gridToLoad;
+export const solarToLoadPower=(d:Record<string,unknown>)=>powerAllocation(d).solarToLoad;
+export const solarToBatteryPower=(d:Record<string,unknown>)=>powerAllocation(d).solarToBattery;
 export const batteryChargePower=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.chargePower]);
 export const batteryDischargePower=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.dischargePower]);
 export const batterySoc=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.soc]);
@@ -173,10 +189,11 @@ export function integrate(rows:HistoryRow[], selector:(r:HistoryRow)=>number){
 export function dailyEnergy(inputRows:HistoryRow[]):DailyEnergy {
   const rows=dedupeRows(inputRows).sort((a,b)=>Number(rowTimestamp(a))-Number(rowTimestamp(b))); const first=rowTimestamp(rows[0]||{}); const last=rowTimestamp(rows[rows.length-1]||{});
   const gridImport=integrate(rows,r=>Math.max(0,effectiveGridPower(r))); const gridExport=integrate(rows,r=>Math.max(0,-effectiveGridPower(r)));
-  const batteryToLoad=integrate(rows,r=>Math.min(loadPower(r),batteryDischargePower(r)));
-  const solarToLoad=integrate(rows,r=>Math.max(0,loadPower(r)-Math.min(loadPower(r),batteryDischargePower(r))-Math.min(Math.max(0,loadPower(r)-batteryDischargePower(r)),Math.max(0,effectiveGridPower(r)))));
-  const solarToBattery=integrate(rows,r=>Math.min(batteryChargePower(r),Math.max(0,pvPower(r,1)+pvPower(r,2)-Math.max(0,loadPower(r)-Math.min(loadPower(r),batteryDischargePower(r))-Math.min(Math.max(0,loadPower(r)-batteryDischargePower(r)),Math.max(0,effectiveGridPower(r)))))));
-  return {date:'',solar:integrate(rows,r=>pvPower(r,1)+pvPower(r,2)),pv1:integrate(rows,r=>pvPower(r,1)),pv2:integrate(rows,r=>pvPower(r,2)),load:integrate(rows,loadPower),grid:gridImport,gridImport,gridExport,charge:integrate(rows,batteryChargePower),discharge:integrate(rows,batteryDischargePower),solarToLoad,batteryToLoad,solarToBattery,samples:rows.length,firstSample:first?.toISOString(),lastSample:last?.toISOString()};
+  const batteryToLoad=integrate(rows,r=>powerAllocation(r).batteryToLoad);
+  const gridToLoad=integrate(rows,r=>powerAllocation(r).gridToLoad);
+  const solarToLoad=integrate(rows,r=>powerAllocation(r).solarToLoad);
+  const solarToBattery=integrate(rows,r=>powerAllocation(r).solarToBattery);
+  return {date:'',solar:integrate(rows,r=>pvPower(r,1)+pvPower(r,2)),pv1:integrate(rows,r=>pvPower(r,1)),pv2:integrate(rows,r=>pvPower(r,2)),load:integrate(rows,loadPower),grid:gridImport,gridImport,gridExport,gridToLoad,charge:integrate(rows,batteryChargePower),discharge:integrate(rows,batteryDischargePower),solarToLoad,batteryToLoad,solarToBattery,samples:rows.length,firstSample:first?.toISOString(),lastSample:last?.toISOString()};
 }
 export function detectPvCount(d:Record<string,unknown>,rows:HistoryRow[]=[]){const hasPv2=rows.some(r=>pvPower(r,2)>0||pvVoltage(r,2)>0||firstNumber(r,[...KEYS.statusSolar2])===1);return hasPv2||pvPower(d,2)!==0||pvVoltage(d,2)>0||firstNumber(d,[...KEYS.statusSolar2])===1?2:1;}
 export function health(d:Record<string,unknown>){let s=100;if(firstNumber(d,[...KEYS.statusInverter])!==1)s-=25;if(inverterTemperature(d)>55)s-=15;if(firstNumber(d,[...KEYS.fault1])>0)s-=30;if(firstNumber(d,[...KEYS.warning1])>0)s-=10;const a=pvPower(d,1),b=pvPower(d,2);if(a>300&&b>0&&Math.min(a,b)/Math.max(a,b)<.55)s-=10;return Math.max(0,s);}

@@ -1,6 +1,6 @@
 import { Battery, House, PanelsTopLeft, RadioTower, Server } from 'lucide-react';
 import type { HistoryRow, Realtime } from '../../types';
-import { batteryChargePower,batteryDischargePower,batterySoc,detectPvCount,gridPower,loadPower,pvCurrent,pvPower,pvVoltage,watts } from '../../utils/energy';
+import { batteryChargePower,batteryDischargePower,batterySoc,detectPvCount,effectiveGridPower,loadPower,pvCurrent,pvPower,pvVoltage,watts } from '../../utils/energy';
 import { birthdayMessage,birthdayToday,chileParts,dayPhase,moonPhase,panelMood,seasonalTheme,type WeatherMood } from '../../utils/living';
 
 function FlowCard({className,title,value,sub,icon:Icon}:{className:string;title:string;value:string;sub:string;icon:any}){
@@ -39,7 +39,7 @@ function HouseScene({phase,weather,theme,birthday,funMode}:{phase:string;weather
 }
 
 export default function LivingHome({data,history,weather,funMode=true}:{data:Realtime;history:HistoryRow[];weather:WeatherMood;funMode?:boolean}){
- const p1=pvPower(data,1),p2=pvPower(data,2),total=p1+p2,grid=gridPower(data),load=loadPower(data),charge=batteryChargePower(data),discharge=batteryDischargePower(data),soc=batterySoc(data),count=detectPvCount(data,history);
+ const p1=pvPower(data,1),p2=pvPower(data,2),total=p1+p2,grid=effectiveGridPower(data),load=loadPower(data),charge=batteryChargePower(data),discharge=batteryDischargePower(data),soc=batterySoc(data),count=detectPvCount(data,history);
  const phase=dayPhase(),theme=seasonalTheme(),birthday=birthdayToday(),isDay=phase!=='night';
  const nominalTotal=Number(localStorage.getItem('installedWp'))||8680;
  const share1=nominalTotal?Math.max(0,p1/(nominalTotal/Math.max(1,count))*100):0;

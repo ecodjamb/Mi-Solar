@@ -40,7 +40,7 @@ export default function SolarForecastPage({actual,weather,deviceSn,installedWp=8
   ]
  };
  return <section className="solar-forecast-page">
-  <header className="page-heading"><div><small>Radiación y rendimiento · {siteLabel}</small><h1>Histórico y proyección solar</h1><p>El modelo se calibra únicamente con días completos de la instalación seleccionada y la radiación meteorológica de su ubicación. El día actual se corrige con el comportamiento observado hasta este minuto.</p></div><div className="provider-chip">Fuente: {weather.provider||'Sin conexión meteorológica'}</div></header>
+  <header className="page-heading"><div><small>Radiación y rendimiento · {siteLabel}</small><h1>Histórico y proyección solar</h1><p>El modelo se calibra únicamente con días completos de la instalación seleccionada y la radiación meteorológica de su ubicación. Aquí se muestra la generación solar bruta; el aporte solar efectivo a la casa y los ahorros se calculan aparte usando solamente red activa (statusGrid = 1).</p></div><div className="provider-chip">Fuente: {weather.provider||'Sin conexión meteorológica'}</div></header>
   <section className="forecast-kpis">
    <article className="panel stat"><small>Potencia instalada</small><strong>{model.installedKwp.toFixed(2)} kWp</strong></article>
    <article className="panel stat"><small>Factor histórico real</small><strong>{Math.round(model.factor*100)}%</strong><p>{model.sampleDays} días completos usados</p></article>
