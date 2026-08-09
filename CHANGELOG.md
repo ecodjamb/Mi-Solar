@@ -27,6 +27,15 @@
 ## 8.0.0
 
 - Migración estable desde Netlify a Vercel.
+# V8.8.6
+
+- Costos organizados por mes y año, con el mes actual seleccionado por defecto.
+- Barra mensual por origen: solar directo, batería hacia la casa y red activa.
+- Tarifa de inyección, crédito de exportación y valor bruto solar eliminados.
+- Tarjetas de ahorro compactas y proyecciones separadas de cuenta, red, solar y batería.
+- Distribución final del consumo convertida en gráfico de torta responsive.
+- Meses cerrados recuperados desde el respaldo permanente de Mi Solar.
+
 # V8.8.5
 
 - Ahorro del sistema definido como solar directo hacia la casa más descarga real de batería hacia la casa.
