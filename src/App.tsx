@@ -28,7 +28,7 @@ import { APP_VERSION, REFRESH_POLICY, SESSION_POLICY } from './config';
 import { readSiteCache, writeSiteCache } from './services/siteCache';
 import {
   batteryChargePower,batteryDischargePower,batterySoc,batteryVoltage,chileDayApiChunks,chileSiteRangeApiRange,chileWeekApiRange,clp,dailyEnergy,dataQuality,
-  detectPvCount,effectiveGridPower,filterRowsForSiteDate,filterRowsForSiteMonth,filterRowsForSiteRange,formatClock,formatDate,formatSiteDate,gridFrequency,gridVoltage,solarToLoadPower,
+  detectPvCount,effectiveGridPower,filterRowsForSiteDate,filterRowsForSiteMonth,filterRowsForSiteRange,formatClock,formatDate,formatSiteDate,gridFrequency,gridVoltage,solarSystemToLoadPower,solarToLoadPower,
   groupDailyEnergy,health,inverterTemperature,kwh,loadPower,outputFrequency,outputVoltage,parseApiTime,pvPower,technicalCatalog,watts
 } from './utils/energy';
 
@@ -278,7 +278,7 @@ export default function App(){
       {name:'Solar PV1 + PV2',type:'line',smooth:true,showSymbol:false,data:history.map(r=>pvPower(r,1)+pvPower(r,2)),lineStyle:{width:3,color:'#efbd34'},itemStyle:{color:'#efbd34'},areaStyle:{opacity:.08,color:'#efbd34'}},
       {name:'Consumo casa',type:'line',smooth:true,showSymbol:false,data:history.map(loadPower),lineStyle:{width:2,color:'#a96fff'},itemStyle:{color:'#a96fff'}},
       {name:'Red activa (estado 1)',type:'line',smooth:true,showSymbol:false,data:history.map(r=>Math.max(0,effectiveGridPower(r))),lineStyle:{width:2,color:'#4f9fff'},itemStyle:{color:'#4f9fff'}},
-      {name:'Solar directo estimado',type:'line',smooth:true,showSymbol:false,data:history.map(solarToLoadPower),lineStyle:{width:2,color:'#49d984'},itemStyle:{color:'#49d984'}},
+      {name:'Aporte sistema solar',type:'line',smooth:true,showSymbol:false,data:history.map(solarSystemToLoadPower),lineStyle:{width:2,color:'#49d984'},itemStyle:{color:'#49d984'}},
       {name:'Batería descargando',type:'line',smooth:true,showSymbol:false,data:history.map(batteryDischargePower),lineStyle:{width:2,color:'#4bd98a'},itemStyle:{color:'#4bd98a'}}
     ]
   }),[history]);
@@ -286,10 +286,22 @@ export default function App(){
   if(auth===null)return <div className="boot">Cargando Mi Solar…</div>;
   if(!auth)return <Login done={()=>setAuth(true)}/>;
 
-  const selfConsumed=(energy:DailyEnergy)=>Math.max(0,energy.solarToLoad);
-  const avoided=(energy:DailyEnergy)=>selfConsumed(energy)*tariff+energy.gridExport*feedInTariff;
+  const systemToLoad=(energy:DailyEnergy)=>Math.max(0,energy.solarToLoad)+Math.max(0,energy.batteryToLoad);
+  const avoided=(energy:DailyEnergy)=>systemToLoad(energy)*tariff;
   const gross=(energy:DailyEnergy)=>energy.solar*tariff;
   const savings=avoided(today);
+  const [siteYear,siteMonth,siteDay]=siteDate.split('-').map(Number);
+  const daysInCurrentMonth=new Date(Date.UTC(siteYear,siteMonth,0)).getUTCDate();
+  const lastMonthSample=month.lastSample?new Date(month.lastSample):null;
+  const lastSampleDayFraction=lastMonthSample&&Number.isFinite(lastMonthSample.getTime())
+    ?Number(lastMonthSample.toLocaleString('en-US',{timeZone:'America/Santiago',day:'numeric'}))-1+(Number(lastMonthSample.toLocaleString('en-US',{timeZone:'America/Santiago',hour:'numeric',hourCycle:'h23'}))+Number(lastMonthSample.toLocaleString('en-US',{timeZone:'America/Santiago',minute:'numeric'}))/60)/24
+    :Math.max(1,siteDay);
+  const projectionFactor=Math.max(1,daysInCurrentMonth/Math.max(1,lastSampleDayFraction));
+  const projectedGridKwh=month.gridImport*projectionFactor;
+  const projectedExportKwh=month.gridExport*projectionFactor;
+  const projectedGrossBill=projectedGridKwh*tariff;
+  const projectedExportCredit=projectedExportKwh*feedInTariff;
+  const projectedNetBill=Math.max(0,projectedGrossBill-projectedExportCredit);
   const catalog=technicalCatalog(realtime,summary);
   const used=new Set(catalog.flatMap(s=>s.items.map(i=>i.source).filter(Boolean)) as string[]);
   const rawUnknown=[...new Set([...Object.keys(summary),...Object.keys(realtime)])].filter(k=>!used.has(k)).sort();
@@ -316,7 +328,7 @@ export default function App(){
           <KpiCard icon={House} label="Consumo actual" value={watts(load)} detail={`Hoy: ${kwh(today.load)}`}/>
           <KpiCard icon={RadioTower} label={grid<0?'Hacia la red':'Desde la red'} value={watts(Math.abs(grid))} detail={`Hoy importado con estado 1: ${kwh(today.gridImport)}`}/>
           <KpiCard icon={Battery} label="Batería" value={`${soc.toFixed(0)}%`} detail={`${charge>discharge?'Cargando':'Entregando'} ${watts(Math.max(charge,discharge))}`} tone="green"/>
-          <KpiCard icon={CircleDollarSign} label="Ahorro real hoy" value={clp(savings)} detail={`Solar directo estimado ${kwh(selfConsumed(today))}`} tone="green"/>
+          <KpiCard icon={CircleDollarSign} label="Ahorro real hoy" value={clp(savings)} detail={`Sistema a la casa ${kwh(systemToLoad(today))}`} tone="green"/>
         </section>
         <DailyQuote/>
         <LoadCoverageBar today={today} month={month} lastUpdate={quality.last}/>
@@ -343,17 +355,19 @@ export default function App(){
       {page==='solar'&&<SolarForecastPage actual={daily} weather={weather} deviceSn={selected} installedWp={installedWp} today={today} siteLabel={siteLabel}/>}
 
       {page==='costs'&&<section className="solar-forecast-page">
-        <header className="page-heading"><div><small>Costos reales acumulados · {siteLabel}</small><h1>Costos y ahorro</h1><p>El ahorro usa el aporte solar directo estimado con la misma regla de red activa (statusGrid = 1). La energía exportada se valoriza con una tarifa independiente.</p></div></header>
+        <header className="page-heading"><div><small>Costos reales acumulados · {siteLabel}</small><h1>Costos y ahorro</h1><p>El ahorro del sistema suma el solar directo y la descarga real de batería hacia la casa. La red solo cuenta con statusGrid = 1 y la energía exportada se informa como crédito independiente.</p></div></header>
         <section className="cost-form-grid"><section className="panel form-card"><h2>Tarifa de compra</h2><label>CLP por kWh<input type="number" value={tariff} onChange={e=>{const v=Number(e.target.value);setTariff(v);localStorage.setItem(siteStorageKey('tariffCLP',device?.nickName||''),String(v))}}/></label></section><section className="panel form-card"><h2>Tarifa de inyección</h2><label>CLP por kWh exportado<input type="number" value={feedInTariff} onChange={e=>{const v=Number(e.target.value);setFeedInTariff(v);localStorage.setItem(siteStorageKey('feedInTariffCLP',device?.nickName||''),String(v))}}/></label></section></section>
         <section className="cost-grid">
-          <article className="panel stat"><small>Ahorro real hoy</small><strong>{clp(avoided(today))}</strong><p>{kwh(selfConsumed(today))} solar directo estimado</p></article>
-          <article className="panel stat"><small>Ahorro real semana</small><strong>{clp(avoided(week))}</strong><p>{kwh(selfConsumed(week))} solar directo estimado</p></article>
-          <article className="panel stat"><small>Ahorro real mes</small><strong>{clp(avoided(month))}</strong><p>{kwh(selfConsumed(month))} solar directo estimado</p></article>
+          <article className="panel stat"><small>Ahorro real hoy</small><strong>{clp(avoided(today))}</strong><p>{kwh(today.solarToLoad)} solar directo + {kwh(today.batteryToLoad)} batería</p></article>
+          <article className="panel stat"><small>Ahorro real semana</small><strong>{clp(avoided(week))}</strong><p>{kwh(week.solarToLoad)} solar directo + {kwh(week.batteryToLoad)} batería</p></article>
+          <article className="panel stat"><small>Ahorro real mes</small><strong>{clp(avoided(month))}</strong><p>{kwh(month.solarToLoad)} solar directo + {kwh(month.batteryToLoad)} batería</p></article>
           <article className="panel stat"><small>Valor bruto solar mes</small><strong>{clp(gross(month))}</strong><p>Referencia si toda la generación reemplazara compra de red.</p></article>
           <article className="panel stat"><small>Costo de red activa del mes</small><strong>{clp(month.gridImport*tariff)}</strong><p>{kwh(month.gridImport)} importados con estado 1</p></article>
           <article className="panel stat"><small>Crédito por exportación</small><strong>{clp(month.gridExport*feedInTariff)}</strong><p>{kwh(month.gridExport)} exportados</p></article>
+          <article className="panel stat"><small>Proyección de cuenta para final de mes</small><strong>{clp(projectedNetBill)}</strong><p>Compra estimada {clp(projectedGrossBill)} menos crédito proyectado {clp(projectedExportCredit)}</p></article>
+          <article className="panel stat"><small>Red activa proyectada al cierre</small><strong>{kwh(projectedGridKwh)}</strong><p>Proyección basada en el promedio observado hasta la última muestra del mes.</p></article>
         </section>
-        <section className="panel stat"><small>Balance energético auditado del mes</small><strong>Consumo {kwh(month.load)} · Solar {kwh(month.solar)} · Red activa {kwh(month.gridImport)}</strong><p className="cost-note">Carga batería {kwh(month.charge)} · Descarga batería {kwh(month.discharge)} · Exportación {kwh(month.gridExport)}. Los valores dependen de que la descarga mensual esté completa; arriba se informa el progreso.</p></section>
+        <section className="panel stat"><small>Balance energético auditado del mes</small><strong>Consumo {kwh(month.load)} = Red activa {kwh(month.gridToLoad)} + Solar directo {kwh(month.solarToLoad)} + Batería {kwh(month.batteryToLoad)}</strong><p className="cost-note">La cuenta proyectada extrapola la red activa registrada hasta ahora a {daysInCurrentMonth} días. Carga de batería {kwh(month.charge)} · descarga hacia la casa {kwh(month.batteryToLoad)} · exportación {kwh(month.gridExport)}.</p></section>
       </section>}
 
       {page==='equipment'&&<section className="equipment-grid">{[['Paneles',`PV1 ${watts(pvPower(realtime,1))}${detectPvCount(realtime,monthRows)===2?` · PV2 ${watts(pvPower(realtime,2))}`:''}`],['Inversor',String(summary.workMode||realtime.workMode||'—')],['Batería',`${soc.toFixed(0)}% · ${batteryVoltage(realtime).toFixed(1)} V`],['Red activa · estado 1',`${watts(Math.abs(grid))} · ${gridVoltage(realtime).toFixed(1)} V · ${gridFrequency(realtime).toFixed(1)} Hz`],['Salida AC',`${outputVoltage(realtime).toFixed(1)} V · ${outputFrequency(realtime).toFixed(1)} Hz`],['Temperatura',`${inverterTemperature(realtime).toFixed(1)} °C`]].map(([a,b])=><article className="panel equipment-card" key={a}><h2>{a}</h2><p>{b}</p></article>)}</section>}

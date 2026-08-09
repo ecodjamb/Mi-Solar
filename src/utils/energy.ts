@@ -72,6 +72,8 @@ export function powerAllocation(d:Record<string,unknown>){
 export const gridToLoadPower=(d:Record<string,unknown>)=>powerAllocation(d).gridToLoad;
 export const solarToLoadPower=(d:Record<string,unknown>)=>powerAllocation(d).solarToLoad;
 export const solarToBatteryPower=(d:Record<string,unknown>)=>powerAllocation(d).solarToBattery;
+/** Aporte total del sistema solar a la casa: paneles directos + batería descargando. */
+export const solarSystemToLoadPower=(d:Record<string,unknown>)=>{const allocation=powerAllocation(d);return allocation.solarToLoad+allocation.batteryToLoad};
 export const batteryChargePower=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.chargePower]);
 export const batteryDischargePower=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.dischargePower]);
 export const batterySoc=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.soc]);

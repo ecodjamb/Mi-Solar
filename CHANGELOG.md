@@ -27,6 +27,14 @@
 ## 8.0.0
 
 - Migración estable desde Netlify a Vercel.
+# V8.8.5
+
+- Ahorro del sistema definido como solar directo hacia la casa más descarga real de batería hacia la casa.
+- Balance auditado con la identidad: consumo = red activa + solar directo + batería.
+- Gráficos horarios e históricos actualizados con el aporte total del sistema solar.
+- Nueva proyección de cuenta eléctrica al cierre del mes basada en la red activa observada.
+- Crédito por exportación separado del ahorro por autoconsumo.
+
 # V8.8.4
 
 - Regla global de red: potencia e históricos válidos únicamente con `statusGrid = 1`.
