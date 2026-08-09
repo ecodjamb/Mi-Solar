@@ -27,6 +27,13 @@
 ## 8.0.0
 
 - Migración estable desde Netlify a Vercel.
+# V8.8.0
+
+- El diagrama de flujo conserva en celular el diseño radial, las líneas y partículas animadas de escritorio.
+- Tarjetas de información compactadas proporcionalmente para pantallas pequeñas.
+- Velocímetros instantáneos sin barrido desde cero ni animación numérica.
+- Nuevos medidores separados para consumo, PV1 y PV2 cuando existe un segundo string.
+
 # V8.7.0
 
 - Gráfico histórico unificado y responsivo para escritorio y celular.
