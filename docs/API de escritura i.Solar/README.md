@@ -33,91 +33,58 @@ SBU     = POP02
 
 Parámetro de menú: **Battery Capacity Redischarge**.
 
-### Captura 30 % — validada
+### Valores confirmados
 
-Captura aislada de Proxyman del 2026-08-09 19:22:
+| Valor objetivo | Comando observado | Comandos adicionales | Estado |
+|---|---|---|---|
+| 30 % | `{"S017":"PBDC030"}` | ninguno | VALIDADO |
+| 50 % | `{"S017":"PBDC050"}` | ninguno | VALIDADO |
+| 100 % | `{"S017":"PBDC100","S024":"PTOPVCB010"}` | `S024 = PTOPVCB010` | VALIDADO, con comando acoplado |
 
-```text
-POST /app/api/mobile/paramSet/setParam
-```
-
-Body observado:
-
-```text
-deviceSn=96342509120972
-commands={"S017":"PBDC030"}
-```
-
-Respuesta del servidor:
+Todas las capturas devolvieron:
 
 ```json
 {"code":0,"message":"successful","data":null}
 ```
 
-Mapeo confirmado:
+### Patrón confirmado
+
+Con tres valores independientes (30, 50 y 100), queda suficientemente validado que el comando principal se construye como:
 
 ```text
-Battery Capacity Redischarge 30% = {"S017":"PBDC030"}
+S017 = PBDC + porcentaje expresado en 3 dígitos
 ```
 
-### Captura 100 % — validada
-
-Captura aislada de Proxyman del 2026-08-09 19:30, con el parámetro dejado en **100 %**.
-
-Body exacto observado:
-
-```text
-deviceSn=96342509120972&commands={"S017":"PBDC100","S024":"PTOPVCB010"}
-```
-
-Respuesta del servidor:
-
-```json
-{"code":0,"message":"successful","data":null}
-```
-
-Esto confirma que el comando de Redischarge para 100 % contiene:
-
-```text
-S017 = PBDC100
-```
-
-Por lo tanto, con los puntos 30 % y 100 % confirmados, la evidencia apoya fuertemente el patrón:
-
-```text
-PBDC + porcentaje en 3 dígitos
-```
-
-Ejemplos confirmados:
+Ejemplos:
 
 ```text
 30%  -> PBDC030
+50%  -> PBDC050
 100% -> PBDC100
 ```
 
-### Advertencia importante: escritura acoplada al 100 %
+Esto permite construir programáticamente el comando para porcentajes admitidos por el inversor/app oficial, sujeto a respetar los rangos y pasos válidos que exponga `getParam`.
 
-La captura de 100 % **no envió únicamente S017**. La aplicación oficial envió simultáneamente:
+### Captura 50 % — evidencia
+
+Captura aislada Proxyman del 2026-08-09 19:34, realizada al cambiar el parámetro a **50 %**:
+
+```text
+POST /app/api/mobile/paramSet/setParam
+commands={"S017":"PBDC050"}
+```
+
+No apareció `S024` ni otro comando acoplado en esta escritura. Esto refuerza que `S024 / PTOPVCB010` observado al seleccionar 100 % corresponde a una condición particular de esa operación/configuración y no forma parte obligatoria de toda escritura PBDC.
+
+### Advertencia importante: 100 %
+
+La captura de 100 % envió simultáneamente:
 
 ```text
 {"S017":"PBDC100","S024":"PTOPVCB010"}
 ```
 
-Por lo tanto:
-
-- `PBDC100` queda validado como el valor 100 % de Battery Capacity Redischarge.
-- `S024 / PTOPVCB010` es un segundo comando que la app oficial decidió enviar en la misma operación.
-- Todavía NO se debe asumir que S024 es irrelevante ni omitirlo en una automatización de 100 % hasta identificar qué parámetro representa y por qué la app lo acopla.
-- La captura de 30 % sí envió únicamente `{"S017":"PBDC030"}`.
-
-### Mapeo validado hasta ahora
-
-- Slot principal: `S017`
-- Código principal: `PBDC`
-- 30 %: `PBDC030`
-- 100 %: `PBDC100`
-- Estado: **VALIDADO para 30 % y 100 %**
-- Patrón general `PBDCxxx`: **muy probable, pendiente de un tercer valor aislado para cerrarlo como fórmula general**
+Por lo tanto, para automatizar específicamente 100 % se debe conservar esta advertencia y determinar primero qué representa `S024 / PTOPVCB010` y por qué la app oficial lo acopla.
 
 ### Relación funcional observada por el usuario
 
