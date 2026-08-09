@@ -8,10 +8,10 @@ Registro acumulativo de endpoints y comandos de escritura confirmados mediante c
 - Ruta: `/app/api/mobile/paramSet/setParam`
 - Formato observado:
   - `deviceSn=<SERIAL>`
-  - `commands={"S05":"POPxx"}`
+  - `commands={...}`
 - Respuesta exitosa observada: `{"code":0,"message":"successful","data":null}`
 
-## Output Source Priority
+## 1. Output Source Priority
 
 Parámetro de menú: **Output** / prioridad de fuente de salida.
 
@@ -28,6 +28,40 @@ Utility = POP00
 SOL     = POP01
 SBU     = POP02
 ```
+
+## 2. Battery Capacity Redischarge (%)
+
+Parámetro de menú: **Battery Capacity Redischarge**.
+
+Captura aislada de Proxyman del 2026-08-09 19:22 mostró una única escritura:
+
+```text
+POST /app/api/mobile/paramSet/setParam
+```
+
+Body observado:
+
+```text
+deviceSn=96342509120972
+commands={"S017":"PBDC030"}
+```
+
+Respuesta del servidor:
+
+```json
+{"code":0,"message":"successful","data":null}
+```
+
+### Interpretación actual
+
+- Slot/comando: `S017`
+- Código de parámetro: `PBDC`
+- Valor enviado: `030`
+- La nomenclatura del comando es consistente con un valor objetivo de **30 %**, pero debe confirmarse con el valor exacto seleccionado en la app oficial antes de marcar el mapeo como completamente validado.
+
+### Relación funcional observada por el usuario
+
+En combinación con modo **SBU**, este parámetro se usa para definir el umbral de redischarge de batería. En la operación observada del sistema, su ajuste influye en cuándo el inversor vuelve a utilizar la batería y en la prioridad entre abastecer la casa y cargar la batería cuando existe excedente solar.
 
 ## Procedimiento de validación recomendado
 
