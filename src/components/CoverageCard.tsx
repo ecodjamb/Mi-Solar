@@ -21,6 +21,7 @@ export default function CoverageCard({today,first,last,siteLabel}:{today:DailyEn
   const lastMinutes=last?minutesInChile(last):0;
   const covered=Math.max(0,lastMinutes-firstMinutes);
   const temporalPct=Math.min(100,Math.max(0,covered/elapsed*100));
+  const dayPct=Math.min(100,Math.max(0,elapsed/MINUTES_PER_DAY*100));
   const expectedNow=Math.max(1,Math.floor(elapsed/NOMINAL_SAMPLE_MINUTES)+1);
   const expectedFullDay=Math.floor(MINUTES_PER_DAY/NOMINAL_SAMPLE_MINUTES);
   const samplePct=Math.min(100,Math.max(0,today.samples/expectedNow*100));
@@ -29,12 +30,12 @@ export default function CoverageCard({today,first,last,siteLabel}:{today:DailyEn
   return <section className={`panel coverage-card ${temporalPct>=85?'ok':'warn'}`}>
     <header>
       <div>
-        <small>Cobertura del registro diario · {siteLabel}</small>
-        <h3>{temporalPct.toFixed(0)}% del periodo transcurrido</h3>
+        <small>Avance del día · {siteLabel}</small>
+        <h3>{dayPct.toFixed(0)}% del día transcurrido</h3>
       </div>
       <div className="coverage-score"><strong>{today.samples}</strong><small>muestras</small></div>
     </header>
-    <div className="coverage-track"><i style={{width:`${temporalPct}%`}}/></div>
+    <div className="coverage-track"><i style={{width:`${dayPct}%`}}/></div>
     <div className="coverage-sample-summary">
       <span><b>{today.samples}</b> recibidas</span>
       <span><b>≈{expectedNow}</b> esperadas hasta ahora</span>
@@ -44,6 +45,6 @@ export default function CoverageCard({today,first,last,siteLabel}:{today:DailyEn
       <span>Primera muestra <b>{format24(first)}</b></span>
       <span>Última muestra <b>{format24(last)}</b></span>
     </div>
-    <p><strong>{status}.</strong> Esta tarjeta indica si el histórico cubre desde el inicio del día hasta la hora actual. Los acumulados pueden quedar incompletos si faltan tramos largos.</p>
+    <p><strong>{status}.</strong> Son las {format24(new Date())}: ha transcurrido {dayPct.toFixed(1)}% de las 24 horas. El registro disponible cubre {temporalPct.toFixed(0)}% del tiempo transcurrido y permite evaluar si los acumulados están completos.</p>
   </section>;
 }

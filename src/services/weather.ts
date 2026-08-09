@@ -2,7 +2,7 @@ import { siteProfile } from '../utils/site';
 import { api } from './api';
 
 export type RadiationDay={date:string;shortwaveKwhM2:number;weatherCode?:number};
-export type RadiationHour={time:string;shortwaveWm2:number;cloudCover?:number;precipitation?:number};
+export type RadiationHour={time:string;shortwaveWm2:number;cloudCover?:number;precipitation?:number;temperature?:number;weatherCode?:number};
 export type WeatherData={
  temperature?:number;humidity?:number;weatherCode?:number;windSpeed?:number;isDay?:number;
  cloudCover?:number;precipitation?:number;provider?:string;updatedAt?:string;error?:string;
@@ -20,7 +20,9 @@ function normalizeOpenMeteo(payload:any, provider='Open-Meteo directo'):WeatherD
   time,
   shortwaveWm2:Number(payload.hourly?.shortwave_radiation?.[i]||0),
   cloudCover:Number(payload.hourly?.cloud_cover?.[i]||0),
-  precipitation:Number(payload.hourly?.precipitation?.[i]||0)
+  precipitation:Number(payload.hourly?.precipitation?.[i]||0),
+  temperature:Number(payload.hourly?.temperature_2m?.[i]||0),
+  weatherCode:Number(payload.hourly?.weather_code?.[i]||0)
  }));
  const dailyRadiation=(payload.daily?.time||[]).map((date:string,i:number)=>({
   date,
@@ -38,7 +40,7 @@ async function directOpenMeteo(lat:number,lon:number):Promise<WeatherData>{
  const url=new URL('https://api.open-meteo.com/v1/forecast');
  url.searchParams.set('latitude',String(lat));url.searchParams.set('longitude',String(lon));
  url.searchParams.set('current','temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day,cloud_cover,precipitation');
- url.searchParams.set('hourly','shortwave_radiation,cloud_cover,precipitation,weather_code');
+ url.searchParams.set('hourly','shortwave_radiation,cloud_cover,precipitation,temperature_2m,weather_code');
  url.searchParams.set('daily','sunrise,sunset,shortwave_radiation_sum,weather_code');
  url.searchParams.set('past_days','60');url.searchParams.set('forecast_days','14');url.searchParams.set('timezone','America/Santiago');
  const response=await fetch(url.toString(),{headers:{Accept:'application/json'}});

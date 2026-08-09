@@ -12,6 +12,9 @@ export type DailyEnergy = {
   gridExport:number;
   charge:number;
   discharge:number;
+  solarToLoad:number;
+  batteryToLoad:number;
+  solarToBattery:number;
   samples:number;
   firstSample?:string;
   lastSample?:string;

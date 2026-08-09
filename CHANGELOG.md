@@ -27,6 +27,15 @@
 ## 8.0.0
 
 - Migración estable desde Netlify a Vercel.
+# V8.8.3
+
+- Red diaria integrada únicamente cuando `statusGrid` está activo en 1.
+- Cobertura local separada entre solar directo estimado y descarga de batería.
+- Producción solar, carga total y carga solar estimada mostradas por separado.
+- Avance del día calculado sobre las 24 horas y explicado junto a la cobertura de muestras.
+- Pronóstico de lluvia y rango térmico para las próximas 24 horas.
+- Estado, avance, clima y calidad de datos trasladados al final de la portada.
+
 # V8.8.2
 
 - Balance de consumo explicado como consumo total menos red igual a aporte solar/batería.

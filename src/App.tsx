@@ -18,6 +18,7 @@ import HistoryExplorer from './components/HistoryExplorer';
 import EnergyRangeChart from './components/EnergyRangeChart';
 import HistoricalBackfill from './components/HistoricalBackfill';
 import LoadCoverageBar from './components/LoadCoverageBar';
+import WeatherOutlook from './components/WeatherOutlook';
 import { api } from './services/api';
 import { fetchWeather, type WeatherData } from './services/weather';
 import { accumulatedTheoreticalToday, calibrateSolarModel, expectedPowerNow, theoreticalDayKwh } from './utils/solarForecast';
@@ -35,8 +36,8 @@ const SESSION_IDLE_MS=SESSION_POLICY.idleMs;
 const ACTIVITY_PING_MS=SESSION_POLICY.activityPingMs;
 const LAST_ACTIVITY_KEY=SESSION_POLICY.storageKey;
 const REFRESH_MS=REFRESH_POLICY;
-const emptyEnergy:DailyEnergy={date:'',solar:0,pv1:0,pv2:0,load:0,grid:0,gridImport:0,gridExport:0,charge:0,discharge:0,samples:0};
-const sumDays=(days:DailyEnergy[])=>days.reduce((a,d)=>({...a,solar:a.solar+d.solar,pv1:a.pv1+d.pv1,pv2:a.pv2+d.pv2,load:a.load+d.load,grid:a.grid+d.grid,gridImport:a.gridImport+d.gridImport,gridExport:a.gridExport+d.gridExport,charge:a.charge+d.charge,discharge:a.discharge+d.discharge,samples:a.samples+d.samples}),{...emptyEnergy});
+const emptyEnergy:DailyEnergy={date:'',solar:0,pv1:0,pv2:0,load:0,grid:0,gridImport:0,gridExport:0,charge:0,discharge:0,solarToLoad:0,batteryToLoad:0,solarToBattery:0,samples:0};
+const sumDays=(days:DailyEnergy[])=>days.reduce((a,d)=>({...a,solar:a.solar+d.solar,pv1:a.pv1+d.pv1,pv2:a.pv2+d.pv2,load:a.load+d.load,grid:a.grid+d.grid,gridImport:a.gridImport+d.gridImport,gridExport:a.gridExport+d.gridExport,charge:a.charge+d.charge,discharge:a.discharge+d.discharge,solarToLoad:a.solarToLoad+d.solarToLoad,batteryToLoad:a.batteryToLoad+d.batteryToLoad,solarToBattery:a.solarToBattery+d.solarToBattery,samples:a.samples+d.samples}),{...emptyEnergy});
 
 function addDays(date:string,days:number){const [y,m,d]=date.split('-').map(Number);return new Date(Date.UTC(y,m-1,d+days)).toISOString().slice(0,10)}
 function monthChunkRanges(date:string,chunkDays=4){
@@ -320,12 +321,12 @@ export default function App(){
         <LoadCoverageBar today={today} month={month} lastUpdate={quality.last}/>
         <RecentEnergyChart rows={history} siteLabel={siteLabel}/>
         <HouseIllustration weather={weather} funMode={funMode} siteName={device?.nickName||'Casa ECO Arrayán'}/>
+        <section className="panel chart-panel"><header className="section-head"><div><small>Producción y consumo</small><h2>Hoy · {siteLabel} · horario de Chile</h2></div></header><EChart option={chartOption}/></section>
         <div className="home-grid secondary-home-grid"><aside className="side-stack">
           <section className="panel health-card"><small>Estado del sistema</small><strong>{health(realtime)}/100</strong><p>{health(realtime)>90?'Excelente · sin anomalías relevantes':'Conviene revisar algunos parámetros'}</p></section>
           <section className="panel best-card"><small>Mejor día del mes · {siteLabel}</small><strong>{best?kwh(best.solar):'—'}</strong><p>{best?new Date(`${best.date}T12:00`).toLocaleDateString('es-CL',{dateStyle:'long'}):'Aún sin histórico suficiente'}</p></section>
-        </aside><CoverageCard today={today} first={quality.first} last={quality.last} siteLabel={siteLabel}/><section className={`panel weather-card ${weather.error?'weather-warning':''}`}><small>Condición actual · {weather.provider||'sin proveedor'}</small><strong>{weather.temperature!=null?`${weather.temperature.toFixed(1)} °C`:'Sin dato climático'}</strong><p>{weather.humidity!=null?`Humedad ${weather.humidity}% · Nubes ${Number(weather.cloudCover||0).toFixed(0)}% · Lluvia ${Number(weather.precipitation||0).toFixed(1)} mm · Viento ${Number(weather.windSpeed||0).toFixed(0)} km/h`:'No llegó información meteorológica.'}</p>{weather.updatedAt&&<small>Actualizado: {new Date(weather.updatedAt).toLocaleString('es-CL',{timeZone:'America/Santiago'})}</small>}{weather.error&&<small className="error-text">{weather.error}</small>}</section></div>
+        </aside><CoverageCard today={today} first={quality.first} last={quality.last} siteLabel={siteLabel}/><WeatherOutlook weather={weather}/></div>
         <DataQualityCard realtimeAvailable={Object.keys(realtime).length>0} daySamples={today.samples} weekSamples={week.samples} monthSamples={month.samples} weatherAvailable={weather.temperature!=null} radiationAvailable={Boolean(weather.hourly?.length||weather.dailyRadiation?.length)} updates={lastSectionUpdate}/>
-        <section className="panel chart-panel"><header className="section-head"><div><small>Producción y consumo</small><h2>Hoy · {siteLabel} · horario de Chile</h2></div></header><EChart option={chartOption}/></section>
       </>}
 
       {page==='charts'&&<section className="analytics-page">
