@@ -22,15 +22,15 @@ export default function CostsPage({deviceSn,siteLabel,today,week,currentMonth,ta
   const [message,setMessage]=useState('Mes en curso · datos actualizados automáticamente.');
   const years=useMemo(()=>{const current=Number(currentPeriod.slice(0,4));return Array.from({length:5},(_,index)=>current-index)},[currentPeriod]);
 
-  useEffect(()=>{if(period===currentPeriod){setSelectedEnergy(currentMonth);setMessage('Mes en curso · datos actualizados automáticamente.')}},[period,currentPeriod,currentMonth]);
+  useEffect(()=>{if(period===currentPeriod){setSelectedEnergy(previous=>currentMonth.samples>=previous.samples?currentMonth:previous);setMessage('Mes en curso · datos recientes combinados con el respaldo permanente.')}},[period,currentPeriod,currentMonth]);
   useEffect(()=>{
-    if(!deviceSn||period===currentPeriod)return;
+    if(!deviceSn)return;
     let active=true;
     const bounds=monthBounds(period);
     const utc=siteRangeUtc(bounds.start,bounds.end);
     setLoading(true);setMessage('Consultando el respaldo permanente de Mi Solar…');
     api<{list:HistoryRow[]}>(`devices/${deviceSn}/archive?start=${encodeURIComponent(utc.start)}&end=${encodeURIComponent(utc.end)}`)
-      .then(result=>{if(!active)return;const energy=dailyEnergy(result.list||[]);setSelectedEnergy(result.list?.length?energy:empty);setMessage(result.list?.length?`${result.list.length.toLocaleString('es-CL')} muestras recuperadas del respaldo.`:'No existen muestras guardadas para este mes.')})
+      .then(result=>{if(!active)return;const energy=dailyEnergy(result.list||[]);setSelectedEnergy(previous=>period===currentPeriod?(energy.samples>=previous.samples?energy:previous):(result.list?.length?energy:empty));setMessage(result.list?.length?`${result.list.length.toLocaleString('es-CL')} muestras verificadas en el respaldo permanente.`:period===currentPeriod?'Datos recientes disponibles; el respaldo se completará automáticamente.':'No existen muestras guardadas para este mes.')})
       .catch(error=>{if(active){setSelectedEnergy(empty);setMessage(error instanceof Error?error.message:'No fue posible consultar el mes.')}})
       .finally(()=>{if(active)setLoading(false)});
     return()=>{active=false};
