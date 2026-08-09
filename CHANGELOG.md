@@ -27,6 +27,12 @@
 ## 8.0.0
 
 - Migración estable desde Netlify a Vercel.
+# V8.8.2
+
+- Balance de consumo explicado como consumo total menos red igual a aporte solar/batería.
+- Producción solar total y hora de la última muestra visibles en la misma sección.
+- Semana, mes, clima y radiación pasan a actualizarse cada cinco minutos como máximo.
+
 # V8.8.1
 
 - Diagrama de flujo trasladado al primer lugar de la pantalla de inicio.
