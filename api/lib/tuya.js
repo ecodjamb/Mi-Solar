@@ -1,7 +1,6 @@
 import crypto from 'node:crypto';
 
 const REGION_HOSTS = { us:'https://openapi.tuyaus.com', eu:'https://openapi.tuyaeu.com', cn:'https://openapi.tuyacn.com', in:'https://openapi.tuyain.com' };
-const ENERGY_CODES = ['add_ele','energy','total_energy','total_forward_energy','forward_energy_total','ele_usage','electricity'];
 let tokenCache = null;
 let tokenPromise = null;
 
@@ -58,17 +57,6 @@ function rowsFrom(payload){
   return Array.isArray(result)?result:(result.list||result.devices||[]);
 }
 
-function chileDay(){
-  const parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/Santiago',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
-  const value=Object.fromEntries(parts.map(part=>[part.type,part.value]));
-  return `${value.year}${value.month}${value.day}`;
-}
-
-export function selectEnergyCode(status=[]){
-  const codes=new Set(status.map(item=>String(item?.code||'').toLowerCase()));
-  return ENERGY_CODES.find(code=>codes.has(code))||'';
-}
-
 async function projectDeviceRows(){
   const all=[];
   let lastId='';
@@ -120,16 +108,6 @@ async function attachStatuses(devices){
   return devices.map(device=>({...device,status:byId.get(device.id)||device.status||[]}));
 }
 
-async function dailyConsumption(device,day){
-  const code=selectEnergyCode(device.status);
-  if(!code)return {available:false,value:null,unit:'kWh',code:null};
-  try{
-    const payload=await tuyaRequest(`/v1.0/devices/${encodeURIComponent(device.id)}/statistics/days`,{query:{code,start_day:day,end_day:day,stat_type:'sum'}});
-    const days=payload.result?.days||{},raw=days[day],value=Number(raw);
-    return Number.isFinite(value)?{available:true,value,unit:'kWh',code}:{available:false,value:null,unit:'kWh',code};
-  }catch{return {available:false,value:null,unit:'kWh',code}}
-}
-
 export async function listTuyaDevices(){
   const groups=[],counts={project:null,associated:null,user:null};
   let firstError=null;
@@ -141,9 +119,7 @@ export async function listTuyaDevices(){
   if(!groups.length||(!rows.length&&firstError))throw firstError||new Error('Tuya no permitió consultar los dispositivos vinculados.');
   console.info('[tuya/devices] inventario combinado',{...counts,total:rows.length});
   const base=rows.map(d=>({id:d.id||d.device_id,name:d.customName||d.name||d.device_name||'Dispositivo Tuya',category:d.category||d.category_code||'',productName:d.productName||d.product_name||'',online:Boolean(d.isOnline??d.online),icon:d.icon||'',status:Array.isArray(d.status)?d.status:[]}));
-  const devices=await attachStatuses(base),day=chileDay();
-  const consumption=await Promise.all(devices.map(device=>dailyConsumption(device,day)));
-  return devices.map((device,index)=>({...device,dailyConsumption:consumption[index]}));
+  return attachStatuses(base);
 }
 
 export async function getTuyaDevice(deviceId){

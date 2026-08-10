@@ -1,11 +1,10 @@
 import { useEffect,useMemo,useState } from 'react';
-import { Activity,ChevronDown,ChevronUp,Gauge,PlugZap,RefreshCw,Zap } from 'lucide-react';
+import { ChevronDown,ChevronUp,DoorOpen,Gauge,RefreshCw } from 'lucide-react';
 import { api } from '../services/api';
 
 type TuyaStatus={configured:boolean;region:string|null;uidHint:string|null};
 type Dp={code:string;value?:unknown;type?:string;name?:string;desc?:string;values?:string};
-type DailyConsumption={available:boolean;value:number|null;unit:string;code:string|null};
-type Device={id:string;name:string;category:string;productName?:string;online:boolean;status:Dp[];dailyConsumption:DailyConsumption};
+type Device={id:string;name:string;category:string;productName?:string;online:boolean;status:Dp[]};
 type Profile={device:Device&{status:Dp[]};specification:{category:string;functions:Dp[];status:Dp[]}};
 
 const LABELS:Record<string,string>={
@@ -36,6 +35,8 @@ function categoryLabel(category:string){return CATEGORIES[category]||(!containsC
 function enumLabel(value:string){return ENUMS[value.toLowerCase()]||humanize(value)}
 function priority(dp:Dp){const exact=PRIORITY.indexOf(dp.code);if(exact>=0)return exact;return dp.type==='Boolean'?30:dp.type==='Enum'?40:dp.type==='Integer'?50:60}
 function mainSwitch(device:Device){return device.status.find(item=>typeof item.value==='boolean'&&/^(switch|power)(_|$)/.test(item.code))}
+function normalizedName(value:string){return value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase()}
+function isHomeGate(device:Device){return normalizedName(device.name).includes('porton casa')}
 function displayValue(dp:Dp){
   if(dp.value==null)return '—';
   if(typeof dp.value==='boolean')return dp.value?'Sí':'No';
@@ -61,20 +62,30 @@ function Control({deviceId,dp,value,onDone,onError}:{deviceId:string;dp:Dp;value
   return <code>{displayValue({...dp,value})}</code>;
 }
 
+function GateControl({device,onDone,onError}:{device:Device;onDone:()=>void;onError:(message:string)=>void}){
+  const dp=mainSwitch(device),[busy,setBusy]=useState(false);
+  if(!dp)return null;
+  const commandCode=dp.code;
+  async function activate(){
+    if(!window.confirm('¿Confirmas abrir o cerrar el portón de la casa?'))return;
+    setBusy(true);onError('');
+    try{await api(`tuya/devices/${encodeURIComponent(device.id)}/commands`,{method:'POST',body:JSON.stringify({code:commandCode,value:true})});onDone()}
+    catch(error){onError(error instanceof Error?error.message:'No se pudo accionar el portón.')}
+    finally{setBusy(false)}
+  }
+  return <button className="tuya-gate-button" disabled={busy||!device.online} onClick={activate}><DoorOpen size={18}/>{busy?'Accionando…':'Abrir / cerrar'}</button>;
+}
+
 export default function IntegrationsPage({siteLabel}:{siteLabel:string}){
   const [tuya,setTuya]=useState<TuyaStatus|null>(null),[devices,setDevices]=useState<Device[]>([]),[selected,setSelected]=useState(''),[profile,setProfile]=useState<Profile|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
   async function loadDevices(){setBusy(true);setError('');try{const status=await api<TuyaStatus>('tuya/status');setTuya(status);if(status.configured){const data=await api<{devices:Device[]}>('tuya/devices');setDevices(data.devices||[])}}catch(cause){setError(cause instanceof Error?cause.message:'No se pudo consultar Tuya.')}finally{setBusy(false)}}
   async function loadProfile(id:string){setSelected(id);setProfile(null);setError('');try{const data=await api<Profile>(`tuya/devices/${encodeURIComponent(id)}/profile`);setProfile(data)}catch(cause){setError(cause instanceof Error?cause.message:'No se pudo leer el dispositivo.')}}
   useEffect(()=>{void loadDevices()},[]);
-  const availableDaily=devices.filter(device=>device.dailyConsumption?.available&&device.dailyConsumption.value!=null);
-  const totalDaily=availableDaily.reduce((total,device)=>total+(device.dailyConsumption.value||0),0);
-  const sortedDevices=useMemo(()=>[...devices].sort((a,b)=>Number(b.online)-Number(a.online)||a.name.localeCompare(b.name,'es')),[devices]);
+  const sortedDevices=useMemo(()=>[...devices].sort((a,b)=>Number(isHomeGate(b))-Number(isHomeGate(a))||Number(b.online)-Number(a.online)||a.name.localeCompare(b.name,'es')),[devices]);
   const functionCodes=new Set(profile?.specification.functions.map(item=>item.code)||[]);
   const functions=[...(profile?.specification.functions||[])].sort((a,b)=>priority(a)-priority(b)||label(a).localeCompare(label(b),'es'));
   const readable=(profile?.specification.status.map(dp=>({...dp,value:currentValue(profile,dp.code)}))||[]).sort((a,b)=>priority(a)-priority(b)||label(a).localeCompare(label(b),'es'));
-  return <section className="settings-page"><header className="page-heading"><div><small>Conexiones · {siteLabel}</small><h1>Integraciones</h1><p>Tuya y Smart Life reunidos, con consumo diario y controles prioritarios.</p></div><button className="refresh-button" onClick={loadDevices} disabled={busy}><RefreshCw className={busy?'spin':''}/><span>Actualizar</span></button></header>{error&&<div className="data-warning-banner">{error}</div>}
-    {tuya?.configured&&<section className="panel tuya-daily-summary"><header><div><small>Resumen de hoy</small><h2>Consumo por artefacto</h2></div><strong>{availableDaily.length?`${totalDaily.toLocaleString('es-CL',{maximumFractionDigits:3})} kWh`:'Sin mediciones'}</strong></header><div className="tuya-daily-grid">{sortedDevices.map(device=><article key={device.id}><span className={device.dailyConsumption?.available?'has-energy':''}><Zap size={17}/></span><div><b>{device.name}</b><small>{device.dailyConsumption?.available?'Consumo informado por el equipo':'Este equipo no publica consumo diario'}</small></div><strong>{device.dailyConsumption?.available&&device.dailyConsumption.value!=null?`${device.dailyConsumption.value.toLocaleString('es-CL',{maximumFractionDigits:3})} kWh`:'—'}</strong></article>)}</div></section>}
-    <section className="integration-grid"><article className="panel integration-card integration-ok"><PlugZap/><div><b>{tuya?.configured?'Conectadas':'Pendiente de configurar'}</b><h2>Tuya + Smart Life</h2><p>{tuya?.configured?`${devices.length} dispositivos vinculados al proyecto · servidor ${tuya.region?.toUpperCase()}.`:'Requiere las credenciales oficiales en Vercel.'}</p></div></article><article className="panel integration-card"><Activity/><div><b>{availableDaily.length?'Activo':'Según compatibilidad'}</b><h2>Medición diaria</h2><p>{availableDaily.length?`${availableDaily.length} artefactos informan energía hoy.`:'Los equipos sin medidor seguirán mostrando sus controles.'}</p></div></article></section>
-    {tuya?.configured&&<section className="tuya-full-list"><div className="tuya-section-title"><div><small>Control rápido</small><h2>Todos los artefactos</h2></div><span><Gauge size={16}/> En línea primero</span></div>{sortedDevices.map(device=>{const quick=mainSwitch(device);return <article className="panel tuya-full-device" key={device.id}><div className="tuya-device-heading"><button className="tuya-expand" onClick={()=>selected===device.id?(setSelected(''),setProfile(null)):loadProfile(device.id)}><span><b>{device.name}</b><small>{categoryLabel(device.category)} · {device.online?'En línea':'Sin conexión'}</small></span></button><div className="tuya-heading-actions">{quick&&<Control deviceId={device.id} dp={{...quick,type:'Boolean'}} value={quick.value} onDone={loadDevices} onError={setError}/>}<button className="tuya-chevron" aria-label={selected===device.id?'Cerrar opciones':'Mostrar opciones'} onClick={()=>selected===device.id?(setSelected(''),setProfile(null)):loadProfile(device.id)}>{selected===device.id?<ChevronUp/>:<ChevronDown/>}</button></div></div>{selected===device.id&&<div className="tuya-options">{!profile?<p>Cargando todas las opciones…</p>:<><h3>Acciones principales</h3>{functions.length?<div className="tuya-option-grid">{functions.map(dp=><div className="tuya-option" key={dp.code}><span><b>{label(dp)}</b><small>{dp.code} · {dp.type}</small></span><Control deviceId={device.id} dp={dp} value={currentValue(profile,dp.code)} onDone={()=>loadProfile(device.id)} onError={setError}/></div>)}</div>:<p>Este equipo no publica controles compatibles.</p>}<details className="tuya-all-status"><summary>Ver todos los estados y sensores</summary><div className="tuya-option-grid">{readable.map(dp=><div className="tuya-option" key={dp.code}><span><b>{label(dp)}</b><small>{dp.code}{functionCodes.has(dp.code)?' · Controlable':''}</small></span><code>{displayValue(dp)}</code></div>)}</div></details></>}</div>}</article>})}</section>}
+  return <section className="settings-page"><header className="page-heading"><div><small>Conexiones · {siteLabel}</small><h1>Integraciones</h1><p>Acceso directo a tus artefactos Tuya y Smart Life.</p></div><button className="refresh-button" onClick={loadDevices} disabled={busy}><RefreshCw className={busy?'spin':''}/><span>Actualizar</span></button></header>{error&&<div className="data-warning-banner">{error}</div>}
+    {tuya?.configured&&<section className="tuya-full-list"><div className="tuya-section-title"><div><small>{devices.length} dispositivos vinculados</small><h2>Todos los artefactos</h2></div><span><Gauge size={16}/> Portón y equipos en línea primero</span></div>{sortedDevices.map(device=>{const gate=isHomeGate(device),quick=mainSwitch(device);return <article className={`panel tuya-full-device ${gate?'tuya-priority-device':''}`} key={device.id}><div className="tuya-device-heading"><button className="tuya-expand" onClick={()=>selected===device.id?(setSelected(''),setProfile(null)):loadProfile(device.id)}><span>{gate&&<em>Acceso rápido</em>}<b>{device.name.trim()}</b><small>{categoryLabel(device.category)} · {device.online?'En línea':'Sin conexión'}</small></span></button><div className="tuya-heading-actions">{gate?<GateControl device={device} onDone={loadDevices} onError={setError}/>:quick&&<Control deviceId={device.id} dp={{...quick,type:'Boolean'}} value={quick.value} onDone={loadDevices} onError={setError}/>}<button className="tuya-chevron" aria-label={selected===device.id?'Cerrar opciones':'Mostrar opciones'} onClick={()=>selected===device.id?(setSelected(''),setProfile(null)):loadProfile(device.id)}>{selected===device.id?<ChevronUp/>:<ChevronDown/>}</button></div></div>{selected===device.id&&<div className="tuya-options">{!profile?<p>Cargando todas las opciones…</p>:<><h3>Acciones principales</h3>{functions.length?<div className="tuya-option-grid">{functions.map(dp=><div className="tuya-option" key={dp.code}><span><b>{label(dp)}</b><small>{dp.code} · {dp.type}</small></span><Control deviceId={device.id} dp={dp} value={currentValue(profile,dp.code)} onDone={()=>loadProfile(device.id)} onError={setError}/></div>)}</div>:<p>Este equipo no publica controles compatibles.</p>}<details className="tuya-all-status"><summary>Ver todos los estados y sensores</summary><div className="tuya-option-grid">{readable.map(dp=><div className="tuya-option" key={dp.code}><span><b>{label(dp)}</b><small>{dp.code}{functionCodes.has(dp.code)?' · Controlable':''}</small></span><code>{displayValue(dp)}</code></div>)}</div></details></>}</div>}</article>})}</section>}
   </section>;
 }
