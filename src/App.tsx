@@ -84,6 +84,7 @@ export default function App(){
   const [homeDate,setHomeDate]=useState(formatSiteDate());
   const [historicalDayRows,setHistoricalDayRows]=useState<HistoryRow[]>([]);
   const [historicalDayLoading,setHistoricalDayLoading]=useState(false);
+  const [peerSolar,setPeerSolar]=useState<{deviceSn:string;siteLabel:string;power:number;updatedAt:Date|null}|null>(null);
   const markUpdated=(key:string)=>setLastSectionUpdate(prev=>({...prev,[key]:new Date()}));
 
   const siteDate=formatSiteDate();
@@ -95,6 +96,11 @@ export default function App(){
   const weekRows=useMemo(()=>filterRowsForSiteRange(combinedWeekRows,weekRange.siteStart,weekRange.siteEnd),[combinedWeekRows,weekRange.siteStart,weekRange.siteEnd]);
   const device=devices.find(d=>d.deviceSn===selected);
   const profile=siteProfile(device?.nickName||'');
+  const peerDevice=useMemo(()=>{
+    if(!device)return undefined;
+    const currentKey=siteProfile(device.nickName||'').key;
+    return devices.find(candidate=>candidate.deviceSn!==device.deviceSn&&siteProfile(candidate.nickName||'').key!==currentKey);
+  },[devices,device]);
   const siteLabel=profile.shortLabel;
   const gridSourceLabel=profile.gridConnected?'Red activa':'Generador';
   const isHistoricalDay=homeDate!==siteDate;
@@ -279,6 +285,27 @@ export default function App(){
   useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>void refreshDayHistory(selected),REFRESH_MS.day);return()=>clearInterval(t)},[auth,selected]);
   useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>void refreshWeekHistory(selected),REFRESH_MS.week);return()=>clearInterval(t)},[auth,selected,weekRange.siteStart,weekRange.siteEnd]);
   useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>void refreshMonthHistory(selected),REFRESH_MS.month);return()=>clearInterval(t)},[auth,selected,siteDate]);
+  useEffect(()=>{
+    if(!auth||page!=='home'||!peerDevice){setPeerSolar(null);return}
+    let active=true;
+    const siteLabel=siteProfile(peerDevice.nickName||'').shortLabel;
+    const cached=readSiteCache(peerDevice.deviceSn)?.realtime;
+    if(cached)setPeerSolar({deviceSn:peerDevice.deviceSn,siteLabel,power:pvPower(cached,1)+pvPower(cached,2),updatedAt:null});
+    const loadPeerSolar=async()=>{
+      try{
+        const result=await api<{data:Realtime}>(`devices/${peerDevice.deviceSn}/realtime`);
+        if(!active)return;
+        const value=result.data||{};
+        writeSiteCache(peerDevice.deviceSn,{realtime:value});
+        setPeerSolar({deviceSn:peerDevice.deviceSn,siteLabel,power:pvPower(value,1)+pvPower(value,2),updatedAt:new Date()});
+      }catch{
+        // Se conserva el último valor válido de la otra instalación.
+      }
+    };
+    const initialTimer=window.setTimeout(()=>void loadPeerSolar(),4_000);
+    const refreshTimer=window.setInterval(()=>void loadPeerSolar(),REFRESH_MS.realtime);
+    return()=>{active=false;window.clearTimeout(initialTimer);window.clearInterval(refreshTimer)};
+  },[auth,page,peerDevice?.deviceSn]);
   useEffect(()=>{if(!auth||!selected||!isHistoricalDay){setHistoricalDayRows([]);return}let active=true;setHistoricalDayLoading(true);setTimelineIndex(null);const utc=siteRangeUtc(homeDate,addDays(homeDate,1));api<{list:HistoryRow[]}>(`devices/${selected}/archive-series?start=${encodeURIComponent(utc.start)}&end=${encodeURIComponent(utc.end)}&resolution=hour`).then(result=>{if(active){const rows=filterRowsForSiteDate(result.list||[],homeDate);setHistoricalDayRows(rows);setTimelineIndex(rows.length?rows.length-1:null)}}).catch(error=>active&&setHistoryMessage(`No fue posible cargar ${homeDate}: ${error instanceof Error?error.message:'error'}.`)).finally(()=>active&&setHistoricalDayLoading(false));return()=>{active=false}},[auth,selected,homeDate,isHistoricalDay]);
   useEffect(()=>{
     if(!auth||!device)return;
@@ -329,6 +356,12 @@ export default function App(){
       {historyProgress&&<div className="history-progress">{historyProgress}</div>}
 
       {page==='home'&&<>
+        {peerDevice&&<aside className="peer-solar-strip" aria-live="polite">
+          <span className="peer-solar-dot" aria-hidden="true"/>
+          <span><b>{siteProfile(peerDevice.nickName||'').shortLabel}</b> está produciendo</span>
+          <strong>{peerSolar?.deviceSn===peerDevice.deviceSn?watts(peerSolar.power):'Consultando…'}</strong>
+          {peerSolar?.updatedAt&&<small>ahora</small>}
+        </aside>}
         <HomeDateNavigator value={homeDate} max={siteDate} loading={historicalDayLoading} onChange={date=>{setHomeDate(date);setTimelineIndex(null)}}/>
         <SimpleEnergyFlow data={displayedData} history={homeRows} today={homeEnergy} gridLabel={gridSourceLabel} pvCountOverride={pvCount} historical={isHistoricalDay} dateLabel={new Date(`${homeDate}T12:00`).toLocaleDateString('es-CL',{dateStyle:'long'})}/>
         <EnergyTimeline rows={homeRows} index={timelineIndex} onChange={setTimelineIndex} historical={isHistoricalDay}/>
