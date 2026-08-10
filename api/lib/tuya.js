@@ -111,8 +111,10 @@ async function attachStatuses(devices){
   for(let index=0;index<devices.length;index+=20){
     const ids=devices.slice(index,index+20).map(device=>device.id).filter(Boolean);
     if(!ids.length)continue;
-    const payload=await tuyaRequest('/v1.0/iot-03/devices/status',{query:{device_ids:ids.join(',')}});
-    for(const row of Array.isArray(payload.result)?payload.result:[])byId.set(row.id,Array.isArray(row.status)?row.status:[]);
+    try{
+      const payload=await tuyaRequest('/v1.0/iot-03/devices/status',{query:{device_ids:ids.join(',')}});
+      for(const row of Array.isArray(payload.result)?payload.result:[])byId.set(row.id,Array.isArray(row.status)?row.status:[]);
+    }catch(error){console.warn('[tuya/devices] estados masivos no disponibles',{code:String(error?.tuyaCode||''),message:String(error?.message||error)})}
   }
   return devices.map(device=>({...device,status:byId.get(device.id)||device.status||[]}));
 }
@@ -135,7 +137,7 @@ export async function listTuyaDevices(){
     catch(error){firstError||=error;console.warn('[tuya/devices] fuente no disponible',{source:name,code:String(error?.tuyaCode||''),message:String(error?.message||error)})}
   }
   const rows=combineRows(groups);
-  if(!groups.length)throw firstError||new Error('Tuya no permitió consultar los dispositivos vinculados.');
+  if(!groups.length||(!rows.length&&firstError))throw firstError||new Error('Tuya no permitió consultar los dispositivos vinculados.');
   console.info('[tuya/devices] inventario combinado',{...counts,total:rows.length});
   const base=rows.map(d=>({id:d.id||d.device_id,name:d.customName||d.name||d.device_name||'Dispositivo Tuya',category:d.category||d.category_code||'',productName:d.productName||d.product_name||'',online:Boolean(d.isOnline??d.online),icon:d.icon||'',status:Array.isArray(d.status)?d.status:[]}));
   const devices=await attachStatuses(base),day=chileDay();
