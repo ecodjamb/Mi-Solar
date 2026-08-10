@@ -63,16 +63,41 @@ export function selectEnergyCode(status=[]){
 }
 
 async function projectDeviceRows(){
-  const all=[],seen=new Set();
+  const all=[];
+  let lastId='';
+  for(let page=0;page<10;page+=1){
+    const payload=await tuyaRequest('/v2.0/cloud/thing/device',{query:{page_size:20,last_id:lastId}}),rows=rowsFrom(payload);
+    all.push(...rows);
+    const next=String(rows.at(-1)?.id||'');
+    if(rows.length<20||!next||next===lastId)break;
+    lastId=next;
+  }
+  return all;
+}
+
+async function associatedDeviceRows(){
+  const all=[];
   let lastRowKey='';
   for(let page=0;page<10;page+=1){
-    const payload=await tuyaRequest('/v1.3/iot-03/devices',{query:{page_size:100,last_row_key:lastRowKey}}),result=payload.result||{};
-    for(const row of rowsFrom(payload)){const id=row.id||row.device_id;if(id&&!seen.has(id)){seen.add(id);all.push(row)}}
+    const payload=await tuyaRequest('/v1.0/iot-01/associated-users/devices',{query:{size:100,last_row_key:lastRowKey}}),result=payload.result||{},rows=rowsFrom(payload);
+    all.push(...rows);
     const next=String(result.last_row_key||'');
-    if(!next||next===lastRowKey||(!result.has_more&&!result.has_next))break;
+    if(!result.has_more||!next||next===lastRowKey)break;
     lastRowKey=next;
   }
   return all;
+}
+
+async function configuredUserRows(){
+  const {uid}=tuyaConfiguration();
+  const payload=await tuyaRequest(`/v1.0/users/${encodeURIComponent(uid)}/devices`,{query:{page_no:1,page_size:100}});
+  return rowsFrom(payload);
+}
+
+function combineRows(groups){
+  const devices=new Map();
+  for(const group of groups)for(const row of group){const id=row.id||row.device_id;if(id)devices.set(id,{...(devices.get(id)||{}),...row})}
+  return [...devices.values()];
 }
 
 async function attachStatuses(devices){
@@ -97,8 +122,11 @@ async function dailyConsumption(device,day){
 }
 
 export async function listTuyaDevices(){
-  const rows=await projectDeviceRows();
-  const base=rows.map(d=>({id:d.id||d.device_id,name:d.name||d.device_name||'Dispositivo Tuya',category:d.category||d.category_code||'',productName:d.product_name||'',online:Boolean(d.online),icon:d.icon||'',status:Array.isArray(d.status)?d.status:[]}));
+  const attempts=await Promise.allSettled([projectDeviceRows(),associatedDeviceRows(),configuredUserRows()]);
+  const groups=attempts.filter(result=>result.status==='fulfilled').map(result=>result.value),rows=combineRows(groups);
+  if(!groups.length)throw attempts.find(result=>result.status==='rejected')?.reason||new Error('Tuya no permitió consultar los dispositivos vinculados.');
+  console.info('[tuya/devices] inventario combinado',{project:attempts[0].status==='fulfilled'?attempts[0].value.length:null,associated:attempts[1].status==='fulfilled'?attempts[1].value.length:null,user:attempts[2].status==='fulfilled'?attempts[2].value.length:null,total:rows.length});
+  const base=rows.map(d=>({id:d.id||d.device_id,name:d.customName||d.name||d.device_name||'Dispositivo Tuya',category:d.category||d.category_code||'',productName:d.productName||d.product_name||'',online:Boolean(d.isOnline??d.online),icon:d.icon||'',status:Array.isArray(d.status)?d.status:[]}));
   const devices=await attachStatuses(base),day=chileDay();
   const consumption=await Promise.all(devices.map(device=>dailyConsumption(device,day)));
   return devices.map((device,index)=>({...device,dailyConsumption:consumption[index]}));
