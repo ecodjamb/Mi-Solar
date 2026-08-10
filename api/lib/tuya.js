@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
 const REGION_HOSTS = { us:'https://openapi.tuyaus.com', eu:'https://openapi.tuyaeu.com', cn:'https://openapi.tuyacn.com', in:'https://openapi.tuyain.com' };
+const ENERGY_CODES = ['add_ele','energy','total_energy','total_forward_energy','forward_energy_total','ele_usage','electricity'];
 let tokenCache = null;
 
 export function tuyaConfiguration(){
@@ -45,10 +46,62 @@ export async function tuyaRequest(path,options={}){
   try{return await rawTuyaRequest(path,{...options,accessToken:token})}catch(error){if(!['1010','1011','1012'].includes(String(error.tuyaCode||'')))throw error;tokenCache=null;token=await accessToken();return rawTuyaRequest(path,{...options,accessToken:token})}
 }
 
+function rowsFrom(payload){
+  const result=payload?.result||{};
+  return Array.isArray(result)?result:(result.list||result.devices||[]);
+}
+
+function chileDay(){
+  const parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/Santiago',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+  const value=Object.fromEntries(parts.map(part=>[part.type,part.value]));
+  return `${value.year}${value.month}${value.day}`;
+}
+
+export function selectEnergyCode(status=[]){
+  const codes=new Set(status.map(item=>String(item?.code||'').toLowerCase()));
+  return ENERGY_CODES.find(code=>codes.has(code))||'';
+}
+
+async function projectDeviceRows(){
+  const all=[],seen=new Set();
+  let lastRowKey='';
+  for(let page=0;page<10;page+=1){
+    const payload=await tuyaRequest('/v1.3/iot-03/devices',{query:{page_size:100,last_row_key:lastRowKey}}),result=payload.result||{};
+    for(const row of rowsFrom(payload)){const id=row.id||row.device_id;if(id&&!seen.has(id)){seen.add(id);all.push(row)}}
+    const next=String(result.last_row_key||'');
+    if(!next||next===lastRowKey||(!result.has_more&&!result.has_next))break;
+    lastRowKey=next;
+  }
+  return all;
+}
+
+async function attachStatuses(devices){
+  const byId=new Map();
+  for(let index=0;index<devices.length;index+=20){
+    const ids=devices.slice(index,index+20).map(device=>device.id).filter(Boolean);
+    if(!ids.length)continue;
+    const payload=await tuyaRequest('/v1.0/iot-03/devices/status',{query:{device_ids:ids.join(',')}});
+    for(const row of Array.isArray(payload.result)?payload.result:[])byId.set(row.id,Array.isArray(row.status)?row.status:[]);
+  }
+  return devices.map(device=>({...device,status:byId.get(device.id)||device.status||[]}));
+}
+
+async function dailyConsumption(device,day){
+  const code=selectEnergyCode(device.status);
+  if(!code)return {available:false,value:null,unit:'kWh',code:null};
+  try{
+    const payload=await tuyaRequest(`/v1.0/devices/${encodeURIComponent(device.id)}/statistics/days`,{query:{code,start_day:day,end_day:day,stat_type:'sum'}});
+    const days=payload.result?.days||{},raw=days[day],value=Number(raw);
+    return Number.isFinite(value)?{available:true,value,unit:'kWh',code}:{available:false,value:null,unit:'kWh',code};
+  }catch{return {available:false,value:null,unit:'kWh',code}}
+}
+
 export async function listTuyaDevices(){
-  const {uid}=tuyaConfiguration();
-  const payload=await tuyaRequest('/v1.3/iot-03/devices',{query:{source_type:'tuyaUser',source_id:uid,page_size:100}}),result=payload.result||{},rows=Array.isArray(result)?result:(result.list||result.devices||[]);
-  return rows.map(d=>({id:d.id||d.device_id,name:d.name||d.device_name||'Dispositivo Tuya',category:d.category||d.category_code||'',online:Boolean(d.online),icon:d.icon||'',status:Array.isArray(d.status)?d.status:[]}));
+  const rows=await projectDeviceRows();
+  const base=rows.map(d=>({id:d.id||d.device_id,name:d.name||d.device_name||'Dispositivo Tuya',category:d.category||d.category_code||'',productName:d.product_name||'',online:Boolean(d.online),icon:d.icon||'',status:Array.isArray(d.status)?d.status:[]}));
+  const devices=await attachStatuses(base),day=chileDay();
+  const consumption=await Promise.all(devices.map(device=>dailyConsumption(device,day)));
+  return devices.map((device,index)=>({...device,dailyConsumption:consumption[index]}));
 }
 
 export async function getTuyaDevice(deviceId){
