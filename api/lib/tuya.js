@@ -14,7 +14,8 @@ export function tuyaConfiguration(){
 }
 
 export function canonicalQuery(query={}){
-  return Object.entries(query).filter(([,v])=>v!==undefined&&v!==null&&v!=='').sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&');
+  const encode=value=>encodeURIComponent(String(value)).replace(/%2C/gi,',');
+  return Object.entries(query).filter(([,v])=>v!==undefined&&v!==null&&v!=='').sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>`${encode(k)}=${encode(v)}`).join('&');
 }
 
 export function signTuyaRequest({clientId,clientSecret,accessToken='',method='GET',path,query={},body='',timestamp,nonce=''}){

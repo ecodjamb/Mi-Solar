@@ -12,6 +12,7 @@ assert.equal(
   'a4fa1bf4334b2b6a9e4952b320e671832ab08f0c324e2c14eb47317850180f59'
 );
 assert.equal(canonicalQuery({source_type:'tuyaUser',source_id:'abc 123'}),'source_id=abc%20123&source_type=tuyaUser');
+assert.equal(canonicalQuery({device_ids:'alpha,beta'}),'device_ids=alpha,beta');
 assert.equal(selectEnergyCode([{code:'cur_power'},{code:'add_ele'}]),'add_ele');
 assert.equal(selectEnergyCode([{code:'switch_1'}]),'');
 assert.equal(signTuyaRequest({clientId:'demo-client',clientSecret:'demo-secret',accessToken:'demo-token',method:'GET',path:'/v1.0/devices/demo',timestamp:'1700000000000',nonce:'demo-nonce'}),'F1D87D3459A8FAB29A67D1BA8265DF720A8F5A7E94CC5F3909CC43CD0326BEF2');
