@@ -55,3 +55,18 @@ export async function getTuyaDevice(deviceId){
   if(!/^[A-Za-z0-9_-]{4,64}$/.test(deviceId)){const error=new Error('ID de dispositivo Tuya inválido.');error.status=400;throw error}
   const payload=await tuyaRequest(`/v1.0/devices/${encodeURIComponent(deviceId)}`);return payload.result||{};
 }
+
+export async function getTuyaDeviceProfile(deviceId){
+  const device=await getTuyaDevice(deviceId);
+  const payload=await tuyaRequest(`/v1.0/iot-03/devices/${encodeURIComponent(deviceId)}/specification`);
+  const specification=payload.result||{};
+  return {device,specification:{category:specification.category||device.category||'',functions:Array.isArray(specification.functions)?specification.functions:[],status:Array.isArray(specification.status)?specification.status:[]}};
+}
+
+export async function sendTuyaCommand(deviceId,code,value){
+  const {specification}=await getTuyaDeviceProfile(deviceId);
+  const fn=specification.functions.find(item=>item.code===code);
+  if(!fn){const error=new Error('Esta función no está autorizada para el dispositivo.');error.status=400;throw error}
+  const payload=await tuyaRequest(`/v1.0/iot-03/devices/${encodeURIComponent(deviceId)}/commands`,{method:'POST',body:{commands:[{code,value}]}});
+  return Boolean(payload.result);
+}

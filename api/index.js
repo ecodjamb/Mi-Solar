@@ -1,7 +1,7 @@
 import { md5, tumRequest } from './lib/tumcapp.js';
 import { clearCookie, openSession, sessionCookie, SESSION_IDLE_MS } from './lib/session.js';
 import { archiveRows, readArchive, readArchiveSeries } from './lib/archive.js';
-import { getTuyaDevice, listTuyaDevices, tuyaConfiguration } from './lib/tuya.js';
+import { getTuyaDevice, getTuyaDeviceProfile, listTuyaDevices, sendTuyaCommand, tuyaConfiguration } from './lib/tuya.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
   res.statusCode = statusCode;
@@ -233,6 +233,22 @@ export default async function handler(req, res) {
       requireSession(req);
       const device = await getTuyaDevice(decodeURIComponent(tuyaDevice[1]));
       return sendJson(res, 200, { device, updatedAt: new Date().toISOString() });
+    }
+
+    const tuyaProfile = route.match(/^tuya\/devices\/([^/]+)\/profile$/);
+    if (method === 'GET' && tuyaProfile) {
+      requireSession(req);
+      const profile = await getTuyaDeviceProfile(decodeURIComponent(tuyaProfile[1]));
+      return sendJson(res, 200, { ...profile, updatedAt: new Date().toISOString() });
+    }
+
+    const tuyaCommand = route.match(/^tuya\/devices\/([^/]+)\/commands$/);
+    if (method === 'POST' && tuyaCommand) {
+      requireSession(req);
+      const { code, value } = parseBody(req);
+      if (!String(code || '')) return sendJson(res, 400, { error: 'Falta el código de la función.' });
+      const success = await sendTuyaCommand(decodeURIComponent(tuyaCommand[1]), String(code), value);
+      return sendJson(res, 200, { success, updatedAt: new Date().toISOString() });
     }
 
     if (method === 'GET' && route === 'devices') {
