@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 const REGION_HOSTS = { us:'https://openapi.tuyaus.com', eu:'https://openapi.tuyaeu.com', cn:'https://openapi.tuyacn.com', in:'https://openapi.tuyain.com' };
 const ENERGY_CODES = ['add_ele','energy','total_energy','total_forward_energy','forward_energy_total','ele_usage','electricity'];
 let tokenCache = null;
+let tokenPromise = null;
 
 export function tuyaConfiguration(){
   const region=String(process.env.TUYA_API_REGION||'').trim().toLowerCase();
@@ -36,14 +37,19 @@ async function rawTuyaRequest(path,{method='GET',query={},body,accessToken=''}={
 
 async function accessToken(){
   if(tokenCache?.value&&tokenCache.expiresAt>Date.now()+60_000)return tokenCache.value;
-  const payload=await rawTuyaRequest('/v1.0/token',{query:{grant_type:1}}),result=payload.result||{};
-  if(!result.access_token)throw new Error('Tuya no devolvió un token de acceso.');
-  tokenCache={value:result.access_token,expiresAt:Date.now()+Math.max(60,Number(result.expire_time||3600))*1000};return tokenCache.value;
+  if(tokenPromise)return tokenPromise;
+  tokenPromise=(async()=>{
+    const payload=await rawTuyaRequest('/v1.0/token',{query:{grant_type:1}}),result=payload.result||{};
+    if(!result.access_token)throw new Error('Tuya no devolvió un token de acceso.');
+    tokenCache={value:result.access_token,expiresAt:Date.now()+Math.max(60,Number(result.expire_time||3600))*1000};
+    return tokenCache.value;
+  })();
+  try{return await tokenPromise}finally{tokenPromise=null}
 }
 
 export async function tuyaRequest(path,options={}){
   let token=await accessToken();
-  try{return await rawTuyaRequest(path,{...options,accessToken:token})}catch(error){if(!['1010','1011','1012'].includes(String(error.tuyaCode||'')))throw error;tokenCache=null;token=await accessToken();return rawTuyaRequest(path,{...options,accessToken:token})}
+  try{return await rawTuyaRequest(path,{...options,accessToken:token})}catch(error){if(!['1004','1010','1011','1012'].includes(String(error.tuyaCode||'')))throw error;tokenCache=null;token=await accessToken();return rawTuyaRequest(path,{...options,accessToken:token})}
 }
 
 function rowsFrom(payload){
@@ -122,10 +128,15 @@ async function dailyConsumption(device,day){
 }
 
 export async function listTuyaDevices(){
-  const attempts=await Promise.allSettled([projectDeviceRows(),associatedDeviceRows(),configuredUserRows()]);
-  const groups=attempts.filter(result=>result.status==='fulfilled').map(result=>result.value),rows=combineRows(groups);
-  if(!groups.length)throw attempts.find(result=>result.status==='rejected')?.reason||new Error('Tuya no permitió consultar los dispositivos vinculados.');
-  console.info('[tuya/devices] inventario combinado',{project:attempts[0].status==='fulfilled'?attempts[0].value.length:null,associated:attempts[1].status==='fulfilled'?attempts[1].value.length:null,user:attempts[2].status==='fulfilled'?attempts[2].value.length:null,total:rows.length});
+  const groups=[],counts={project:null,associated:null,user:null};
+  let firstError=null;
+  for(const [name,load] of [['project',projectDeviceRows],['associated',associatedDeviceRows],['user',configuredUserRows]]){
+    try{const rows=await load();groups.push(rows);counts[name]=rows.length}
+    catch(error){firstError||=error;console.warn('[tuya/devices] fuente no disponible',{source:name,code:String(error?.tuyaCode||''),message:String(error?.message||error)})}
+  }
+  const rows=combineRows(groups);
+  if(!groups.length)throw firstError||new Error('Tuya no permitió consultar los dispositivos vinculados.');
+  console.info('[tuya/devices] inventario combinado',{...counts,total:rows.length});
   const base=rows.map(d=>({id:d.id||d.device_id,name:d.customName||d.name||d.device_name||'Dispositivo Tuya',category:d.category||d.category_code||'',productName:d.productName||d.product_name||'',online:Boolean(d.isOnline??d.online),icon:d.icon||'',status:Array.isArray(d.status)?d.status:[]}));
   const devices=await attachStatuses(base),day=chileDay();
   const consumption=await Promise.all(devices.map(device=>dailyConsumption(device,day)));
