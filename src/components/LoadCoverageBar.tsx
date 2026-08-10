@@ -4,7 +4,7 @@ import { kwh } from '../utils/energy';
 
 type Period = 'day' | 'month';
 
-export default function LoadCoverageBar({today,month,lastUpdate,gridLabel='Red activa'}:{today:DailyEnergy;month:DailyEnergy;lastUpdate:Date|null;gridLabel?:string}){
+export default function LoadCoverageBar({today,month,lastUpdate,gridLabel='Red activa',historical=false}:{today:DailyEnergy;month:DailyEnergy;lastUpdate:Date|null;gridLabel?:string;historical?:boolean}){
   const [period,setPeriod]=useState<Period>('day');
   const energy=period==='day'?today:month;
   const total=Math.max(0,energy.load);
@@ -21,7 +21,7 @@ export default function LoadCoverageBar({today,month,lastUpdate,gridLabel='Red a
       <div><small>Balance del consumo de la casa</small><h2 id="load-coverage-title">Consumo cubierto por origen</h2><p>{period==='day'?'Acumulado de hoy':'Acumulado del mes'} · última muestra {updatedAt}</p></div>
       <div className="load-period-selector" role="group" aria-label="Periodo del consumo">
         <button type="button" className={period==='day'?'active':''} aria-pressed={period==='day'} onClick={()=>setPeriod('day')}>Diario</button>
-        <button type="button" className={period==='month'?'active':''} aria-pressed={period==='month'} onClick={()=>setPeriod('month')}>Mensual</button>
+        {!historical&&<button type="button" className={period==='month'?'active':''} aria-pressed={period==='month'} onClick={()=>setPeriod('month')}>Mensual</button>}
       </div>
     </header>
     <div className="load-equation" aria-label="Cálculo del aporte local"><span><small>Consumo total</small><strong>{kwh(total)}</strong></span><b>−</b><span><small>{gridLabel}{gridLabel==='Red activa'?' (estado 1)':''}</small><strong>{kwh(grid)}</strong></span><b>=</b><span><small>Aporte solar + batería</small><strong>{kwh(local)}</strong></span></div>

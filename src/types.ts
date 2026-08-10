@@ -20,7 +20,7 @@ export type DailyEnergy = {
   firstSample?:string;
   lastSample?:string;
 };
-export type PageKey = 'home'|'charts'|'solar'|'costs'|'equipment'|'technical';
+export type PageKey = 'home'|'charts'|'solar'|'costs'|'equipment'|'programming'|'integrations'|'technical';
 export type TechnicalItem = {
   key:string;
   label:string;

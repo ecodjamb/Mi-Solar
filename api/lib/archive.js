@@ -80,11 +80,11 @@ export async function readArchiveSeries(deviceSn,startIso,endIso,resolution='hou
   const sites=await rest(`solar_sites?device_sn=eq.${encodeURIComponent(deviceSn)}&select=id&limit=1`);
   if(!sites?.[0]?.id)return {rows:[],configured:true};
   const view=resolution==='day'?'energy_daily':'energy_hourly';
-  const rows=await rest(`${view}?site_id=eq.${sites[0].id}&bucket_at=gte.${encodeURIComponent(startIso)}&bucket_at=lt.${encodeURIComponent(endIso)}&select=bucket_at,solar_w,load_w,grid_w,grid_active,battery_charge_w,battery_discharge_w,battery_soc,samples&order=bucket_at.asc&limit=10000`);
+  const rows=await rest(`${view}?site_id=eq.${sites[0].id}&bucket_at=gte.${encodeURIComponent(startIso)}&bucket_at=lt.${encodeURIComponent(endIso)}&select=bucket_at,solar_w,pv1_w,pv2_w,load_w,grid_w,grid_active,battery_charge_w,battery_discharge_w,battery_soc,samples&order=bucket_at.asc&limit=10000`);
   return {rows:(rows||[]).map(row=>({
     currentTime:row.bucket_at,
-    pvInputPower1:Number(row.solar_w||0),
-    pvInputPower2:0,
+    pvInputPower1:Number(row.pv1_w||0),
+    pvInputPower2:Number(row.pv2_w||0),
     acOutputActivePowerTotal:Number(row.load_w||0),
     gridPowerInputActiveTotal:Number(row.grid_w||0),
     statusGrid:row.grid_active?1:0,

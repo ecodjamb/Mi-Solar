@@ -2,6 +2,7 @@
 // Mi Solar V5.3 — archivo actualizado para reemplazo completo del repositorio.
 import assert from 'node:assert/strict';
 import { calculateVrt, md5 } from '../api/lib/tumcapp.js';
+import { canonicalQuery, signTuyaRequest } from '../api/lib/tuya.js';
 
 assert.equal(md5('demo-password'), '4b4d9529148d8d9440d7e20c78287f69');
 
@@ -10,6 +11,8 @@ assert.equal(
   calculateVrt({ username: 'demo-user', password: md5('demo-password') }, ''),
   'a4fa1bf4334b2b6a9e4952b320e671832ab08f0c324e2c14eb47317850180f59'
 );
+assert.equal(canonicalQuery({source_type:'tuyaUser',source_id:'abc 123'}),'source_id=abc%20123&source_type=tuyaUser');
+assert.equal(signTuyaRequest({clientId:'demo-client',clientSecret:'demo-secret',accessToken:'demo-token',method:'GET',path:'/v1.0/devices/demo',timestamp:'1700000000000',nonce:'demo-nonce'}),'F1D87D3459A8FAB29A67D1BA8265DF720A8F5A7E94CC5F3909CC43CD0326BEF2');
 assert.equal(
   calculateVrt({ openPage: '1', pageNum: '1', pageSize: '20', groupId: '0' }, 'demo-vrt-key'),
   '64db9ad32aebfeadc65fe1c233d17a3b93456934914b029e137298f364f8dc36'

@@ -26,5 +26,6 @@ Los perfiles propios del sitio viven en `src/utils/site.ts` y la calibración so
 - Root directory: vacío
 - Variable requerida: `SESSION_SECRET`
 - Variables del archivo permanente: `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `MISOLAR_DB_KEY`
+- Integración Tuya: `TUYA_CLIENT_ID`, `TUYA_CLIENT_SECRET`, `TUYA_API_REGION` (`us`, `eu`, `cn` o `in`) y `TUYA_USER_UID`
 
 Prueba del backend: `/api/health`.

@@ -1,6 +1,7 @@
 import { md5, tumRequest } from './lib/tumcapp.js';
 import { clearCookie, openSession, sessionCookie, SESSION_IDLE_MS } from './lib/session.js';
 import { archiveRows, readArchive, readArchiveSeries } from './lib/archive.js';
+import { getTuyaDevice, listTuyaDevices, tuyaConfiguration } from './lib/tuya.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
   res.statusCode = statusCode;
@@ -142,7 +143,7 @@ export default async function handler(req, res) {
 
   try {
     if (method === 'GET' && route === 'health') {
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.9.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.10.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, time: new Date().toISOString() });
     }
 
     if (method === 'GET' && route === 'weather') {
@@ -213,6 +214,25 @@ export default async function handler(req, res) {
       return sendJson(res, 200, { ok: true, expiresAt: session.expiresAt, idleTimeoutMs: SESSION_IDLE_MS }, {
         'Set-Cookie': sessionCookie(session)
       });
+    }
+
+    if (method === 'GET' && route === 'tuya/status') {
+      requireSession(req);
+      const config = tuyaConfiguration();
+      return sendJson(res, 200, { configured: config.configured, region: config.region || null, uidHint: config.uid ? `${config.uid.slice(0, 4)}••••${config.uid.slice(-4)}` : null });
+    }
+
+    if (method === 'GET' && route === 'tuya/devices') {
+      requireSession(req);
+      const devices = await listTuyaDevices();
+      return sendJson(res, 200, { devices, total: devices.length, updatedAt: new Date().toISOString() });
+    }
+
+    const tuyaDevice = route.match(/^tuya\/devices\/([^/]+)$/);
+    if (method === 'GET' && tuyaDevice) {
+      requireSession(req);
+      const device = await getTuyaDevice(decodeURIComponent(tuyaDevice[1]));
+      return sendJson(res, 200, { device, updatedAt: new Date().toISOString() });
     }
 
     if (method === 'GET' && route === 'devices') {
@@ -326,7 +346,8 @@ export default async function handler(req, res) {
     const status = Number(error.status) || 500;
     return sendJson(res, status, {
       error: error.message || 'Error interno.',
-      ...(error.tumCode != null ? { tumCode: error.tumCode } : {})
+      ...(error.tumCode != null ? { tumCode: error.tumCode } : {}),
+      ...(error.tuyaCode != null ? { tuyaCode: error.tuyaCode } : {})
     }, status === 401 ? { 'Set-Cookie': clearCookie() } : {});
   }
 }
