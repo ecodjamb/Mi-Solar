@@ -80,7 +80,8 @@ function normalizeOpenMeteo(payload) {
   }));
   const dailyRadiation = (payload.daily?.time || []).map((date, i) => ({
     date,
-    shortwaveKwhM2: Number(payload.daily?.shortwave_radiation_sum?.[i] || 0),
+    // Open-Meteo entrega la suma diaria en MJ/m²; se normaliza a kWh/m².
+    shortwaveKwhM2: Number(payload.daily?.shortwave_radiation_sum?.[i] || 0) / 3.6,
     weatherCode: Number(payload.daily?.weather_code?.[i] || 0)
   }));
   return {

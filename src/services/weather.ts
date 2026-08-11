@@ -26,7 +26,8 @@ function normalizeOpenMeteo(payload:any, provider='Open-Meteo directo'):WeatherD
  }));
  const dailyRadiation=(payload.daily?.time||[]).map((date:string,i:number)=>({
   date,
-  shortwaveKwhM2:Number(payload.daily?.shortwave_radiation_sum?.[i]||0),
+  // Open-Meteo entrega shortwave_radiation_sum en MJ/m²; 1 kWh = 3,6 MJ.
+  shortwaveKwhM2:Number(payload.daily?.shortwave_radiation_sum?.[i]||0)/3.6,
   weatherCode:Number(payload.daily?.weather_code?.[i]||0)
  }));
  return {
