@@ -1,3 +1,117 @@
-import { useEffect,useState } from 'react';import { Clock3,Plus,ShieldAlert,Trash2 } from 'lucide-react';
-type Draft={id:string;time:string;value:'on'|'off';frequency:'daily'|'weekdays'|'once'};
-export default function ProgrammingPage({deviceSn,siteLabel}:{deviceSn:string;siteLabel:string}){const key=`mi-solar:schedules:${deviceSn}`;const [time,setTime]=useState('23:00'),[value,setValue]=useState<'on'|'off'>('on'),[frequency,setFrequency]=useState<Draft['frequency']>('daily'),[drafts,setDrafts]=useState<Draft[]>([]);useEffect(()=>{try{setDrafts(JSON.parse(localStorage.getItem(key)||'[]'))}catch{setDrafts([])}},[key]);const save=(next:Draft[])=>{setDrafts(next);localStorage.setItem(key,JSON.stringify(next))};return <section className="settings-page"><header className="page-heading"><div><small>Automatización · {siteLabel}</small><h1>Programación</h1><p>Define horarios como borradores seguros.</p></div></header><section className="panel programming-alert"><ShieldAlert/><div><strong>Sin ejecución hasta validar la orden oficial</strong><p>Recharge está identificado, pero el repositorio disponible no contiene una orden documentada para cambiarlo ni el nombre del segundo parámetro.</p></div></section><section className="panel schedule-form"><header><Clock3/><h2>Crear tarea</h2></header><div className="schedule-fields"><label>Hora<input type="time" value={time} onChange={e=>setTime(e.target.value)}/></label><label>Parámetro<select disabled><option>Recharge</option></select></label><label>Acción<select value={value} onChange={e=>setValue(e.target.value as 'on'|'off')}><option value="on">Activar</option><option value="off">Desactivar</option></select></label><label>Repetición<select value={frequency} onChange={e=>setFrequency(e.target.value as Draft['frequency'])}><option value="daily">Todos los días</option><option value="weekdays">Lunes a viernes</option><option value="once">Una vez</option></select></label></div><button className="primary-action" onClick={()=>save([...drafts,{id:crypto.randomUUID(),time,value,frequency}])}><Plus/>Guardar borrador</button><p>Segundo parámetro: pendiente de confirmar.</p></section><section className="schedule-list"><h2>Tareas guardadas</h2>{!drafts.length&&<article className="panel empty-schedule">Todavía no hay tareas.</article>}{drafts.map(d=><article className="panel schedule-item" key={d.id}><div><strong>{d.time} · Recharge {d.value==='on'?'activar':'desactivar'}</strong><small>{d.frequency==='daily'?'Todos los días':d.frequency==='weekdays'?'Lunes a viernes':'Una vez'} · no enviado</small></div><button onClick={()=>save(drafts.filter(x=>x.id!==d.id))}><Trash2/></button></article>)}</section></section>}
+import { useState } from 'react';
+import { Battery, CalendarClock, CheckCircle2, Clock3, PlayCircle, ShieldCheck, Sun, Zap } from 'lucide-react';
+import { api } from '../services/api';
+
+type SettingsCheck = {
+  observedAt: string;
+  readOnly: boolean;
+  redischarge: { percent: number | null; command: string | null; status: 'recognized' | 'not-found' };
+  output: { mode: 'Utility' | 'SOL' | 'SBU' | null; command: string | null; status: 'recognized' | 'not-found' };
+};
+
+type Props = {
+  deviceSn: string;
+  siteLabel: string;
+  currentTime: string;
+  tomorrowDate: string;
+  tomorrowForecast: number | null;
+};
+
+function dateLabel(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })
+    .format(new Date(year, month - 1, day));
+}
+
+export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomorrowDate, tomorrowForecast }: Props) {
+  const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<SettingsCheck | null>(null);
+  const [error, setError] = useState('');
+  const hasForecast = tomorrowForecast != null;
+  const qualifies = hasForecast && tomorrowForecast > 20;
+  const redischargeOk = result?.redischarge.percent === 25;
+  const outputOk = result?.output.mode === 'SBU';
+
+  async function checkSettings() {
+    setChecking(true);
+    setError('');
+    setResult(null);
+    try {
+      setResult(await api<SettingsCheck>(`devices/${deviceSn}/settings-check`));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No fue posible leer la configuración del inversor.');
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  return <section className="settings-page">
+    <header className="page-heading">
+      <div>
+        <small>Automatización · {siteLabel}</small>
+        <h1>Programación solar</h1>
+        <p>Regla diaria basada en la proyección local del día siguiente.</p>
+      </div>
+    </header>
+
+    <section className="panel programming-alert programming-safe">
+      <ShieldCheck />
+      <div>
+        <strong>Prueba segura de solo lectura</strong>
+        <p>Esta etapa únicamente consulta Redischarge y Output. No envía comandos ni cambia el inversor.</p>
+      </div>
+    </section>
+
+    <section className="panel automation-rule-card">
+      <header>
+        <div><small>Regla propuesta</small><h2>Día soleado de mañana</h2></div>
+        <span className="automation-time"><Clock3 size={17}/> Todos los días · 22:00</span>
+      </header>
+      <div className="automation-rule-grid">
+        <article className="automation-step"><CalendarClock/><span><small>Hoy y hora actual</small><strong>{currentTime} · Chile</strong></span></article>
+        <article className="automation-step"><Sun/><span><small>Proyección · {dateLabel(tomorrowDate)}</small><strong>{hasForecast ? `${tomorrowForecast.toFixed(1)} kWh` : 'Pronóstico pendiente'}</strong></span></article>
+        <article className={`automation-step automation-condition ${hasForecast ? (qualifies ? 'pass' : 'fail') : 'pending'}`}><CheckCircle2/><span><small>Condición</small><strong>{hasForecast ? (qualifies ? 'Sí supera 20 kWh' : 'No supera 20 kWh') : 'Esperando radiación'}</strong></span></article>
+      </div>
+      <div className="automation-targets">
+        <span><Battery/><small>Objetivo Redischarge</small><strong>25%</strong></span>
+        <span><Zap/><small>Objetivo Output</small><strong>SBU</strong></span>
+      </div>
+      <p className="automation-explanation">A las 22:00, si la generación proyectada para mañana supera 20 kWh, la regla comprobaría ambos valores y solo propondría modificar los que sean distintos.</p>
+    </section>
+
+    <section className="panel settings-test-card">
+      <header>
+        <div><small>Equipo seleccionado</small><h2>{siteLabel}</h2></div>
+        <span className="read-only-badge">Solo lectura</span>
+      </header>
+      <button className="primary-action settings-test-button" type="button" disabled={checking || !deviceSn} onClick={checkSettings}>
+        <PlayCircle/>{checking ? 'Consultando inversor…' : 'Probar lectura sin cambiar nada'}
+      </button>
+      {error && <p className="settings-test-error" role="alert">{error}</p>}
+      {result && <>
+        <div className="settings-result-grid" aria-live="polite">
+          <article className={redischargeOk ? 'setting-ok' : 'setting-review'}>
+            <small>Redischarge actual</small>
+            <strong>{result.redischarge.percent == null ? 'No identificado' : `${result.redischarge.percent}%`}</strong>
+            <span>{result.redischarge.percent == null ? 'La respuesta no incluyó un valor reconocible.' : redischargeOk ? 'Ya coincide con el objetivo.' : 'Se propondría cambiar a 25%.'}</span>
+          </article>
+          <article className={outputOk ? 'setting-ok' : 'setting-review'}>
+            <small>Output actual</small>
+            <strong>{result.output.mode || 'No identificado'}</strong>
+            <span>{result.output.mode == null ? 'La respuesta no incluyó un modo reconocible.' : outputOk ? 'Ya está configurado en SBU.' : 'Se propondría cambiar a SBU.'}</span>
+          </article>
+        </div>
+        <p className="settings-test-summary">
+          {qualifies
+            ? (redischargeOk && outputOk ? 'Resultado: mañana califica y no sería necesario cambiar parámetros.' : 'Resultado: mañana califica; la regla propondría ajustar únicamente los valores indicados.')
+            : 'Resultado: la regla no ejecutaría cambios porque la proyección de mañana no supera 20 kWh.'}
+          {' '}Lectura: {new Date(result.observedAt).toLocaleString('es-CL', { timeZone: 'America/Santiago' })}.
+        </p>
+      </>}
+    </section>
+
+    <button className="automation-enable" type="button" disabled>
+      Activación automática pendiente de aprobar esta prueba
+    </button>
+  </section>;
+}

@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { calculateVrt, md5 } from '../api/lib/tumcapp.js';
 import { canonicalQuery, signTuyaRequest } from '../api/lib/tuya.js';
+import { parseInverterSettings } from '../api/lib/isolarSettings.js';
 
 assert.equal(md5('demo-password'), '4b4d9529148d8d9440d7e20c78287f69');
 
@@ -22,4 +23,12 @@ assert.equal(
   calculateVrt({ deviceSn: '12345678901234' }, 'demo-vrt-key'),
   'b61ee9802eb0fbf21c01809308ba670734bac624e83c3d536accd0d586c406c7'
 );
+assert.deepEqual(parseInverterSettings({ parameters: [{ code: 'S017', current: 'PBDC080' }, { code: 'S05', current: 'POP01' }] }), {
+  redischarge: { percent: 80, command: 'PBDC080', status: 'recognized' },
+  output: { mode: 'SOL', command: 'POP01', status: 'recognized' }
+});
+assert.deepEqual(parseInverterSettings({ name: 'Battery Capacity Redischarge', value: 25, outputSourcePriority: 'SBU' }), {
+  redischarge: { percent: 25, command: null, status: 'recognized' },
+  output: { mode: 'SBU', command: null, status: 'recognized' }
+});
 console.log('✓ MD5 y VRT: pruebas locales superadas.');

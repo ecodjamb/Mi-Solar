@@ -2,6 +2,7 @@ import { md5, tumRequest } from './lib/tumcapp.js';
 import { clearCookie, openSession, sessionCookie, SESSION_IDLE_MS } from './lib/session.js';
 import { archiveRows, readArchive, readArchiveSeries } from './lib/archive.js';
 import { getTuyaDevice, getTuyaDeviceProfile, listTuyaDevices, sendTuyaCommand, tuyaConfiguration } from './lib/tuya.js';
+import { parseInverterSettings } from './lib/isolarSettings.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
   res.statusCode = statusCode;
@@ -143,7 +144,7 @@ export default async function handler(req, res) {
 
   try {
     if (method === 'GET' && route === 'health') {
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.10.4', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.10.5', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, time: new Date().toISOString() });
     }
 
     if (method === 'GET' && route === 'weather') {
@@ -255,6 +256,23 @@ export default async function handler(req, res) {
       const session = requireSession(req);
       const data = await listAllDevices(session);
       return sendJson(res, 200, data, { 'Set-Cookie': sessionCookie(session) });
+    }
+
+    const settingsCheck = route.match(/^devices\/([^/]+)\/settings-check$/);
+    if (method === 'GET' && settingsCheck) {
+      const session = requireSession(req);
+      const sn = decodeURIComponent(settingsCheck[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      const result = await tumRequest('paramSet/getParam', {
+        params: { deviceSn: sn }, token: session.token, vrtKey: session.vrtKey
+      });
+      session.token = result.token;
+      const settings = parseInverterSettings(result.payload.data || {});
+      return sendJson(res, 200, {
+        ...settings,
+        observedAt: new Date().toISOString(),
+        readOnly: true
+      }, { 'Set-Cookie': sessionCookie(session) });
     }
 
     const realtime = route.match(/^devices\/([^/]+)\/realtime$/);
