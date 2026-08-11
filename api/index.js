@@ -2,8 +2,15 @@ import { md5, tumRequest } from './lib/tumcapp.js';
 import { clearCookie, openSession, sessionCookie, SESSION_IDLE_MS } from './lib/session.js';
 import { archiveRows, readArchive, readArchiveSeries } from './lib/archive.js';
 import { getTuyaDevice, getTuyaDeviceProfile, listTuyaDevices, sendTuyaCommand, tuyaConfiguration } from './lib/tuya.js';
-import { buildSettingsCommands, parseInverterSettings, SETTINGS_PRESETS, settingCommandConfirmed, settingsConfirmed } from './lib/isolarSettings.js';
-import { readAutomationRule, recordConfigurationEvent, updateAutomationRule } from './lib/automationStore.js';
+import { parseInverterSettings } from './lib/isolarSettings.js';
+import {
+  readAutomationRule, recordConfigurationEvent, removePushSubscription, saveAutomationCredentials,
+  savePushSubscription, updateAutomationRule
+} from './lib/automationStore.js';
+import { encryptCredentials } from './lib/secretBox.js';
+import { applyInverterTarget, loginOrigin, logoutOrigin } from './lib/inverterControl.js';
+import { pushPublicKey } from './lib/pushNotifications.js';
+import { runDueAutomations } from './lib/automationRunner.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
   res.statusCode = statusCode;
@@ -146,7 +153,14 @@ export default async function handler(req, res) {
 
   try {
     if (method === 'GET' && route === 'health') {
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.11.2', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.12.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY), time: new Date().toISOString() });
+    }
+
+    if (method === 'POST' && route === 'automation/run') {
+      if (!process.env.CRON_SECRET || req.headers?.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+        return sendJson(res, 401, { error: 'Ejecución programada no autorizada.' });
+      }
+      return sendJson(res, 200, await runDueAutomations());
     }
 
     if (method === 'GET' && route === 'weather') {
@@ -283,9 +297,67 @@ export default async function handler(req, res) {
       const sn = decodeURIComponent(automation[1]);
       if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
       if (method === 'GET') return sendJson(res, 200, await readAutomationRule(sn));
-      const { enabled } = parseBody(req);
+      const body = parseBody(req);
+      const current = await readAutomationRule(sn);
+      const thresholdKwh = body.thresholdKwh == null ? current.thresholdKwh : Number(body.thresholdKwh);
+      const runAtLocal = body.runAtLocal == null ? current.runAtLocal : String(body.runAtLocal).slice(0, 5);
+      const sunny = body.sunny || current.sunny;
+      const cloudy = body.cloudy || current.cloudy;
+      const enabled = body.enabled == null ? current.enabled : body.enabled;
+      const outputAllowed = (value) => ['Utility', 'SOL', 'SBU'].includes(value);
+      const redischargeAllowed = (value) => Number.isInteger(Number(value)) && Number(value) >= 10 && Number(value) <= 100;
       if (typeof enabled !== 'boolean') return sendJson(res, 400, { error: 'El estado de automatización debe ser verdadero o falso.' });
-      return sendJson(res, 200, await updateAutomationRule(sn, enabled));
+      if (!Number.isFinite(thresholdKwh) || thresholdKwh < 0 || thresholdKwh > 60) return sendJson(res, 400, { error: 'La generación de activación debe estar entre 0 y 60 kWh.' });
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(runAtLocal)) return sendJson(res, 400, { error: 'La hora chilena no es válida.' });
+      if (Number(runAtLocal.slice(3, 5)) % 5 !== 0) return sendJson(res, 400, { error: 'Selecciona una hora en intervalos de cinco minutos.' });
+      if (!redischargeAllowed(sunny.redischarge) || !redischargeAllowed(cloudy.redischarge) || !outputAllowed(sunny.output) || !outputAllowed(cloudy.output)) {
+        return sendJson(res, 400, { error: 'Los parámetros de día soleado o nublado no son válidos.' });
+      }
+      if (enabled && !current.credentialsConfigured) return sendJson(res, 409, { error: 'Guarda primero el acceso automático a i.Solar.' });
+      return sendJson(res, 200, await updateAutomationRule(sn, {
+        enabled,
+        executionMode: enabled ? 'automatic' : 'manual',
+        thresholdKwh,
+        runAtLocal,
+        sunny: { redischarge: Number(sunny.redischarge), output: sunny.output },
+        cloudy: { redischarge: Number(cloudy.redischarge), output: cloudy.output }
+      }));
+    }
+
+    const automationCredentials = route.match(/^devices\/([^/]+)\/automation-credentials$/);
+    if (method === 'PUT' && automationCredentials) {
+      requireSession(req);
+      const sn = decodeURIComponent(automationCredentials[1]);
+      const { username, password } = parseBody(req);
+      if (!/^\d{8,20}$/.test(sn) || !String(username || '').trim() || !String(password || '')) {
+        return sendJson(res, 400, { error: 'Ingresa el usuario y la contraseña de i.Solar.' });
+      }
+      let validationSession;
+      try {
+        validationSession = await loginOrigin(username, password);
+      } finally {
+        await logoutOrigin(validationSession);
+      }
+      const saved = await saveAutomationCredentials(sn, encryptCredentials({ username: String(username).trim(), password: String(password) }));
+      return sendJson(res, 200, { ...saved, message: 'Acceso automático validado y guardado de forma cifrada.' });
+    }
+
+    if (method === 'GET' && route === 'push/public-key') {
+      requireSession(req);
+      const publicKey = pushPublicKey();
+      if (!publicKey) return sendJson(res, 503, { error: 'Las notificaciones todavía no están configuradas en el servidor.' });
+      return sendJson(res, 200, { publicKey });
+    }
+
+    const pushSubscription = route.match(/^devices\/([^/]+)\/push-subscription$/);
+    if ((method === 'POST' || method === 'DELETE') && pushSubscription) {
+      requireSession(req);
+      const sn = decodeURIComponent(pushSubscription[1]);
+      const body = parseBody(req);
+      if (!/^\d{8,20}$/.test(sn) || !body.endpoint) return sendJson(res, 400, { error: 'Suscripción de notificaciones inválida.' });
+      if (method === 'DELETE') return sendJson(res, 200, await removePushSubscription(sn, String(body.endpoint)));
+      if (!body.keys?.p256dh || !body.keys?.auth) return sendJson(res, 400, { error: 'La suscripción no contiene sus llaves públicas.' });
+      return sendJson(res, 200, await savePushSubscription(sn, body));
     }
 
     const settingsApply = route.match(/^devices\/([^/]+)\/settings-apply$/);
@@ -295,63 +367,27 @@ export default async function handler(req, res) {
       if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
       const body = parseBody(req);
       const preset = String(body.preset || '');
-      const target = SETTINGS_PRESETS[preset];
+      const rule = await readAutomationRule(sn);
+      const target = preset === 'sunny' || preset === 'cloudy' ? rule[preset] : null;
       if (!target) return sendJson(res, 400, { error: 'Configuración solicitada no reconocida.' });
-      let before = null;
-      let after = null;
-      let commands = {};
-      let commandResults = [];
       let audit = { stored: false };
       try {
-        const initial = await tumRequest('paramSet/getParam', { params: { deviceSn: sn }, token: session.token, vrtKey: session.vrtKey });
-        session.token = initial.token;
-        before = parseInverterSettings(initial.payload.data || {});
-        commands = buildSettingsCommands(before, target);
-        for (const [slot, command] of Object.entries(commands)) {
-          const changed = await tumRequest('paramSet/setParam', {
-            // La aplicación oficial escribe un ajuste por solicitud. Tumcapp puede
-            // responder code=0 y aplicar solo el primer campo si se agrupan S017 y S05.
-            params: { deviceSn: sn, commands: JSON.stringify({ [slot]: command }) }, token: session.token, vrtKey: session.vrtKey
-          });
-          session.token = changed.token;
-          // Tumcapp responde antes de que el inversor aplique físicamente el valor.
-          // Esperamos cinco segundos y confirmamos este parámetro antes de continuar.
-          await new Promise((resolve) => setTimeout(resolve, 5000));
-          let commandConfirmed = false;
-          for (let attempt = 0; attempt < 5; attempt += 1) {
-            const verification = await tumRequest('paramSet/getParam', { params: { deviceSn: sn }, token: session.token, vrtKey: session.vrtKey });
-            session.token = verification.token;
-            after = parseInverterSettings(verification.payload.data || {});
-            commandConfirmed = settingCommandConfirmed(after, slot, target);
-            if (commandConfirmed) break;
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-          }
-          commandResults.push({ slot, command, accepted: true, confirmed: commandConfirmed });
-          if (!commandConfirmed) break;
-        }
-        if (!after) after = before;
-        // Una última lectura conjunta evita declarar éxito con datos intermedios.
-        if (!settingsConfirmed(after, target)) {
-          const verification = await tumRequest('paramSet/getParam', { params: { deviceSn: sn }, token: session.token, vrtKey: session.vrtKey });
-          session.token = verification.token;
-          after = parseInverterSettings(verification.payload.data || {});
-        }
-        const confirmed = settingsConfirmed(after, target);
+        const result = await applyInverterTarget(sn, target, session);
         audit = await recordConfigurationEvent(sn, {
           source: 'manual', preset, forecastDate: body.forecastDate, forecastKwh: body.forecastKwh,
-          before, target, after, commands: { requested: commands, sent: commandResults }, success: confirmed,
-          message: confirmed ? 'Cambio confirmado mediante lectura posterior.' : 'El origen aceptó la solicitud, pero la lectura posterior aún no coincide.'
+          before: result.before, target, after: result.after, commands: { requested: result.commands, sent: result.commandResults }, success: result.confirmed,
+          message: result.confirmed ? 'Cambio confirmado mediante lectura posterior.' : 'El origen aceptó la solicitud, pero la lectura posterior aún no coincide.'
         }).catch(() => ({ stored: false }));
-        const partialMessage = `Cambio parcial: Redischarge quedó en ${after?.redischarge?.percent ?? 'valor no identificado'}% y Output quedó en ${after?.output?.mode || 'valor no identificado'}.`;
-        return sendJson(res, confirmed ? 200 : 409, {
-          confirmed, preset, before, target, after, commands, commandResults, audit,
-          error: confirmed ? undefined : `${partialMessage} El intento quedó registrado y no se enviarán más órdenes automáticamente.`,
-          message: confirmed ? 'Configuración aplicada y confirmada correctamente.' : partialMessage
+        const partialMessage = `Cambio parcial: Redischarge quedó en ${result.after?.redischarge?.percent ?? 'valor no identificado'}% y Output quedó en ${result.after?.output?.mode || 'valor no identificado'}.`;
+        return sendJson(res, result.confirmed ? 200 : 409, {
+          ...result, preset, target, audit,
+          error: result.confirmed ? undefined : `${partialMessage} El intento quedó registrado y no se enviarán más órdenes automáticamente.`,
+          message: result.confirmed ? (result.changed ? 'Configuración aplicada y confirmada correctamente.' : 'La configuración ya estaba aplicada; no fue necesario modificar el inversor.') : partialMessage
         }, { 'Set-Cookie': sessionCookie(session) });
       } catch (error) {
         await recordConfigurationEvent(sn, {
           source: 'manual', preset, forecastDate: body.forecastDate, forecastKwh: body.forecastKwh,
-          before, target, after, commands: { requested: commands, sent: commandResults }, success: false, message: error instanceof Error ? error.message : 'Error desconocido'
+          before: {}, target, after: {}, commands: {}, success: false, message: error instanceof Error ? error.message : 'Error desconocido'
         }).catch(() => undefined);
         throw error;
       }

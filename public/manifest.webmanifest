@@ -1,0 +1,17 @@
+{
+  "name": "Mi Solar",
+  "short_name": "Mi Solar",
+  "description": "Centro inteligente de energía solar",
+  "start_url": "/?page=programming",
+  "display": "standalone",
+  "background_color": "#061117",
+  "theme_color": "#061117",
+  "icons": [
+    {
+      "src": "/scenes/home-day.webp",
+      "sizes": "any",
+      "type": "image/webp",
+      "purpose": "any"
+    }
+  ]
+}

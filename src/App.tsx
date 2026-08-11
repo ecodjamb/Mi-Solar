@@ -40,6 +40,7 @@ const SESSION_IDLE_MS=SESSION_POLICY.idleMs;
 const ACTIVITY_PING_MS=SESSION_POLICY.activityPingMs;
 const LAST_ACTIVITY_KEY=SESSION_POLICY.storageKey;
 const REFRESH_MS=REFRESH_POLICY;
+const requestedPage=()=>{const value=new URLSearchParams(window.location.search).get('page');return(['home','charts','solar','costs','equipment','programming','integrations','technical'] as PageKey[]).includes(value as PageKey)?value as PageKey:'home'};
 const emptyEnergy:DailyEnergy={date:'',solar:0,pv1:0,pv2:0,load:0,grid:0,gridImport:0,gridExport:0,gridToLoad:0,charge:0,discharge:0,solarToLoad:0,batteryToLoad:0,solarToBattery:0,samples:0};
 const sumDays=(days:DailyEnergy[])=>days.reduce((a,d)=>({...a,solar:a.solar+d.solar,pv1:a.pv1+d.pv1,pv2:a.pv2+d.pv2,load:a.load+d.load,grid:a.grid+d.grid,gridImport:a.gridImport+d.gridImport,gridExport:a.gridExport+d.gridExport,gridToLoad:a.gridToLoad+d.gridToLoad,charge:a.charge+d.charge,discharge:a.discharge+d.discharge,solarToLoad:a.solarToLoad+d.solarToLoad,batteryToLoad:a.batteryToLoad+d.batteryToLoad,solarToBattery:a.solarToBattery+d.solarToBattery,samples:a.samples+d.samples}),{...emptyEnergy});
 
@@ -63,7 +64,7 @@ function Login({done}:{done:()=>void}){
 export default function App(){
   const [clock,setClock]=useState(formatClock());
   const [auth,setAuth]=useState<boolean|null>(null);
-  const [page,setPage]=useState<PageKey>('home');
+  const [page,setPage]=useState<PageKey>(requestedPage);
   const [devices,setDevices]=useState<Device[]>([]);
   const [selected,setSelected]=useState('');
   const [realtime,setRealtime]=useState<Realtime>({});

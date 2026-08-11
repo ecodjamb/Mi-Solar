@@ -26,6 +26,8 @@ Los perfiles propios del sitio viven en `src/utils/site.ts` y la calibración so
 - Root directory: vacío
 - Variable requerida: `SESSION_SECRET`
 - Variables del archivo permanente: `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `MISOLAR_DB_KEY`
+- Automatización autónoma: `CRON_SECRET`, `AUTOMATION_CREDENTIALS_KEY`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`.
+- Supabase Cron llama cada cinco minutos al backend; cada regla compara la hora guardada en `America/Santiago` y se ejecuta una sola vez por fecha proyectada.
 - Integración Tuya: `TUYA_CLIENT_ID`, `TUYA_CLIENT_SECRET`, `TUYA_API_REGION` (`us`, `eu`, `cn` o `in`) y `TUYA_USER_UID`
 
 Prueba del backend: `/api/health`.

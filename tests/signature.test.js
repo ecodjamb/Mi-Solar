@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { calculateVrt, md5 } from '../api/lib/tumcapp.js';
 import { canonicalQuery, signTuyaRequest } from '../api/lib/tuya.js';
 import { buildSettingsCommands, parseInverterSettings, SETTINGS_PRESETS, settingCommandConfirmed, settingsConfirmed } from '../api/lib/isolarSettings.js';
+import { automationDueNow, automationNotificationMessage } from '../api/lib/automationRunner.js';
 
 assert.equal(md5('demo-password'), '4b4d9529148d8d9440d7e20c78287f69');
 
@@ -43,4 +44,12 @@ assert.equal(settingsConfirmed(currentSettings,SETTINGS_PRESETS.sunny),false);
 assert.equal(settingCommandConfirmed(parseInverterSettings({ BCRD: '25 10~100', PO: '1 0,1,2' }),'S017',SETTINGS_PRESETS.sunny),true);
 assert.equal(settingCommandConfirmed(parseInverterSettings({ BCRD: '25 10~100', PO: '1 0,1,2' }),'S05',SETTINGS_PRESETS.sunny),false);
 assert.equal(settingCommandConfirmed(parseInverterSettings({ BCRD: '25 10~100', PO: '2 0,1,2' }),'S05',SETTINGS_PRESETS.sunny),true);
+assert.equal(automationDueNow({runAtLocal:'22:00'},{time:'22:04'}),true);
+assert.equal(automationDueNow({runAtLocal:'22:00'},{time:'22:05'}),false);
+assert.equal(automationNotificationMessage('sunny',true),'Se realizó cambio de configuración en inversor a día soleado para mañana.');
+assert.equal(automationNotificationMessage('cloudy',false),'No se modificaron parámetros del inversor, ya que mañana estará nublado.');
+process.env.AUTOMATION_CREDENTIALS_KEY='test-only-key';
+const {encryptCredentials,decryptCredentials}=await import('../api/lib/secretBox.js');
+const encryptedCredentials=encryptCredentials({username:'demo',password:'secret'});
+assert.deepEqual(decryptCredentials(encryptedCredentials),{username:'demo',password:'secret'});
 console.log('✓ MD5 y VRT: pruebas locales superadas.');
