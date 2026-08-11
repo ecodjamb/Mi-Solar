@@ -1,12 +1,32 @@
-import { useState } from 'react';
-import { Battery, CalendarClock, CheckCircle2, Clock3, PlayCircle, ShieldCheck, Sun, Zap } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { CalendarClock, CheckCircle2, CloudSun, Clock3, PlayCircle, ShieldCheck, Sun } from 'lucide-react';
 import { api } from '../services/api';
 
-type SettingsCheck = {
-  observedAt: string;
-  readOnly: boolean;
+type InverterSettings = {
   redischarge: { percent: number | null; command: string | null; status: 'recognized' | 'not-found' };
   output: { mode: 'Utility' | 'SOL' | 'SBU' | null; command: string | null; status: 'recognized' | 'not-found' };
+};
+
+type SettingsCheck = InverterSettings & { observedAt: string; readOnly: boolean };
+type Preset = 'sunny' | 'cloudy';
+type AutomationRule = {
+  enabled: boolean;
+  executionMode: 'manual' | 'automatic';
+  thresholdKwh: number;
+  runAtLocal: string;
+  sunny: { redischarge: number; output: string };
+  cloudy: { redischarge: number; output: string };
+  updatedAt: string | null;
+  configured: boolean;
+};
+type ApplyResponse = {
+  confirmed: boolean;
+  preset: Preset;
+  before: InverterSettings;
+  target: { redischarge: number; output: string };
+  after: InverterSettings;
+  audit: { stored: boolean; id?: number | null };
+  message: string;
 };
 
 type Props = {
@@ -26,16 +46,28 @@ function dateLabel(value: string) {
 export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomorrowDate, tomorrowForecast }: Props) {
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<SettingsCheck | null>(null);
+  const [automation, setAutomation] = useState<AutomationRule | null>(null);
+  const [savingAutomation, setSavingAutomation] = useState(false);
+  const [applying, setApplying] = useState<Preset | null>(null);
+  const [actionMessage, setActionMessage] = useState('');
   const [error, setError] = useState('');
   const hasForecast = tomorrowForecast != null;
   const qualifies = hasForecast && tomorrowForecast > 20;
-  const redischargeOk = result?.redischarge.percent === 25;
-  const outputOk = result?.output.mode === 'SBU';
+
+  useEffect(() => {
+    let active = true;
+    setAutomation(null);
+    if (!deviceSn) return () => { active = false; };
+    api<AutomationRule>(`devices/${deviceSn}/automation`)
+      .then(value => active && setAutomation(value))
+      .catch(cause => active && setError(cause instanceof Error ? cause.message : 'No se pudo cargar la automatización.'));
+    return () => { active = false; };
+  }, [deviceSn]);
 
   async function checkSettings() {
     setChecking(true);
     setError('');
-    setResult(null);
+    setActionMessage('');
     try {
       setResult(await api<SettingsCheck>(`devices/${deviceSn}/settings-check`));
     } catch (cause) {
@@ -45,73 +77,80 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
     }
   }
 
-  return <section className="settings-page">
-    <header className="page-heading">
-      <div>
-        <small>Automatización · {siteLabel}</small>
-        <h1>Programación solar</h1>
-        <p>Regla diaria basada en la proyección local del día siguiente.</p>
-      </div>
-    </header>
+  async function applyPreset(preset: Preset) {
+    const target = preset === 'sunny' ? 'Redischarge 25% y Output SBU' : 'Redischarge 50% y Output SOL';
+    if (!window.confirm(`Se modificará ${siteLabel} a ${target}. ¿Confirmas el cambio manual?`)) return;
+    setApplying(preset);
+    setError('');
+    setActionMessage('');
+    try {
+      const response = await api<ApplyResponse>(`devices/${deviceSn}/settings-apply`, {
+        method: 'POST',
+        body: JSON.stringify({ preset, forecastDate: tomorrowDate, forecastKwh: tomorrowForecast })
+      });
+      setResult({ ...response.after, observedAt: new Date().toISOString(), readOnly: false });
+      setActionMessage(`${response.message}${response.audit.stored ? ' El cambio quedó respaldado en Mi Solar.' : ' El inversor confirmó el cambio, pero falta confirmar el respaldo.'}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No fue posible aplicar la configuración.');
+    } finally {
+      setApplying(null);
+    }
+  }
 
-    <section className="panel programming-alert programming-safe">
-      <ShieldCheck />
-      <div>
-        <strong>Prueba segura de solo lectura</strong>
-        <p>Esta etapa únicamente consulta Redischarge y Output. No envía comandos ni cambia el inversor.</p>
+  async function toggleAutomation() {
+    if (!automation) return;
+    setSavingAutomation(true);
+    setError('');
+    try {
+      const next = await api<AutomationRule>(`devices/${deviceSn}/automation`, { method: 'PUT', body: JSON.stringify({ enabled: !automation.enabled }) });
+      setAutomation(next);
+      setActionMessage(`Automatización ${next.enabled ? 'activada' : 'desactivada'} y guardada en Mi Solar. Por ahora los cambios de configuración siguen siendo manuales.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No se pudo guardar el estado de automatización.');
+    } finally {
+      setSavingAutomation(false);
+    }
+  }
+
+  return <section className="settings-page">
+    <header className="page-heading"><div><small>Automatización · {siteLabel}</small><h1>Programación solar</h1><p>La decisión utiliza exactamente la proyección recalibrada de la sección Radiación.</p></div></header>
+
+    <section className="panel programming-alert programming-safe"><ShieldCheck/><div><strong>Control manual con verificación</strong><p>Cada botón lee el estado anterior, cambia únicamente los valores necesarios, vuelve a leer el inversor y registra el resultado en la base permanente.</p></div></section>
+
+    <section className="panel automation-rule-card">
+      <header><div><small>Pronóstico de mañana</small><h2>{dateLabel(tomorrowDate)}</h2></div><span className="automation-time"><Clock3 size={17}/> Evaluación · 22:00</span></header>
+      <div className="automation-rule-grid">
+        <article className="automation-step"><CalendarClock/><span><small>Hora actual</small><strong>{currentTime} · Chile</strong></span></article>
+        <article className="automation-step"><Sun/><span><small>Generación estimada</small><strong>{hasForecast ? `${tomorrowForecast.toFixed(1)} kWh` : 'Pronóstico pendiente'}</strong></span></article>
+        <article className={`automation-step automation-condition ${hasForecast ? (qualifies ? 'pass' : 'fail') : 'pending'}`}><CheckCircle2/><span><small>Recomendación</small><strong>{hasForecast ? (qualifies ? 'Mañana día de sol' : 'Mañana día nublado') : 'Esperando radiación'}</strong></span></article>
       </div>
     </section>
 
-    <section className="panel automation-rule-card">
-      <header>
-        <div><small>Regla propuesta</small><h2>Día soleado de mañana</h2></div>
-        <span className="automation-time"><Clock3 size={17}/> Todos los días · 22:00</span>
-      </header>
-      <div className="automation-rule-grid">
-        <article className="automation-step"><CalendarClock/><span><small>Hoy y hora actual</small><strong>{currentTime} · Chile</strong></span></article>
-        <article className="automation-step"><Sun/><span><small>Proyección · {dateLabel(tomorrowDate)}</small><strong>{hasForecast ? `${tomorrowForecast.toFixed(1)} kWh` : 'Pronóstico pendiente'}</strong></span></article>
-        <article className={`automation-step automation-condition ${hasForecast ? (qualifies ? 'pass' : 'fail') : 'pending'}`}><CheckCircle2/><span><small>Condición</small><strong>{hasForecast ? (qualifies ? 'Sí supera 20 kWh' : 'No supera 20 kWh') : 'Esperando radiación'}</strong></span></article>
-      </div>
-      <div className="automation-targets">
-        <span><Battery/><small>Objetivo Redischarge</small><strong>25%</strong></span>
-        <span><Zap/><small>Objetivo Output</small><strong>SBU</strong></span>
-      </div>
-      <p className="automation-explanation">A las 22:00, si la generación proyectada para mañana supera 20 kWh, la regla comprobaría ambos valores y solo propondría modificar los que sean distintos.</p>
+    <section className="programming-presets" aria-label="Configuraciones manuales">
+      <button className={`panel preset-button preset-sunny ${qualifies ? 'recommended' : ''}`} type="button" disabled={Boolean(applying)} onClick={() => applyPreset('sunny')}>
+        <span className="preset-icon"><Sun/></span><span><small>{qualifies ? 'Recomendado por la proyección' : 'Configuración alternativa'}</small><strong>Mañana día de sol</strong><em>Redischarge 25% · Output SBU</em></span><b>{applying === 'sunny' ? 'Aplicando…' : 'Aplicar'}</b>
+      </button>
+      <button className={`panel preset-button preset-cloudy ${hasForecast && !qualifies ? 'recommended' : ''}`} type="button" disabled={Boolean(applying)} onClick={() => applyPreset('cloudy')}>
+        <span className="preset-icon"><CloudSun/></span><span><small>{hasForecast && !qualifies ? 'Recomendado por la proyección' : 'Configuración alternativa'}</small><strong>Mañana día nublado</strong><em>Redischarge 50% · Output SOL</em></span><b>{applying === 'cloudy' ? 'Aplicando…' : 'Aplicar'}</b>
+      </button>
     </section>
 
     <section className="panel settings-test-card">
-      <header>
-        <div><small>Equipo seleccionado</small><h2>{siteLabel}</h2></div>
-        <span className="read-only-badge">Solo lectura</span>
-      </header>
-      <button className="primary-action settings-test-button" type="button" disabled={checking || !deviceSn} onClick={checkSettings}>
-        <PlayCircle/>{checking ? 'Consultando inversor…' : 'Probar lectura sin cambiar nada'}
-      </button>
-      {error && <p className="settings-test-error" role="alert">{error}</p>}
-      {result && <>
-        <div className="settings-result-grid" aria-live="polite">
-          <article className={redischargeOk ? 'setting-ok' : 'setting-review'}>
-            <small>Redischarge actual</small>
-            <strong>{result.redischarge.percent == null ? 'No identificado' : `${result.redischarge.percent}%`}</strong>
-            <span>{result.redischarge.percent == null ? 'La respuesta no incluyó un valor reconocible.' : redischargeOk ? 'Ya coincide con el objetivo.' : 'Se propondría cambiar a 25%.'}</span>
-          </article>
-          <article className={outputOk ? 'setting-ok' : 'setting-review'}>
-            <small>Output actual</small>
-            <strong>{result.output.mode || 'No identificado'}</strong>
-            <span>{result.output.mode == null ? 'La respuesta no incluyó un modo reconocible.' : outputOk ? 'Ya está configurado en SBU.' : 'Se propondría cambiar a SBU.'}</span>
-          </article>
-        </div>
-        <p className="settings-test-summary">
-          {qualifies
-            ? (redischargeOk && outputOk ? 'Resultado: mañana califica y no sería necesario cambiar parámetros.' : 'Resultado: mañana califica; la regla propondría ajustar únicamente los valores indicados.')
-            : 'Resultado: la regla no ejecutaría cambios porque la proyección de mañana no supera 20 kWh.'}
-          {' '}Lectura: {new Date(result.observedAt).toLocaleString('es-CL', { timeZone: 'America/Santiago' })}.
-        </p>
-      </>}
+      <header><div><small>Equipo seleccionado</small><h2>{siteLabel}</h2></div><span className="read-only-badge">Comprobación</span></header>
+      <button className="primary-action settings-test-button" type="button" disabled={checking || !deviceSn || Boolean(applying)} onClick={checkSettings}><PlayCircle/>{checking ? 'Consultando inversor…' : 'Leer configuración actual'}</button>
+      {error ? <p className="settings-test-error" role="alert">{error}</p> : null}
+      {actionMessage ? <p className="settings-action-success" role="status">{actionMessage}</p> : null}
+      {result ? <div className="settings-result-grid" aria-live="polite">
+        <article><small>Redischarge actual</small><strong>{result.redischarge.percent == null ? 'No identificado' : `${result.redischarge.percent}%`}</strong></article>
+        <article><small>Output actual</small><strong>{result.output.mode || 'No identificado'}</strong></article>
+      </div> : null}
     </section>
 
-    <button className="automation-enable" type="button" disabled>
-      Activación automática pendiente de aprobar esta prueba
-    </button>
+    <section className="panel automation-switch-card">
+      <div><small>Estado persistente</small><h2>Automatizar</h2><p>El interruptor queda guardado por equipo. Durante esta etapa los botones soleado y nublado continúan siendo manuales.</p></div>
+      <button className={`automation-switch ${automation?.enabled ? 'on' : ''}`} type="button" role="switch" aria-checked={Boolean(automation?.enabled)} disabled={!automation || savingAutomation} onClick={toggleAutomation}>
+        <span/><strong>{savingAutomation ? 'Guardando…' : automation?.enabled ? 'Activada' : 'Desactivada'}</strong>
+      </button>
+    </section>
   </section>;
 }

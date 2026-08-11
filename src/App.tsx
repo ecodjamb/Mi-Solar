@@ -85,6 +85,7 @@ export default function App(){
   const [historicalDayRows,setHistoricalDayRows]=useState<HistoryRow[]>([]);
   const [historicalDayLoading,setHistoricalDayLoading]=useState(false);
   const [peerSolar,setPeerSolar]=useState<{deviceSn:string;siteLabel:string;power:number;updatedAt:Date|null}|null>(null);
+  const [projectionHistory,setProjectionHistory]=useState<DailyEnergy[]>([]);
   const markUpdated=(key:string)=>setLastSectionUpdate(prev=>({...prev,[key]:new Date()}));
 
   const siteDate=formatSiteDate();
@@ -117,14 +118,15 @@ export default function App(){
   const week=useMemo(()=>sumDays(weekDaily),[weekDaily]);
   const month=useMemo(()=>sumDays(daily),[daily]);
   const installedWp=Number(localStorage.getItem(siteStorageKey('installedWp',device?.nickName||'')))||profile.installedWp;
-  const solarModel=useMemo(()=>calibrateSolarModel(daily,weather.dailyRadiation||[],installedWp,today,profile.key),[daily,weather.dailyRadiation,installedWp,today,profile.key]);
+  const projectionActual=useMemo(()=>{const byDate=new Map<string,DailyEnergy>();[...projectionHistory,...daily].forEach(day=>byDate.set(day.date,day));return[...byDate.values()].sort((a,b)=>a.date.localeCompare(b.date))},[projectionHistory,daily]);
+  const solarModel=useMemo(()=>calibrateSolarModel(projectionActual,weather.dailyRadiation||[],installedWp,today,profile.key),[projectionActual,weather.dailyRadiation,installedWp,today,profile.key]);
   const expectedSolarNow=useMemo(()=>expectedPowerNow(weather.hourly,solarModel),[weather.hourly,solarModel,clock]);
   const theoreticalToday=useMemo(()=>accumulatedTheoreticalToday(weather.hourly,solarModel),[weather.hourly,solarModel,clock]);
   const todayRadiation=weather.dailyRadiation?.find(d=>d.date===siteDate)?.shortwaveKwhM2||0;
   const forecastToday=theoreticalDayKwh(todayRadiation,solarModel,true);
   const tomorrowDate=addDays(siteDate,1);
   const tomorrowRadiation=weather.dailyRadiation?.find(d=>d.date===tomorrowDate)?.shortwaveKwhM2;
-  const forecastTomorrow=tomorrowRadiation&&tomorrowRadiation>0?theoreticalDayKwh(tomorrowRadiation,solarModel,true,tomorrowDate):null;
+  const forecastTomorrow=tomorrowRadiation&&tomorrowRadiation>0?theoreticalDayKwh(tomorrowRadiation,solarModel,false,tomorrowDate):null;
 
   async function fetchHistoryRange(sn:string,start:string,end:string,maxPages=18){
     return api<{list:HistoryRow[];total:number;truncated?:boolean;pages?:number}>(`devices/${sn}/history?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&maxPages=${maxPages}`);
@@ -230,6 +232,7 @@ export default function App(){
     setSyncMessage(cached?'Mostrando el último dato válido mientras se actualiza la instalación.':'');
     setHistoryMessage('');setHistoryProgress('');setWeather({});setLastFetch(cached?.savedAt?new Date(cached.savedAt):null);
     setTimelineIndex(null);
+    setProjectionHistory([]);
     setHomeDate(formatSiteDate());setHistoricalDayRows([]);
     void refreshAll(sn);
   }
@@ -310,6 +313,7 @@ export default function App(){
     return()=>{active=false;window.clearTimeout(initialTimer);window.clearInterval(refreshTimer)};
   },[auth,page,peerDevice?.deviceSn]);
   useEffect(()=>{if(!auth||!selected||!isHistoricalDay){setHistoricalDayRows([]);return}let active=true;setHistoricalDayLoading(true);setTimelineIndex(null);const utc=siteRangeUtc(homeDate,addDays(homeDate,1));api<{list:HistoryRow[]}>(`devices/${selected}/archive-series?start=${encodeURIComponent(utc.start)}&end=${encodeURIComponent(utc.end)}&resolution=hour`).then(result=>{if(active){const rows=filterRowsForSiteDate(result.list||[],homeDate);setHistoricalDayRows(rows);setTimelineIndex(rows.length?rows.length-1:null)}}).catch(error=>active&&setHistoryMessage(`No fue posible cargar ${homeDate}: ${error instanceof Error?error.message:'error'}.`)).finally(()=>active&&setHistoricalDayLoading(false));return()=>{active=false}},[auth,selected,homeDate,isHistoricalDay]);
+  useEffect(()=>{const start=weather.dailyRadiation?.[0]?.date;if(!auth||!selected||!start){setProjectionHistory([]);return}let active=true;const utc=siteRangeUtc(start,addDays(siteDate,1));api<{list:HistoryRow[]}>(`devices/${selected}/archive-series?start=${encodeURIComponent(utc.start)}&end=${encodeURIComponent(utc.end)}&resolution=day`).then(result=>{if(active)setProjectionHistory(groupDailyEnergy(result.list||[]))}).catch(()=>active&&setProjectionHistory([]));return()=>{active=false}},[auth,selected,weather.dailyRadiation?.[0]?.date,siteDate]);
   useEffect(()=>{
     if(!auth||!device)return;
     const loadFull=()=>fetchWeather(device.nickName||'').then(data=>{setWeather({...data,error:undefined});markUpdated('weather');markUpdated('radiation')}).catch(err=>setWeather(prev=>({...prev,error:err instanceof Error?err.message:'Clima no disponible'})));
@@ -398,7 +402,7 @@ export default function App(){
         <section className="analytics-summary-grid"><article className="panel stat"><small>Consumo semana</small><strong>{kwh(week.load)}</strong></article><article className="panel stat"><small>Solar semana</small><strong>{kwh(week.solar)}</strong></article><article className="panel stat"><small>{gridSourceLabel} semana</small><strong>{kwh(week.gridImport)}</strong></article><article className="panel stat"><small>Consumo mes</small><strong>{kwh(month.load)}</strong></article><article className="panel stat"><small>Solar mes</small><strong>{kwh(month.solar)}</strong></article><article className="panel stat"><small>{gridSourceLabel} mes</small><strong>{kwh(month.gridImport)}</strong></article>{profile.gridConnected&&<article className="panel stat"><small>Red exportada mes</small><strong>{kwh(month.gridExport)}</strong></article>}<article className="panel stat"><small>Carga batería mes</small><strong>{kwh(month.charge)}</strong></article><article className="panel stat"><small>Descarga batería mes</small><strong>{kwh(month.discharge)}</strong></article></section>
       </section>}
 
-      {page==='solar'&&<SolarForecastPage actual={daily} weather={weather} deviceSn={selected} installedWp={installedWp} today={today} siteLabel={siteLabel} siteKey={profile.key}/>}
+      {page==='solar'&&<SolarForecastPage actual={projectionActual} weather={weather} model={solarModel} siteLabel={siteLabel} siteKey={profile.key}/>}
 
       {page==='costs'&&<CostsPage key={selected} deviceSn={selected} siteLabel={siteLabel} gridLabel={gridSourceLabel} today={today} week={week} currentMonth={month} tariff={tariff} onTariffChange={value=>{setTariff(value);localStorage.setItem(siteStorageKey('tariffCLP',device?.nickName||''),String(value))}}/>}
 

@@ -1,35 +1,19 @@
-import { useEffect, useMemo, useState } from 'react';
 import EChart from './EChart';
-import type { DailyEnergy, HistoryRow } from '../types';
+import type { DailyEnergy } from '../types';
 import type { WeatherData } from '../services/weather';
-import { calibrateSolarModel,seasonForDate,SEASON_PROFILES,theoreticalSeries,theoreticalDayKwh } from '../utils/solarForecast';
-import { api } from '../services/api';
-import { groupDailyEnergy, siteRangeUtc } from '../utils/energy';
+import { projectionCoefficients,seasonForDate,SEASON_PROFILES,theoreticalSeries,theoreticalDayKwh,type SolarModel } from '../utils/solarForecast';
 
-export default function SolarForecastPage({actual,weather,deviceSn,installedWp=8680,today,siteLabel='El Arrayán',siteKey='arrayan'}:{actual:DailyEnergy[];weather:WeatherData;deviceSn:string;installedWp?:number;today?:DailyEnergy;siteLabel?:string;siteKey?:'arrayan'|'puerto-montt'}){
+export default function SolarForecastPage({actual,weather,model,siteLabel='El Arrayán',siteKey='arrayan'}:{actual:DailyEnergy[];weather:WeatherData;model:SolarModel;siteLabel?:string;siteKey?:'arrayan'|'puerto-montt'}){
  const radiation=weather.dailyRadiation||[];
- const [archived,setArchived]=useState<DailyEnergy[]>([]);
- useEffect(()=>{
-  const start=radiation[0]?.date;
-  const end=new Date(Date.now()+86400000).toISOString().slice(0,10);
-  if(!deviceSn||!start)return;
-  const utc=siteRangeUtc(start,end);
-  api<{list:HistoryRow[]}>(`devices/${deviceSn}/archive-series?start=${encodeURIComponent(utc.start)}&end=${encodeURIComponent(utc.end)}&resolution=day`).then(result=>setArchived(groupDailyEnergy(result.list||[]))).catch(()=>setArchived([]));
- },[deviceSn,radiation[0]?.date]);
- const combinedActual=useMemo(()=>{
-  const byDate=new Map<string,DailyEnergy>();
-  [...archived,...actual].forEach(day=>byDate.set(day.date,day));
-  return [...byDate.values()].sort((a,b)=>a.date.localeCompare(b.date));
- },[actual,archived]);
- const model=calibrateSolarModel(combinedActual,radiation,installedWp,today,siteKey);
  const theoretical=theoreticalSeries(radiation,model);
- const actualMap=new Map(combinedActual.map(d=>[d.date,d.solar]));
+ const actualMap=new Map(actual.map(d=>[d.date,d.solar]));
  const labels=[...new Set(theoretical.map(x=>x.date))];
  const todayKey=new Date().toLocaleDateString('en-CA',{timeZone:'America/Santiago'});
  const future=theoretical.filter(x=>x.date>todayKey);
  const current=theoretical.find(x=>x.date===todayKey);
  const currentSeason=seasonForDate(todayKey);
  const seasons=Object.values(SEASON_PROFILES[siteKey]);
+ const coefficients=projectionCoefficients(todayKey,model);
  const option={
   tooltip:{trigger:'axis',valueFormatter:(v:any)=>v==null?'—':`${Number(v).toFixed(2)} kWh`},
   legend:{textStyle:{color:'#b8c8ce'}},
@@ -52,6 +36,7 @@ export default function SolarForecastPage({actual,weather,deviceSn,installedWp=8
   </section>
   <section className="season-model-grid" aria-label={`Modelo estacional de ${siteLabel}`}>{seasons.map(season=><article className={`panel season-model-card ${season.key===currentSeason?'active':''}`} key={season.key}><small>{season.months}</small><h2>{season.name}</h2><strong>{season.generation[0]===season.generation[1]?season.generation[0].toFixed(1):`${season.generation[0]}–${season.generation[1]}`} kWh/día</strong>{season.generationNote&&<p>{season.generationNote}</p>}<dl><div><dt>Horas de sol</dt><dd>{season.sunHours[0]===season.sunHours[1]?season.sunHours[0]:`${season.sunHours[0]}–${season.sunHours[1]}`} h</dd></div><div><dt>Radiación</dt><dd>{season.radiation[0]}–{season.radiation[1]} kWh/m²/día</dd></div><div><dt>Consumo nocturno</dt><dd>{season.nightLoad[0]===season.nightLoad[1]?season.nightLoad[0]:`${season.nightLoad[0]}–${season.nightLoad[1]}`} kWh</dd></div>{season.balance&&<div><dt>Balance diario referencial</dt><dd>{season.balance[0]===season.balance[1]?season.balance[0]:`${season.balance[0]} a ${season.balance[1]}`} kWh</dd></div>}</dl><p>{season.summary}</p><em>{season.battery}</em>{season.key===currentSeason&&<b>Estación actual</b>}</article>)}</section>
   <section className="panel forecast-chart"><header><div><small>Pasado real y modelo meteorológico estacional</small><h2>Producción diaria: real vs. radiación</h2><p>La proyección pondera con mayor fuerza los días históricos de la misma época del año y mantiene el ajuste horario por sombra.</p></div></header><EChart option={option}/></section>
+  <section className="panel projection-formula"><small>Cálculo usado en esta proyección</small><strong>Generación estimada = máx(0; {coefficients.slope.toFixed(2)} × radiación {coefficients.intercept>=0?'+':'−'} {Math.abs(coefficients.intercept).toFixed(2)})</strong><p>Radiación en kWh/m²/día y resultado en kWh/día. Regresión con {model.sampleDays} días reales completos · ajuste R² {coefficients.rSquared.toFixed(2)}. El ajuste de hoy solo se aplica al día en curso, no altera el pronóstico de mañana.</p></section>
   <section className="forecast-days">{future.map(day=><article className="panel" key={day.date}><small>{new Date(`${day.date}T12:00`).toLocaleDateString('es-CL',{weekday:'long',day:'numeric',month:'long'})}</small><strong>{day.value.toFixed(2)} kWh</strong><p>Radiación: {radiation.find(r=>r.date===day.date)?.shortwaveKwhM2.toFixed(2)} kWh/m²</p></article>)}</section>
  </section>;
 }

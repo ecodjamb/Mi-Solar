@@ -7,8 +7,11 @@ export type SolarModel={
   sampleDays:number;
   medianErrorPct:number;
   liveCorrection:number;
+  slopeKwhPerRadiation:number;
+  interceptKwh:number;
+  rSquared:number;
   hourlyShade:number[];
-  seasonalSamples:{date:string;ratio:number}[];
+  seasonalSamples:{date:string;radiation:number;actual:number;ratio:number}[];
   siteKey:'arrayan'|'puerto-montt';
 };
 
@@ -56,13 +59,39 @@ function siteDate(now=new Date()){
   return now.toLocaleDateString('en-CA',{timeZone:'America/Santiago'});
 }
 
+type Regression={slope:number;intercept:number;rSquared:number};
+
+function weightedRegression(samples:SolarModel['seasonalSamples'],installedKwp:number,targetDate?:string):Regression{
+  if(samples.length<3)return{slope:installedKwp*.62,intercept:0,rSquared:0};
+  const weighted=samples.map(sample=>({
+    ...sample,
+    weight:targetDate?Math.exp(-Math.pow(circularDayDistance(targetDate,sample.date)/62,2)):1
+  }));
+  const totalWeight=weighted.reduce((sum,item)=>sum+item.weight,0);
+  const meanX=weighted.reduce((sum,item)=>sum+item.radiation*item.weight,0)/totalWeight;
+  const meanY=weighted.reduce((sum,item)=>sum+item.actual*item.weight,0)/totalWeight;
+  const covariance=weighted.reduce((sum,item)=>sum+item.weight*(item.radiation-meanX)*(item.actual-meanY),0);
+  const variance=weighted.reduce((sum,item)=>sum+item.weight*Math.pow(item.radiation-meanX,2),0);
+  const rawSlope=variance>.02?covariance/variance:median(weighted.map(item=>item.actual/item.radiation));
+  const slope=Math.max(installedKwp*.18,Math.min(installedKwp*1.05,rawSlope));
+  const rawIntercept=meanY-slope*meanX;
+  const intercept=Math.max(-installedKwp*.8,Math.min(installedKwp*.8,rawIntercept));
+  const residual=weighted.reduce((sum,item)=>sum+item.weight*Math.pow(item.actual-(slope*item.radiation+intercept),2),0);
+  const total=weighted.reduce((sum,item)=>sum+item.weight*Math.pow(item.actual-meanY,2),0);
+  return{slope,intercept,rSquared:total>.01?Math.max(0,Math.min(1,1-residual/total)):0};
+}
+
 export function calibrateSolarModel(actual:DailyEnergy[],radiation:RadiationDay[],installedWp=8680, todayActual?:DailyEnergy,siteKey:'arrayan'|'puerto-montt'='arrayan'):SolarModel{
   const byDate=new Map(radiation.map(r=>[r.date,r.shortwaveKwhM2]));
   const today=siteDate();
   const completed=actual
-    .filter(d=>d.date<today&&d.solar>0.35&&d.samples>=20&&(byDate.get(d.date)||0)>0.5)
-    .slice(-24);
-  const seasonalSamples=completed.map(d=>({date:d.date,ratio:d.solar/((installedWp/1000)*(byDate.get(d.date)||1))})).filter(x=>Number.isFinite(x.ratio)&&x.ratio>0.15&&x.ratio<1.35);
+    .filter(d=>d.date<today&&d.solar>0.35&&d.samples>=120&&(byDate.get(d.date)||0)>0.5)
+    .slice(-60);
+  const rawSamples=completed.map(d=>({date:d.date,radiation:byDate.get(d.date)||0,actual:d.solar,ratio:d.solar/((installedWp/1000)*(byDate.get(d.date)||1))})).filter(x=>Number.isFinite(x.ratio)&&x.ratio>0.12&&x.ratio<1.35);
+  const center=median(rawSamples.map(item=>item.ratio));
+  const mad=median(rawSamples.map(item=>Math.abs(item.ratio-center)));
+  const filteredSamples=rawSamples.filter(item=>Math.abs(item.ratio-center)<=Math.max(.1,mad*3));
+  const seasonalSamples=filteredSamples.length>=3?filteredSamples:rawSamples;
   let ratios=seasonalSamples.map(item=>item.ratio);
   if(ratios.length>=5){
     const sorted=[...ratios].sort((a,b)=>a-b);
@@ -70,14 +99,15 @@ export function calibrateSolarModel(actual:DailyEnergy[],radiation:RadiationDay[
     ratios=sorted.slice(trim,sorted.length-trim||undefined);
   }
   const historicalFactor=ratios.length?median(ratios):0.62;
-  const errors=completed.map(d=>{
-    const expected=(byDate.get(d.date)||0)*(installedWp/1000)*historicalFactor;
-    return expected>0?Math.abs(d.solar-expected)/expected*100:0;
+  const regression=weightedRegression(seasonalSamples,installedWp/1000,today);
+  const errors=seasonalSamples.map(sample=>{
+    const expected=Math.max(0,regression.slope*sample.radiation+regression.intercept);
+    return expected>0?Math.abs(sample.actual-expected)/expected*100:0;
   });
   let liveCorrection=1;
   if(todayActual&&todayActual.solar>0.4){
     const todaysRadiation=byDate.get(today)||0;
-    const baseline=todaysRadiation*(installedWp/1000)*historicalFactor;
+    const baseline=Math.max(0,todaysRadiation*regression.slope+regression.intercept);
     if(baseline>2){
       const raw=todayActual.solar/baseline;
       // El dato del día todavía está incompleto: se mezcla suavemente con el histórico.
@@ -91,6 +121,9 @@ export function calibrateSolarModel(actual:DailyEnergy[],radiation:RadiationDay[
     sampleDays:ratios.length,
     medianErrorPct:median(errors),
     liveCorrection,
+    slopeKwhPerRadiation:regression.slope,
+    interceptKwh:regression.intercept,
+    rSquared:regression.rSquared,
     hourlyShade:shadeProfile(siteKey),
     seasonalSamples,
     siteKey
@@ -104,31 +137,31 @@ function circularDayDistance(a:string,b:string){
 }
 
 export function seasonalFactor(date:string,model:SolarModel){
-  if(model.seasonalSamples.length<5)return model.factor;
-  const weighted=model.seasonalSamples.map(sample=>({value:sample.ratio,weight:Math.exp(-Math.pow(circularDayDistance(date,sample.date)/55,2))}));
-  const weight=weighted.reduce((sum,item)=>sum+item.weight,0);
-  if(weight<1.2)return model.factor;
-  const local=weighted.reduce((sum,item)=>sum+item.value*item.weight,0)/weight;
-  // Mezcla la época equivalente con el factor global para no sobreajustar pocos días.
-  const confidence=Math.min(.72,model.seasonalSamples.length/28);
-  return Math.max(.25,Math.min(1.05,model.factor*(1-confidence)+local*confidence));
+  return projectionCoefficients(date,model).slope/model.installedKwp;
+}
+
+export function projectionCoefficients(date:string,model:SolarModel):Regression{
+  if(model.seasonalSamples.length<5)return{slope:model.slopeKwhPerRadiation,intercept:model.interceptKwh,rSquared:model.rSquared};
+  const local=weightedRegression(model.seasonalSamples,model.installedKwp,date);
+  const confidence=Math.min(.82,.48+model.seasonalSamples.length/55);
+  return{
+    slope:model.slopeKwhPerRadiation*(1-confidence)+local.slope*confidence,
+    intercept:model.interceptKwh*(1-confidence)+local.intercept*confidence,
+    rSquared:local.rSquared
+  };
 }
 
 export const theoreticalDayKwh=(radiationKwhM2:number,model:SolarModel,applyLive=false,date=siteDate())=>{
-  const radiationEstimate=Math.max(0,radiationKwhM2*model.installedKwp*seasonalFactor(date,model)*(applyLive?model.liveCorrection:1));
+  const coefficients=projectionCoefficients(date,model);
+  const radiationEstimate=Math.max(0,(radiationKwhM2*coefficients.slope+coefficients.intercept)*(applyLive?model.liveCorrection:1));
   const profile=seasonProfile(date,model.siteKey);
-  const seasonalMid=(profile.generation[0]+profile.generation[1])/2;
-  // La infografía aporta una referencia estacional, no un techo. Cuando ya
-  // existe producción real del día, la observación local debe dominar el modelo.
-  const historyConfidence=applyLive?.9:Math.min(.9,.48+model.sampleDays/24);
-  const blended=radiationEstimate*historyConfidence+seasonalMid*(1-historyConfidence);
-  const upperGuard=Math.max(profile.generation[1]*3,radiationEstimate*1.2);
-  return Math.max(0,Math.min(upperGuard,blended));
+  const upperGuard=Math.max(profile.generation[1]*2,radiationKwhM2*model.installedKwp*1.05);
+  return Math.max(0,Math.min(upperGuard,radiationEstimate));
 };
 
 export function theoreticalSeries(days:RadiationDay[],model:SolarModel){
   const today=siteDate();
-  return days.map(d=>({date:d.date,value:theoreticalDayKwh(d.shortwaveKwhM2,model,d.date>=today,d.date)}));
+  return days.map(d=>({date:d.date,value:theoreticalDayKwh(d.shortwaveKwhM2,model,d.date===today,d.date)}));
 }
 
 function nearestHour(hourly:RadiationHour[], now:Date){

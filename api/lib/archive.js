@@ -26,7 +26,7 @@ function config(){
   return url&&key&&appKey?{url,key,appKey}:null;
 }
 
-async function rest(path,options={}){
+export async function rest(path,options={}){
   const value=config();
   if(!value)return null;
   const response=await fetch(`${value.url}/rest/v1/${path}`,{
@@ -39,7 +39,7 @@ async function rest(path,options={}){
   return text?JSON.parse(text):null;
 }
 
-async function ensureSite(deviceSn,name=deviceSn){
+export async function ensureSite(deviceSn,name=deviceSn){
   const existing=await rest(`solar_sites?device_sn=eq.${encodeURIComponent(deviceSn)}&select=id&limit=1`);
   if(existing?.[0]?.id)return existing[0].id;
   const created=await rest('solar_sites',{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify({device_sn:deviceSn,name})});

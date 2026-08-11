@@ -4,6 +4,28 @@ const OUTPUT_MODES = {
   POP02: 'SBU'
 };
 
+const OUTPUT_COMMANDS = {
+  Utility: 'POP00',
+  SOL: 'POP01',
+  SBU: 'POP02'
+};
+
+export const SETTINGS_PRESETS = Object.freeze({
+  sunny: Object.freeze({ redischarge: 25, output: 'SBU' }),
+  cloudy: Object.freeze({ redischarge: 50, output: 'SOL' })
+});
+
+export function buildSettingsCommands(current, target) {
+  const commands = {};
+  if (current?.redischarge?.percent !== target.redischarge) commands.S017 = `PBDC${String(target.redischarge).padStart(3, '0')}`;
+  if (current?.output?.mode !== target.output) commands.S05 = OUTPUT_COMMANDS[target.output];
+  return commands;
+}
+
+export function settingsConfirmed(settings, target) {
+  return settings?.redischarge?.percent === target.redischarge && settings?.output?.mode === target.output;
+}
+
 function visit(value, objects, strings) {
   if (value == null) return;
   if (typeof value === 'string') {

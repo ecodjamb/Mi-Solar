@@ -2,7 +2,8 @@ import { md5, tumRequest } from './lib/tumcapp.js';
 import { clearCookie, openSession, sessionCookie, SESSION_IDLE_MS } from './lib/session.js';
 import { archiveRows, readArchive, readArchiveSeries } from './lib/archive.js';
 import { getTuyaDevice, getTuyaDeviceProfile, listTuyaDevices, sendTuyaCommand, tuyaConfiguration } from './lib/tuya.js';
-import { parseInverterSettings } from './lib/isolarSettings.js';
+import { buildSettingsCommands, parseInverterSettings, SETTINGS_PRESETS, settingsConfirmed } from './lib/isolarSettings.js';
+import { readAutomationRule, recordConfigurationEvent, updateAutomationRule } from './lib/automationStore.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
   res.statusCode = statusCode;
@@ -144,7 +145,7 @@ export default async function handler(req, res) {
 
   try {
     if (method === 'GET' && route === 'health') {
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.10.5', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.11.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, time: new Date().toISOString() });
     }
 
     if (method === 'GET' && route === 'weather') {
@@ -273,6 +274,68 @@ export default async function handler(req, res) {
         observedAt: new Date().toISOString(),
         readOnly: true
       }, { 'Set-Cookie': sessionCookie(session) });
+    }
+
+    const automation = route.match(/^devices\/([^/]+)\/automation$/);
+    if ((method === 'GET' || method === 'PUT') && automation) {
+      requireSession(req);
+      const sn = decodeURIComponent(automation[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (method === 'GET') return sendJson(res, 200, await readAutomationRule(sn));
+      const { enabled } = parseBody(req);
+      if (typeof enabled !== 'boolean') return sendJson(res, 400, { error: 'El estado de automatización debe ser verdadero o falso.' });
+      return sendJson(res, 200, await updateAutomationRule(sn, enabled));
+    }
+
+    const settingsApply = route.match(/^devices\/([^/]+)\/settings-apply$/);
+    if (method === 'POST' && settingsApply) {
+      const session = requireSession(req);
+      const sn = decodeURIComponent(settingsApply[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      const body = parseBody(req);
+      const preset = String(body.preset || '');
+      const target = SETTINGS_PRESETS[preset];
+      if (!target) return sendJson(res, 400, { error: 'Configuración solicitada no reconocida.' });
+      let before = null;
+      let after = null;
+      let commands = {};
+      let audit = { stored: false };
+      try {
+        const initial = await tumRequest('paramSet/getParam', { params: { deviceSn: sn }, token: session.token, vrtKey: session.vrtKey });
+        session.token = initial.token;
+        before = parseInverterSettings(initial.payload.data || {});
+        commands = buildSettingsCommands(before, target);
+        if (Object.keys(commands).length) {
+          const changed = await tumRequest('paramSet/setParam', {
+            params: { deviceSn: sn, commands: JSON.stringify(commands) }, token: session.token, vrtKey: session.vrtKey
+          });
+          session.token = changed.token;
+        }
+        after = before;
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          if (attempt) await new Promise((resolve) => setTimeout(resolve, 750));
+          const verification = await tumRequest('paramSet/getParam', { params: { deviceSn: sn }, token: session.token, vrtKey: session.vrtKey });
+          session.token = verification.token;
+          after = parseInverterSettings(verification.payload.data || {});
+          if (settingsConfirmed(after, target)) break;
+        }
+        const confirmed = settingsConfirmed(after, target);
+        audit = await recordConfigurationEvent(sn, {
+          source: 'manual', preset, forecastDate: body.forecastDate, forecastKwh: body.forecastKwh,
+          before, target, after, commands, success: confirmed,
+          message: confirmed ? 'Cambio confirmado mediante lectura posterior.' : 'El origen aceptó la solicitud, pero la lectura posterior aún no coincide.'
+        }).catch(() => ({ stored: false }));
+        return sendJson(res, confirmed ? 200 : 409, {
+          confirmed, preset, before, target, after, commands, audit,
+          message: confirmed ? 'Configuración aplicada y confirmada correctamente.' : 'No fue posible confirmar el cambio en la lectura posterior.'
+        }, { 'Set-Cookie': sessionCookie(session) });
+      } catch (error) {
+        await recordConfigurationEvent(sn, {
+          source: 'manual', preset, forecastDate: body.forecastDate, forecastKwh: body.forecastKwh,
+          before, target, after, commands, success: false, message: error instanceof Error ? error.message : 'Error desconocido'
+        }).catch(() => undefined);
+        throw error;
+      }
     }
 
     const realtime = route.match(/^devices\/([^/]+)\/realtime$/);
