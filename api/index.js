@@ -1,16 +1,16 @@
-import { md5, tumRequest } from './lib/tumcapp.js';
-import { clearCookie, openSession, sessionCookie, SESSION_IDLE_MS } from './lib/session.js';
-import { archiveRows, readArchive, readArchiveSeries } from './lib/archive.js';
-import { getTuyaDevice, getTuyaDeviceProfile, listTuyaDevices, sendTuyaCommand, tuyaConfiguration } from './lib/tuya.js';
-import { parseInverterSettings } from './lib/isolarSettings.js';
+import { md5, tumRequest } from '../server/tumcapp.js';
+import { clearCookie, openSession, sessionCookie, SESSION_IDLE_MS } from '../server/session.js';
+import { archiveRows, readArchive, readArchiveSeries } from '../server/archive.js';
+import { getTuyaDevice, getTuyaDeviceProfile, listTuyaDevices, sendTuyaCommand, tuyaConfiguration } from '../server/tuya.js';
+import { parseInverterSettings } from '../server/isolarSettings.js';
 import {
   readAutomationRule, recordConfigurationEvent, removePushSubscription, saveAutomationCredentials,
   savePushSubscription, updateAutomationRule
-} from './lib/automationStore.js';
-import { encryptCredentials } from './lib/secretBox.js';
-import { applyInverterTarget, loginOrigin, logoutOrigin } from './lib/inverterControl.js';
-import { pushPublicKey } from './lib/pushNotifications.js';
-import { runDueAutomations } from './lib/automationRunner.js';
+} from '../server/automationStore.js';
+import { encryptCredentials } from '../server/secretBox.js';
+import { applyInverterTarget, loginOrigin, logoutOrigin } from '../server/inverterControl.js';
+import { pushPublicKey } from '../server/pushNotifications.js';
+import { runDueAutomations } from '../server/automationRunner.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
   res.statusCode = statusCode;
@@ -153,7 +153,7 @@ export default async function handler(req, res) {
 
   try {
     if (method === 'GET' && route === 'health') {
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.12.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY), time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.12.1', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY), time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {

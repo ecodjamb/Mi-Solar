@@ -1,10 +1,10 @@
 // Mi Solar V6 — pruebas de firma Tumcapp.
 // Mi Solar V5.3 — archivo actualizado para reemplazo completo del repositorio.
 import assert from 'node:assert/strict';
-import { calculateVrt, md5 } from '../api/lib/tumcapp.js';
-import { canonicalQuery, signTuyaRequest } from '../api/lib/tuya.js';
-import { buildSettingsCommands, parseInverterSettings, SETTINGS_PRESETS, settingCommandConfirmed, settingsConfirmed } from '../api/lib/isolarSettings.js';
-import { automationDueNow, automationNotificationMessage } from '../api/lib/automationRunner.js';
+import { calculateVrt, md5 } from '../server/tumcapp.js';
+import { canonicalQuery, signTuyaRequest } from '../server/tuya.js';
+import { buildSettingsCommands, parseInverterSettings, SETTINGS_PRESETS, settingCommandConfirmed, settingsConfirmed } from '../server/isolarSettings.js';
+import { automationDueNow, automationNotificationMessage } from '../server/automationRunner.js';
 
 assert.equal(md5('demo-password'), '4b4d9529148d8d9440d7e20c78287f69');
 
@@ -49,7 +49,7 @@ assert.equal(automationDueNow({runAtLocal:'22:00'},{time:'22:05'}),false);
 assert.equal(automationNotificationMessage('sunny',true),'Se realizó cambio de configuración en inversor a día soleado para mañana.');
 assert.equal(automationNotificationMessage('cloudy',false),'No se modificaron parámetros del inversor, ya que mañana estará nublado.');
 process.env.AUTOMATION_CREDENTIALS_KEY='test-only-key';
-const {encryptCredentials,decryptCredentials}=await import('../api/lib/secretBox.js');
+const {encryptCredentials,decryptCredentials}=await import('../server/secretBox.js');
 const encryptedCredentials=encryptCredentials({username:'demo',password:'secret'});
 assert.deepEqual(decryptCredentials(encryptedCredentials),{username:'demo',password:'secret'});
 console.log('✓ MD5 y VRT: pruebas locales superadas.');
