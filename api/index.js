@@ -115,7 +115,7 @@ async function openMeteo(lat, lon) {
   url.searchParams.set('current', 'temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day,cloud_cover,precipitation');
   url.searchParams.set('hourly', 'shortwave_radiation,cloud_cover,precipitation,weather_code');
   url.searchParams.set('daily', 'sunrise,sunset,shortwave_radiation_sum,weather_code');
-  url.searchParams.set('past_days', '60');
+  url.searchParams.set('past_days', '90');
   url.searchParams.set('forecast_days', '14');
   url.searchParams.set('timezone', 'America/Santiago');
   const response = await fetch(url, { headers: { Accept: 'application/json' } });
@@ -153,7 +153,7 @@ export default async function handler(req, res) {
 
   try {
     if (method === 'GET' && route === 'health') {
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.12.1', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY), time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.13.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY), time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {

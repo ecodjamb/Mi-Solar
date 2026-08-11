@@ -43,7 +43,7 @@ async function directOpenMeteo(lat:number,lon:number):Promise<WeatherData>{
  url.searchParams.set('current','temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day,cloud_cover,precipitation');
  url.searchParams.set('hourly','shortwave_radiation,cloud_cover,precipitation,temperature_2m,weather_code');
  url.searchParams.set('daily','sunrise,sunset,shortwave_radiation_sum,weather_code');
- url.searchParams.set('past_days','60');url.searchParams.set('forecast_days','14');url.searchParams.set('timezone','America/Santiago');
+ url.searchParams.set('past_days','90');url.searchParams.set('forecast_days','14');url.searchParams.set('timezone','America/Santiago');
  const response=await fetch(url.toString(),{headers:{Accept:'application/json'}});
  if(!response.ok)throw new Error(`Open-Meteo directo HTTP ${response.status}`);
  return normalizeOpenMeteo(await response.json());
