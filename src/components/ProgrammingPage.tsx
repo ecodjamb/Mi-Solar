@@ -91,6 +91,8 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
       setResult({ ...response.after, observedAt: new Date().toISOString(), readOnly: false });
       setActionMessage(`${response.message}${response.audit.stored ? ' El cambio quedó respaldado en Mi Solar.' : ' El inversor confirmó el cambio, pero falta confirmar el respaldo.'}`);
     } catch (cause) {
+      const details = (cause as { details?: Partial<ApplyResponse> })?.details;
+      if (details?.after) setResult({ ...details.after, observedAt: new Date().toISOString(), readOnly: false });
       setError(cause instanceof Error ? cause.message : 'No fue posible aplicar la configuración.');
     } finally {
       setApplying(null);

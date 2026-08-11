@@ -146,7 +146,7 @@ export default async function handler(req, res) {
 
   try {
     if (method === 'GET' && route === 'health') {
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.11.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.11.1', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, time: new Date().toISOString() });
     }
 
     if (method === 'GET' && route === 'weather') {
@@ -300,21 +300,28 @@ export default async function handler(req, res) {
       let before = null;
       let after = null;
       let commands = {};
+      let commandResults = [];
       let audit = { stored: false };
       try {
         const initial = await tumRequest('paramSet/getParam', { params: { deviceSn: sn }, token: session.token, vrtKey: session.vrtKey });
         session.token = initial.token;
         before = parseInverterSettings(initial.payload.data || {});
         commands = buildSettingsCommands(before, target);
-        if (Object.keys(commands).length) {
+        for (const [slot, command] of Object.entries(commands)) {
           const changed = await tumRequest('paramSet/setParam', {
-            params: { deviceSn: sn, commands: JSON.stringify(commands) }, token: session.token, vrtKey: session.vrtKey
+            // La aplicación oficial escribe un ajuste por solicitud. Tumcapp puede
+            // responder code=0 y aplicar solo el primer campo si se agrupan S017 y S05.
+            params: { deviceSn: sn, commands: JSON.stringify({ [slot]: command }) }, token: session.token, vrtKey: session.vrtKey
           });
           session.token = changed.token;
+          commandResults.push({ slot, command, accepted: true });
+          await new Promise((resolve) => setTimeout(resolve, 1250));
         }
         after = before;
-        for (let attempt = 0; attempt < 4; attempt += 1) {
-          if (attempt) await new Promise((resolve) => setTimeout(resolve, 750));
+        // El inversor confirma de forma diferida. Damos hasta 18 segundos para
+        // observar ambos valores antes de declarar un cambio parcial.
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
           const verification = await tumRequest('paramSet/getParam', { params: { deviceSn: sn }, token: session.token, vrtKey: session.vrtKey });
           session.token = verification.token;
           after = parseInverterSettings(verification.payload.data || {});
@@ -323,17 +330,19 @@ export default async function handler(req, res) {
         const confirmed = settingsConfirmed(after, target);
         audit = await recordConfigurationEvent(sn, {
           source: 'manual', preset, forecastDate: body.forecastDate, forecastKwh: body.forecastKwh,
-          before, target, after, commands, success: confirmed,
+          before, target, after, commands: { requested: commands, sent: commandResults }, success: confirmed,
           message: confirmed ? 'Cambio confirmado mediante lectura posterior.' : 'El origen aceptó la solicitud, pero la lectura posterior aún no coincide.'
         }).catch(() => ({ stored: false }));
+        const partialMessage = `Cambio parcial: Redischarge quedó en ${after?.redischarge?.percent ?? 'valor no identificado'}% y Output quedó en ${after?.output?.mode || 'valor no identificado'}.`;
         return sendJson(res, confirmed ? 200 : 409, {
-          confirmed, preset, before, target, after, commands, audit,
-          message: confirmed ? 'Configuración aplicada y confirmada correctamente.' : 'No fue posible confirmar el cambio en la lectura posterior.'
+          confirmed, preset, before, target, after, commands, commandResults, audit,
+          error: confirmed ? undefined : `${partialMessage} El intento quedó registrado y no se enviarán más órdenes automáticamente.`,
+          message: confirmed ? 'Configuración aplicada y confirmada correctamente.' : partialMessage
         }, { 'Set-Cookie': sessionCookie(session) });
       } catch (error) {
         await recordConfigurationEvent(sn, {
           source: 'manual', preset, forecastDate: body.forecastDate, forecastKwh: body.forecastKwh,
-          before, target, after, commands, success: false, message: error instanceof Error ? error.message : 'Error desconocido'
+          before, target, after, commands: { requested: commands, sent: commandResults }, success: false, message: error instanceof Error ? error.message : 'Error desconocido'
         }).catch(() => undefined);
         throw error;
       }
