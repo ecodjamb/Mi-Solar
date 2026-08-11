@@ -26,6 +26,12 @@ export function settingsConfirmed(settings, target) {
   return settings?.redischarge?.percent === target.redischarge && settings?.output?.mode === target.output;
 }
 
+export function settingCommandConfirmed(settings, slot, target) {
+  if (slot === 'S017') return settings?.redischarge?.percent === target.redischarge;
+  if (slot === 'S05') return settings?.output?.mode === target.output;
+  return false;
+}
+
 function visit(value, objects, strings) {
   if (value == null) return;
   if (typeof value === 'string') {

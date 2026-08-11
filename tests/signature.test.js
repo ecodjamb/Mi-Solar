@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { calculateVrt, md5 } from '../api/lib/tumcapp.js';
 import { canonicalQuery, signTuyaRequest } from '../api/lib/tuya.js';
-import { buildSettingsCommands, parseInverterSettings, SETTINGS_PRESETS, settingsConfirmed } from '../api/lib/isolarSettings.js';
+import { buildSettingsCommands, parseInverterSettings, SETTINGS_PRESETS, settingCommandConfirmed, settingsConfirmed } from '../api/lib/isolarSettings.js';
 
 assert.equal(md5('demo-password'), '4b4d9529148d8d9440d7e20c78287f69');
 
@@ -40,4 +40,7 @@ assert.deepEqual(buildSettingsCommands(currentSettings,SETTINGS_PRESETS.sunny),{
 assert.deepEqual(buildSettingsCommands(currentSettings,SETTINGS_PRESETS.cloudy),{});
 assert.equal(settingsConfirmed(currentSettings,SETTINGS_PRESETS.cloudy),true);
 assert.equal(settingsConfirmed(currentSettings,SETTINGS_PRESETS.sunny),false);
+assert.equal(settingCommandConfirmed(parseInverterSettings({ BCRD: '25 10~100', PO: '1 0,1,2' }),'S017',SETTINGS_PRESETS.sunny),true);
+assert.equal(settingCommandConfirmed(parseInverterSettings({ BCRD: '25 10~100', PO: '1 0,1,2' }),'S05',SETTINGS_PRESETS.sunny),false);
+assert.equal(settingCommandConfirmed(parseInverterSettings({ BCRD: '25 10~100', PO: '2 0,1,2' }),'S05',SETTINGS_PRESETS.sunny),true);
 console.log('✓ MD5 y VRT: pruebas locales superadas.');

@@ -2,7 +2,7 @@ import { md5, tumRequest } from './lib/tumcapp.js';
 import { clearCookie, openSession, sessionCookie, SESSION_IDLE_MS } from './lib/session.js';
 import { archiveRows, readArchive, readArchiveSeries } from './lib/archive.js';
 import { getTuyaDevice, getTuyaDeviceProfile, listTuyaDevices, sendTuyaCommand, tuyaConfiguration } from './lib/tuya.js';
-import { buildSettingsCommands, parseInverterSettings, SETTINGS_PRESETS, settingsConfirmed } from './lib/isolarSettings.js';
+import { buildSettingsCommands, parseInverterSettings, SETTINGS_PRESETS, settingCommandConfirmed, settingsConfirmed } from './lib/isolarSettings.js';
 import { readAutomationRule, recordConfigurationEvent, updateAutomationRule } from './lib/automationStore.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
@@ -146,7 +146,7 @@ export default async function handler(req, res) {
 
   try {
     if (method === 'GET' && route === 'health') {
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.11.1', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.11.2', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, time: new Date().toISOString() });
     }
 
     if (method === 'GET' && route === 'weather') {
@@ -314,18 +314,27 @@ export default async function handler(req, res) {
             params: { deviceSn: sn, commands: JSON.stringify({ [slot]: command }) }, token: session.token, vrtKey: session.vrtKey
           });
           session.token = changed.token;
-          commandResults.push({ slot, command, accepted: true });
-          await new Promise((resolve) => setTimeout(resolve, 1250));
+          // Tumcapp responde antes de que el inversor aplique físicamente el valor.
+          // Esperamos cinco segundos y confirmamos este parámetro antes de continuar.
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          let commandConfirmed = false;
+          for (let attempt = 0; attempt < 5; attempt += 1) {
+            const verification = await tumRequest('paramSet/getParam', { params: { deviceSn: sn }, token: session.token, vrtKey: session.vrtKey });
+            session.token = verification.token;
+            after = parseInverterSettings(verification.payload.data || {});
+            commandConfirmed = settingCommandConfirmed(after, slot, target);
+            if (commandConfirmed) break;
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          }
+          commandResults.push({ slot, command, accepted: true, confirmed: commandConfirmed });
+          if (!commandConfirmed) break;
         }
-        after = before;
-        // El inversor confirma de forma diferida. Damos hasta 18 segundos para
-        // observar ambos valores antes de declarar un cambio parcial.
-        for (let attempt = 0; attempt < 12; attempt += 1) {
-          await new Promise((resolve) => setTimeout(resolve, 1500));
+        if (!after) after = before;
+        // Una última lectura conjunta evita declarar éxito con datos intermedios.
+        if (!settingsConfirmed(after, target)) {
           const verification = await tumRequest('paramSet/getParam', { params: { deviceSn: sn }, token: session.token, vrtKey: session.vrtKey });
           session.token = verification.token;
           after = parseInverterSettings(verification.payload.data || {});
-          if (settingsConfirmed(after, target)) break;
         }
         const confirmed = settingsConfirmed(after, target);
         audit = await recordConfigurationEvent(sn, {
