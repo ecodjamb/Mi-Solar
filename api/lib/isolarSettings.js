@@ -23,6 +23,11 @@ function numericValue(record) {
   return null;
 }
 
+function leadingNumber(value) {
+  const match = String(value ?? '').match(/^\s*(\d+(?:\.\d+)?)/);
+  return match ? Number(match[1]) : null;
+}
+
 export function parseInverterSettings(payload) {
   const objects = [];
   const strings = [];
@@ -39,6 +44,11 @@ export function parseInverterSettings(payload) {
     break;
   }
   if (redischargePercent == null) {
+    const rawRecord = objects.find((item) => Object.hasOwn(item, 'BCRD'));
+    const rawValue = rawRecord ? leadingNumber(rawRecord.BCRD) : null;
+    if (rawValue != null && rawValue >= 0 && rawValue <= 100) redischargePercent = rawValue;
+  }
+  if (redischargePercent == null) {
     const record = objects.find((item) => /S017|battery\s*capacity\s*redischarge|redischarge/i.test(JSON.stringify(item)));
     const candidate = record ? numericValue(record) : null;
     if (candidate != null && candidate >= 0 && candidate <= 100) redischargePercent = candidate;
@@ -52,6 +62,11 @@ export function parseInverterSettings(payload) {
     outputCommand = match[0].toUpperCase();
     outputMode = OUTPUT_MODES[outputCommand];
     break;
+  }
+  if (!outputMode) {
+    const rawRecord = objects.find((item) => Object.hasOwn(item, 'PO'));
+    const rawValue = rawRecord ? leadingNumber(rawRecord.PO) : null;
+    if (rawValue != null) outputMode = ['Utility', 'SOL', 'SBU'][rawValue] || null;
   }
   if (!outputMode) {
     const record = objects.find((item) => /S05|output\s*(source\s*)?priority/i.test(JSON.stringify(item)));

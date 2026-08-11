@@ -31,4 +31,8 @@ assert.deepEqual(parseInverterSettings({ name: 'Battery Capacity Redischarge', v
   redischarge: { percent: 25, command: null, status: 'recognized' },
   output: { mode: 'SBU', command: null, status: 'recognized' }
 });
+assert.deepEqual(parseInverterSettings({ BCRD: '50 10~100', PO: '1 0,1,2' }), {
+  redischarge: { percent: 50, command: null, status: 'recognized' },
+  output: { mode: 'SOL', command: null, status: 'recognized' }
+});
 console.log('✓ MD5 y VRT: pruebas locales superadas.');
