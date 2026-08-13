@@ -9,7 +9,7 @@ import {
 } from '../server/automationStore.js';
 import { encryptCredentials } from '../server/secretBox.js';
 import { applyInverterTarget, loginOrigin, logoutOrigin } from '../server/inverterControl.js';
-import { pushPublicKey, sendAutomationPush } from '../server/pushNotifications.js';
+import { pushConfiguration, pushPublicKey, sendAutomationPush } from '../server/pushNotifications.js';
 import { ensureSite } from '../server/archive.js';
 import { runDueAutomations } from '../server/automationRunner.js';
 
@@ -154,7 +154,8 @@ export default async function handler(req, res) {
 
   try {
     if (method === 'GET' && route === 'health') {
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.14.2', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY), time: new Date().toISOString() });
+      const push = pushConfiguration();
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.14.3', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -367,7 +368,7 @@ export default async function handler(req, res) {
     if (method === 'GET' && route === 'push/public-key') {
       requireSession(req);
       const publicKey = pushPublicKey();
-      if (!publicKey) return sendJson(res, 503, { error: 'Las notificaciones todavía no están configuradas en el servidor.' });
+      if (!publicKey || !pushConfiguration().valid) return sendJson(res, 503, { error: 'Las llaves de notificaciones del servidor no son válidas.' });
       return sendJson(res, 200, { publicKey });
     }
 

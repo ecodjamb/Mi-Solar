@@ -5,8 +5,18 @@ function configure() {
   const publicKey = process.env.VAPID_PUBLIC_KEY;
   const privateKey = process.env.VAPID_PRIVATE_KEY;
   if (!publicKey || !privateKey) return false;
-  webpush.setVapidDetails('mailto:codjambassis@gmail.com', publicKey, privateKey);
-  return true;
+  try {
+    webpush.setVapidDetails('mailto:codjambassis@gmail.com', publicKey, privateKey);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function pushConfiguration() {
+  const publicKey = process.env.VAPID_PUBLIC_KEY || '';
+  const privateKey = process.env.VAPID_PRIVATE_KEY || '';
+  return { configured: Boolean(publicKey && privateKey), valid: /^[A-Za-z0-9_-]{80,100}$/.test(publicKey) && /^[A-Za-z0-9_-]{40,60}$/.test(privateKey) };
 }
 
 export function pushPublicKey() {
