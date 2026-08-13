@@ -18,20 +18,22 @@ export async function sendAutomationPush(siteId, title, body, data = {}) {
   const subscriptions = await listPushSubscriptions(siteId);
   let sent = 0;
   let failed = 0;
+  let lastError = null;
   for (const row of subscriptions) {
     try {
       await webpush.sendNotification({
         endpoint: row.endpoint,
         keys: { p256dh: row.p256dh, auth: row.auth }
-      }, JSON.stringify({ title, body, data, icon: '/sun-icon.svg' }), { TTL: 3600 });
+      }, JSON.stringify({ title, body, data, icon: '/misolar-panel-sol-192.png' }), { TTL: 3600 });
       await markPushSuccess(row.id);
       sent += 1;
     } catch (error) {
       failed += 1;
       const status = Number(error?.statusCode || 0);
+      lastError = { status, message: error instanceof Error ? error.message : 'Error de entrega desconocido' };
       if (status === 404 || status === 410) await deletePushSubscription(row.id);
       else await markPushFailure(row.id, Number(row.failure_count || 0) + 1);
     }
   }
-  return { sent, failed, configured: true };
+  return { sent, failed, configured: true, lastError };
 }

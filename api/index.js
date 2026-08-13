@@ -4,7 +4,7 @@ import { archiveRows, readArchive, readArchiveSeries } from '../server/archive.j
 import { getTuyaDevice, getTuyaDeviceProfile, listTuyaDevices, sendTuyaCommand, tuyaConfiguration } from '../server/tuya.js';
 import { parseInverterSettings } from '../server/isolarSettings.js';
 import {
-  deleteEquipment, listEquipment, readAutomationRule, recordConfigurationEvent, removePushSubscription, saveAutomationCredentials,
+  deleteEquipment, listEquipment, pushSubscriptionStatus, readAutomationRule, recordConfigurationEvent, removePushSubscription, saveAutomationCredentials,
   saveEquipment, savePushSubscription, updateAutomationRule
 } from '../server/automationStore.js';
 import { encryptCredentials } from '../server/secretBox.js';
@@ -154,7 +154,7 @@ export default async function handler(req, res) {
 
   try {
     if (method === 'GET' && route === 'health') {
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.14.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY), time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.14.1', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY), time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -382,6 +382,14 @@ export default async function handler(req, res) {
       return sendJson(res, 200, await savePushSubscription(sn, body));
     }
 
+    const pushStatus = route.match(/^devices\/([^/]+)\/push-status$/);
+    if (method === 'GET' && pushStatus) {
+      requireSession(req);
+      const sn = decodeURIComponent(pushStatus[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      return sendJson(res, 200, { ...(await pushSubscriptionStatus(sn)), serverConfigured: Boolean(pushPublicKey()) });
+    }
+
     const pushTest = route.match(/^devices\/([^/]+)\/push-test$/);
     if (method === 'POST' && pushTest) {
       requireSession(req);
@@ -390,7 +398,7 @@ export default async function handler(req, res) {
       const siteId = await ensureSite(sn);
       const result = await sendAutomationPush(siteId, 'Mi Solar · prueba', 'Las notificaciones están funcionando correctamente en este celular.', { url: '/?page=programming', test: true });
       if (!result.configured) return sendJson(res, 503, { error: 'El servidor de notificaciones no está configurado.' });
-      if (result.sent < 1) return sendJson(res, 409, { error: 'No hay un celular suscrito o la suscripción dejó de ser válida. Activa nuevamente las notificaciones en este equipo.', ...result });
+      if (result.sent < 1) return sendJson(res, 409, { error: result.lastError ? `El servicio push rechazó la entrega (${result.lastError.status || 'sin código'}). Activa y repara nuevamente la suscripción en este celular.` : 'No hay un celular suscrito. Usa “Activar, reparar y probar” desde la app instalada.', ...result });
       return sendJson(res, 200, { ...result, message: 'Notificación de prueba enviada. Debe aparecer en el celular en unos segundos.' });
     }
 

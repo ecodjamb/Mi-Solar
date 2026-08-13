@@ -1,11 +1,14 @@
+self.addEventListener('install', (event) => event.waitUntil(self.skipWaiting()));
+self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+
 self.addEventListener('push', (event) => {
   let payload = {};
   try { payload = event.data ? event.data.json() : {}; } catch {}
   const title = payload.title || 'Mi Solar';
   event.waitUntil(self.registration.showNotification(title, {
     body: payload.body || 'La automatización solar fue evaluada.',
-    icon: payload.icon || '/sun-icon.svg',
-    badge: payload.icon || '/sun-icon.svg',
+    icon: payload.icon || '/misolar-panel-sol-192.png',
+    badge: payload.icon || '/misolar-panel-sol-192.png',
     data: payload.data || { url: '/?page=programming' },
     tag: 'mi-solar-automation',
     renotify: true

@@ -29,6 +29,7 @@ type ApplyResponse = {
   confirmed: boolean; changed: boolean; preset: Preset; before: InverterSettings; target: ProfileConfig; after: InverterSettings;
   audit: { stored: boolean; id?: number | null }; message: string;
 };
+type PushStatus = { configured:boolean; count:number; lastSubscribedAt:string|null; lastSuccessAt:string|null; failures:number; serverConfigured:boolean };
 type Props = { deviceSn: string; siteLabel: string; currentTime: string; tomorrowDate: string; tomorrowForecast: number | null };
 
 const DEFAULTS: Pick<AutomationRule, 'enabled'|'executionMode'|'thresholdKwh'|'runAtLocal'|'sunny'|'cloudy'|'conditions'|'updatedAt'|'configured'|'credentialsConfigured'|'notificationsConfigured'|'lastExecution'> = {
@@ -61,6 +62,10 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
   const [savingCredentials, setSavingCredentials] = useState(false);
   const [savingNotifications, setSavingNotifications] = useState(false);
   const [testingNotifications, setTestingNotifications] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState('');
+  const [notificationError, setNotificationError] = useState('');
+  const [notificationStage, setNotificationStage] = useState('Sin comprobar');
+  const [pushStatus, setPushStatus] = useState<PushStatus|null>(null);
   const [applying, setApplying] = useState<Preset | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -84,6 +89,7 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
     api<AutomationRule>(`devices/${deviceSn}/automation`).then((value) => {
       if (active) { setAutomation(value); setDraft(value); }
     }).catch((cause) => active && setError(cause instanceof Error ? cause.message : 'No se pudo cargar la automatización.'));
+    api<PushStatus>(`devices/${deviceSn}/push-status`).then(value=>active&&setPushStatus(value)).catch(()=>active&&setPushStatus(null));
     return () => { active = false; };
   }, [deviceSn]);
 
@@ -133,26 +139,44 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
   }
 
   async function enableNotifications() {
-    setSavingNotifications(true); setError(''); setActionMessage('');
+    setSavingNotifications(true); setNotificationError(''); setNotificationMessage(''); setNotificationStage('Comprobando el iPhone…');
     try {
-      if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) throw new Error('Este navegador no admite notificaciones push.');
+      const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      const isInstalled = window.matchMedia('(display-mode: standalone)').matches || Boolean((navigator as Navigator & {standalone?:boolean}).standalone);
+      if (!window.isSecureContext) throw new Error('Las notificaciones requieren abrir Mi Solar mediante https://misolar.vercel.app.');
+      if (isIos && !isInstalled) throw new Error('En iPhone las notificaciones sólo funcionan desde la app instalada. Abre Safari → Compartir → Agregar a pantalla de inicio; luego abre Mi Solar desde ese nuevo icono.');
+      if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) throw new Error('Este iPhone o navegador no admite notificaciones web. En iPhone se requiere iOS 16.4 o posterior y la app instalada en la pantalla de inicio.');
+      setNotificationStage('Solicitando permiso…');
       const permission = await Notification.requestPermission();
-      if (permission !== 'granted') throw new Error('Debes permitir las notificaciones del navegador.');
-      const registration = await navigator.serviceWorker.register('/sw.js');
+      if (permission !== 'granted') throw new Error(permission === 'denied' ? 'El permiso está bloqueado. Ve a Ajustes del iPhone → Notificaciones → Mi Solar y actívalo; luego vuelve a probar.' : 'El permiso no fue aceptado. Presiona nuevamente y selecciona Permitir.');
+      setNotificationStage('Preparando el servicio…');
+      const registration = await navigator.serviceWorker.register('/sw.js?v=8.14.1', {scope:'/'});
+      await registration.update().catch(()=>undefined);
+      const ready = await Promise.race([navigator.serviceWorker.ready,new Promise<never>((_,reject)=>window.setTimeout(()=>reject(new Error('El servicio de notificaciones no terminó de iniciar. Cierra y vuelve a abrir Mi Solar desde el icono.')),12000))]);
       const { publicKey } = await api<{ publicKey: string }>('push/public-key');
-      let subscription = await registration.pushManager.getSubscription();
-      if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidArray(publicKey) });
-      await api(`devices/${deviceSn}/push-subscription`, { method: 'POST', body: JSON.stringify(subscription.toJSON()) });
+      setNotificationStage('Creando una suscripción nueva…');
+      const previous = await ready.pushManager.getSubscription();
+      if(previous) await previous.unsubscribe().catch(()=>false);
+      const subscription = await ready.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidArray(publicKey) });
+      const serialized=subscription.toJSON();
+      if(!serialized.endpoint||!serialized.keys?.p256dh||!serialized.keys?.auth) throw new Error('El iPhone creó una suscripción incompleta. Reinicia el teléfono y vuelve a intentar.');
+      setNotificationStage('Guardando en Mi Solar…');
+      await api(`devices/${deviceSn}/push-subscription`, { method: 'POST', body: JSON.stringify(serialized) });
+      const stored=await api<PushStatus>(`devices/${deviceSn}/push-status`);
+      setPushStatus(stored);
+      if(!stored.configured||stored.count<1)throw new Error('El servidor no logró guardar la suscripción del celular.');
+      setNotificationStage('Enviando la prueba…');
       const test = await api<{message:string}>(`devices/${deviceSn}/push-test`, {method:'POST'});
-      await loadAutomation(); setActionMessage(test.message);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible activar las notificaciones.'); }
+      const verified=await api<PushStatus>(`devices/${deviceSn}/push-status`);setPushStatus(verified);
+      await loadAutomation(); setNotificationStage('Prueba enviada');setNotificationMessage(`${test.message} Si la app estaba abierta, revisa también el Centro de Notificaciones del iPhone.`);
+    } catch (cause) { setNotificationStage('No activadas');setNotificationError(cause instanceof Error ? cause.message : 'No fue posible activar las notificaciones.'); }
     finally { setSavingNotifications(false); }
   }
 
   async function testNotifications(){
-    setTestingNotifications(true);setError('');setActionMessage('');
-    try{const response=await api<{message:string}>(`devices/${deviceSn}/push-test`,{method:'POST'});setActionMessage(response.message)}
-    catch(cause){setError(cause instanceof Error?cause.message:'No fue posible enviar la prueba.')}
+    setTestingNotifications(true);setNotificationError('');setNotificationMessage('');setNotificationStage('Comprobando suscripción…');
+    try{const status=await api<PushStatus>(`devices/${deviceSn}/push-status`);setPushStatus(status);if(!status.configured)throw new Error('Este celular todavía no está suscrito. Usa primero “Activar y probar”.');setNotificationStage('Enviando la prueba…');const response=await api<{message:string}>(`devices/${deviceSn}/push-test`,{method:'POST'});const verified=await api<PushStatus>(`devices/${deviceSn}/push-status`);setPushStatus(verified);setNotificationStage('Prueba enviada');setNotificationMessage(response.message)}
+    catch(cause){setNotificationStage('Prueba fallida');setNotificationError(cause instanceof Error?cause.message:'No fue posible enviar la prueba.')}
     finally{setTestingNotifications(false)}
   }
 
@@ -211,7 +235,7 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
         <button className="primary-action setup-save" type="button" disabled={saving} onClick={saveConfiguration}><Save/>{saving ? 'Guardando…' : 'Guardar configuración'}</button>
 
         <details className="setup-subdetails"><summary><span><KeyRound/> Acceso automático a i.Solar</span><b>{automation?.credentialsConfigured ? 'Configurado' : 'Pendiente'}</b></summary><div><p>Se valida una vez y se guarda cifrado. Nunca se muestra nuevamente.</p><input autoComplete="username" placeholder="Usuario i.Solar" value={username} onChange={(event) => setUsername(event.target.value)}/><input autoComplete="new-password" type="password" placeholder="Contraseña i.Solar" value={password} onChange={(event) => setPassword(event.target.value)}/><button className="primary-action" type="button" disabled={savingCredentials || !username || !password} onClick={saveCredentials}>{savingCredentials ? 'Validando…' : 'Validar y guardar acceso'}</button></div></details>
-        <details className="setup-subdetails"><summary><span><BellRing/> Notificaciones del celular</span><b>{automation?.notificationsConfigured ? 'Suscripción guardada' : 'Sin celular suscrito'}</b></summary><div><p>No había ninguna suscripción guardada para las instalaciones. En iPhone, agrega Mi Solar a la pantalla de inicio, ábrela desde el ícono y usa “Activar y probar”.</p><button className="primary-action" type="button" disabled={savingNotifications} onClick={enableNotifications}>{savingNotifications ? 'Activando y probando…' : 'Activar y probar en este celular'}</button><button className="secondary-action" type="button" disabled={testingNotifications||!automation?.notificationsConfigured} onClick={testNotifications}>{testingNotifications?'Enviando…':'Enviar otra prueba'}</button></div></details>
+        <details className="setup-subdetails notification-setup"><summary><span><BellRing/> Notificaciones del celular</span><b>{pushStatus?.configured||automation?.notificationsConfigured ? 'Suscripción guardada' : 'Sin celular suscrito'}</b></summary><div><p>En iPhone funciona únicamente abriendo Mi Solar desde el icono instalado en la pantalla de inicio. El proceso reemplaza cualquier suscripción anterior y verifica que quede guardada.</p><div className="notification-diagnostic"><span><small>Estado</small><strong>{notificationStage}</strong></span><span><small>Celulares guardados</small><strong>{pushStatus?.count ?? (automation?.notificationsConfigured?1:0)}</strong></span><span><small>Última entrega</small><strong>{pushStatus?.lastSuccessAt?new Date(pushStatus.lastSuccessAt).toLocaleString('es-CL'):'Sin entrega confirmada'}</strong></span></div>{notificationError?<p className="notification-inline-error" role="alert">{notificationError}</p>:null}{notificationMessage?<p className="notification-inline-success" role="status">{notificationMessage}</p>:null}<button className="primary-action" type="button" disabled={savingNotifications} onClick={enableNotifications}>{savingNotifications ? notificationStage : 'Activar, reparar y probar'}</button><button className="secondary-action" type="button" disabled={testingNotifications} onClick={testNotifications}>{testingNotifications?notificationStage:'Enviar otra prueba'}</button></div></details>
       </div>
     </details>
 

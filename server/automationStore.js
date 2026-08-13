@@ -128,6 +128,18 @@ export async function listPushSubscriptions(siteId) {
   return await rest(`push_subscriptions?site_id=eq.${siteId}&select=id,endpoint,p256dh,auth,failure_count`) || [];
 }
 
+export async function pushSubscriptionStatus(deviceSn) {
+  const siteId = await ensureSite(deviceSn);
+  const rows = await rest(`push_subscriptions?site_id=eq.${siteId}&select=id,created_at,last_success_at,failure_count&order=created_at.desc`) || [];
+  return {
+    configured: rows.length > 0,
+    count: rows.length,
+    lastSubscribedAt: rows[0]?.created_at || null,
+    lastSuccessAt: rows.find((row) => row.last_success_at)?.last_success_at || null,
+    failures: rows.reduce((sum, row) => sum + Number(row.failure_count || 0), 0)
+  };
+}
+
 export async function markPushSuccess(id) {
   await rest(`push_subscriptions?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify({ last_success_at: new Date().toISOString(), failure_count: 0 }) });
 }

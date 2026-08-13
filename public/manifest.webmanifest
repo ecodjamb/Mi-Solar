@@ -7,11 +7,8 @@
   "background_color": "#061117",
   "theme_color": "#061117",
   "icons": [
-    {
-      "src": "/sun-icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    }
+    {"src":"/misolar-panel-sol-192.png","sizes":"192x192","type":"image/png","purpose":"any"},
+    {"src":"/misolar-panel-sol-512.png","sizes":"512x512","type":"image/png","purpose":"any"},
+    {"src":"/misolar-panel-sol-512.png","sizes":"512x512","type":"image/png","purpose":"maskable"}
   ]
 }
