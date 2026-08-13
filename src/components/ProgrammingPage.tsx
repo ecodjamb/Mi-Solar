@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BellRing, CalendarClock, CheckCircle2, ChevronDown, CloudSun, Clock3, KeyRound, PlayCircle, Plus, Save, Settings2, ShieldCheck, Sun, Trash2 } from 'lucide-react';
+import { BellRing, CalendarClock, CheckCircle2, ChevronDown, CloudSun, Clock3, KeyRound, PlayCircle, Plus, Save, Settings2, ShieldCheck, Sun, Trash2, WifiOff, Zap } from 'lucide-react';
 import { api } from '../services/api';
 
 type InverterSettings = {
@@ -10,6 +10,7 @@ type SettingsCheck = InverterSettings & { observedAt: string; readOnly: boolean 
 type Preset = 'sunny' | 'cloudy';
 type ProfileConfig = { redischarge: number; output: 'Utility' | 'SOL' | 'SBU' };
 type AutomationCondition = { id:string; enabled:boolean; kind:'lessThan'|'between'; minKwh:number; maxKwh:number; preset:Preset; runAtLocal:string; dayOffset:0|-1 };
+type NotificationPreferences = { automationExecuted:boolean; automationState:boolean; serviceOutage:boolean; solarSurplus:boolean };
 type LastExecution = { forecast_date: string; evaluated_at: string; forecast_kwh: number; preset: Preset; action: 'changed' | 'unchanged' | 'failed'; message: string; notified: boolean };
 type AutomationRule = {
   enabled: boolean;
@@ -19,6 +20,7 @@ type AutomationRule = {
   sunny: ProfileConfig;
   cloudy: ProfileConfig;
   conditions: AutomationCondition[];
+  notificationPreferences: NotificationPreferences;
   updatedAt: string | null;
   configured: boolean;
   credentialsConfigured: boolean;
@@ -32,13 +34,14 @@ type ApplyResponse = {
 type PushStatus = { configured:boolean; count:number; lastSubscribedAt:string|null; lastSuccessAt:string|null; failures:number; serverConfigured:boolean };
 type Props = { deviceSn: string; siteLabel: string; currentTime: string; tomorrowDate: string; tomorrowForecast: number | null };
 
-const DEFAULTS: Pick<AutomationRule, 'enabled'|'executionMode'|'thresholdKwh'|'runAtLocal'|'sunny'|'cloudy'|'conditions'|'updatedAt'|'configured'|'credentialsConfigured'|'notificationsConfigured'|'lastExecution'> = {
+const DEFAULTS: Pick<AutomationRule, 'enabled'|'executionMode'|'thresholdKwh'|'runAtLocal'|'sunny'|'cloudy'|'conditions'|'notificationPreferences'|'updatedAt'|'configured'|'credentialsConfigured'|'notificationsConfigured'|'lastExecution'> = {
   enabled: false, executionMode: 'manual', thresholdKwh: 20, runAtLocal: '22:00',
   sunny: { redischarge: 25, output: 'SBU' }, cloudy: { redischarge: 50, output: 'SOL' },
   conditions: [
     {id:'cloudy-default',enabled:true,kind:'lessThan',minKwh:0,maxKwh:20,preset:'cloudy',runAtLocal:'22:00',dayOffset:-1},
     {id:'sunny-default',enabled:true,kind:'between',minKwh:20,maxKwh:60,preset:'sunny',runAtLocal:'22:00',dayOffset:-1}
   ],
+  notificationPreferences: { automationExecuted: true, automationState: true, serviceOutage: true, solarSurplus: true },
   updatedAt: null, configured: false, credentialsConfigured: false, notificationsConfigured: false, lastExecution: null
 };
 
@@ -150,7 +153,7 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
       const permission = await Notification.requestPermission();
       if (permission !== 'granted') throw new Error(permission === 'denied' ? 'El permiso está bloqueado. Ve a Ajustes del iPhone → Notificaciones → Mi Solar y actívalo; luego vuelve a probar.' : 'El permiso no fue aceptado. Presiona nuevamente y selecciona Permitir.');
       setNotificationStage('Preparando el servicio…');
-      const registration = await navigator.serviceWorker.register('/sw.js?v=8.14.3', {scope:'/'});
+      const registration = await navigator.serviceWorker.register('/sw.js?v=8.15.0', {scope:'/'});
       await registration.update().catch(()=>undefined);
       const ready = await Promise.race([navigator.serviceWorker.ready,new Promise<never>((_,reject)=>window.setTimeout(()=>reject(new Error('El servicio de notificaciones no terminó de iniciar. Cierra y vuelve a abrir Mi Solar desde el icono.')),12000))]);
       const { publicKey } = await api<{ publicKey: string }>('push/public-key');
@@ -180,6 +183,18 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
     finally{setTestingNotifications(false)}
   }
 
+  async function saveNotificationPreferences() {
+    setSavingNotifications(true); setNotificationError(''); setNotificationMessage('');
+    try {
+      const next = await api<AutomationRule>(`devices/${deviceSn}/automation`, {
+        method: 'PUT', body: JSON.stringify({ notificationPreferences: draft.notificationPreferences })
+      });
+      setAutomation(next); setDraft(next); setNotificationMessage('Preferencias guardadas. Estos avisos quedan activos aunque la aplicación esté cerrada.');
+    } catch (cause) {
+      setNotificationError(cause instanceof Error ? cause.message : 'No fue posible guardar las preferencias.');
+    } finally { setSavingNotifications(false); }
+  }
+
   async function toggleAutomation() {
     if (!automation) return;
     setSaving(true); setError(''); setActionMessage('');
@@ -195,6 +210,7 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
   const updateCondition=(id:string,patch:Partial<AutomationCondition>)=>setDraft(value=>({...value,conditions:value.conditions.map(item=>item.id===id?{...item,...patch}:item)}));
   const addCondition=()=>setDraft(value=>({...value,conditions:[...value.conditions,{id:globalThis.crypto?.randomUUID?.()||`rule-${Date.now()}`,enabled:true,kind:'between',minKwh:0,maxKwh:60,preset:'cloudy',runAtLocal:'22:00',dayOffset:-1}]}));
   const removeCondition=(id:string)=>setDraft(value=>({...value,conditions:value.conditions.filter(item=>item.id!==id)}));
+  const setNotificationPreference=(key:keyof NotificationPreferences,value:boolean)=>setDraft(current=>({...current,notificationPreferences:{...current.notificationPreferences,[key]:value}}));
 
   return <section className="settings-page">
     <header className="page-heading"><div><small>Automatización · {siteLabel}</small><h1>Programación solar</h1><p>La decisión utiliza exactamente la proyección recalibrada de la sección Radiación.</p></div></header>
@@ -211,7 +227,7 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
     </section>
 
     <details className="panel automation-setup">
-      <summary><span><Settings2/><b>Setup de automatización</b><small>Perfiles, umbral, horario, acceso y notificaciones</small></span><ChevronDown/></summary>
+      <summary><span><Settings2/><b>Setup de automatización</b><small>Perfiles, umbral, horario y acceso</small></span><ChevronDown/></summary>
       <div className="automation-setup-body">
         <section className="setup-section automation-conditions"><header><div><small>Condiciones de activación</small><h3>Reglas según la generación proyectada</h3></div><button type="button" className="add-condition" disabled={draft.conditions.length>=12} onClick={addCondition}><Plus/> Agregar condición</button></header>
           <p>Las reglas se evalúan con la proyección de Radiación. Puedes decidir el perfil, la hora chilena y si se ejecuta el día anterior o el mismo día pronosticado.</p>
@@ -235,9 +251,23 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
         <button className="primary-action setup-save" type="button" disabled={saving} onClick={saveConfiguration}><Save/>{saving ? 'Guardando…' : 'Guardar configuración'}</button>
 
         <details className="setup-subdetails"><summary><span><KeyRound/> Acceso automático a i.Solar</span><b>{automation?.credentialsConfigured ? 'Configurado' : 'Pendiente'}</b></summary><div><p>Se valida una vez y se guarda cifrado. Nunca se muestra nuevamente.</p><input autoComplete="username" placeholder="Usuario i.Solar" value={username} onChange={(event) => setUsername(event.target.value)}/><input autoComplete="new-password" type="password" placeholder="Contraseña i.Solar" value={password} onChange={(event) => setPassword(event.target.value)}/><button className="primary-action" type="button" disabled={savingCredentials || !username || !password} onClick={saveCredentials}>{savingCredentials ? 'Validando…' : 'Validar y guardar acceso'}</button></div></details>
-        <details className="setup-subdetails notification-setup"><summary><span><BellRing/> Notificaciones del celular</span><b>{pushStatus?.configured||automation?.notificationsConfigured ? 'Suscripción guardada' : 'Sin celular suscrito'}</b></summary><div><p>En iPhone funciona únicamente abriendo Mi Solar desde el icono instalado en la pantalla de inicio. El proceso reemplaza cualquier suscripción anterior y verifica que quede guardada.</p><div className="notification-diagnostic"><span><small>Estado</small><strong>{notificationStage}</strong></span><span><small>Celulares guardados</small><strong>{pushStatus?.count ?? (automation?.notificationsConfigured?1:0)}</strong></span><span><small>Última entrega</small><strong>{pushStatus?.lastSuccessAt?new Date(pushStatus.lastSuccessAt).toLocaleString('es-CL'):'Sin entrega confirmada'}</strong></span></div>{notificationError?<p className="notification-inline-error" role="alert">{notificationError}</p>:null}{notificationMessage?<p className="notification-inline-success" role="status">{notificationMessage}</p>:null}<button className="primary-action" type="button" disabled={savingNotifications} onClick={enableNotifications}>{savingNotifications ? notificationStage : 'Activar, reparar y probar'}</button><button className="secondary-action" type="button" disabled={testingNotifications} onClick={testNotifications}>{testingNotifications?notificationStage:'Enviar otra prueba'}</button></div></details>
       </div>
     </details>
+
+    <section className="panel notification-center">
+      <header><div><small>Centro de avisos · {siteLabel}</small><h2><BellRing/> Notificaciones</h2><p>Elige qué eventos quieres recibir en este celular. Los controles se guardan por instalación.</p></div><span className={pushStatus?.configured ? 'notification-ready' : 'notification-pending'}>{pushStatus?.configured ? 'Celular conectado' : 'Pendiente de activar'}</span></header>
+      <div className="notification-preference-grid">
+        <label><span><Zap/><b>Programación ejecutada</b><small>Avisa si se aplicó el perfil soleado o nublado y si hubo cambios.</small></span><input type="checkbox" checked={draft.notificationPreferences.automationExecuted} onChange={event=>setNotificationPreference('automationExecuted',event.target.checked)}/><i/></label>
+        <label><span><CheckCircle2/><b>Automatización activada o desactivada</b><small>Confirma inmediatamente cualquier cambio del interruptor.</small></span><input type="checkbox" checked={draft.notificationPreferences.automationState} onChange={event=>setNotificationPreference('automationState',event.target.checked)}/><i/></label>
+        <label><span><WifiOff/><b>Caída y recuperación del servicio</b><small>Avisa después de dos sincronizaciones fallidas y cuando el servicio regresa.</small></span><input type="checkbox" checked={draft.notificationPreferences.serviceOutage} onChange={event=>setNotificationPreference('serviceOutage',event.target.checked)}/><i/></label>
+        <label><span><Sun/><b>Solar mayor al consumo</b><small>Avisa una vez al día cuando los paneles superen el consumo de la casa.</small></span><input type="checkbox" checked={draft.notificationPreferences.solarSurplus} onChange={event=>setNotificationPreference('solarSurplus',event.target.checked)}/><i/></label>
+      </div>
+      <div className="notification-diagnostic"><span><small>Estado</small><strong>{notificationStage}</strong></span><span><small>Celulares guardados</small><strong>{pushStatus?.count ?? (automation?.notificationsConfigured?1:0)}</strong></span><span><small>Última entrega</small><strong>{pushStatus?.lastSuccessAt?new Date(pushStatus.lastSuccessAt).toLocaleString('es-CL'):'Sin entrega confirmada'}</strong></span></div>
+      {!automation?.credentialsConfigured?<p className="notification-credential-note">Para vigilar el servicio y la producción de {siteLabel}, guarda primero el acceso automático a i.Solar en el Setup de esta instalación.</p>:null}
+      {notificationError?<p className="notification-inline-error" role="alert">{notificationError}</p>:null}
+      {notificationMessage?<p className="notification-inline-success" role="status">{notificationMessage}</p>:null}
+      <div className="notification-actions"><button className="primary-action" type="button" disabled={savingNotifications} onClick={saveNotificationPreferences}><Save/>{savingNotifications ? 'Guardando…' : 'Guardar notificaciones'}</button><button className="secondary-action" type="button" disabled={savingNotifications} onClick={enableNotifications}>{savingNotifications ? notificationStage : 'Activar o reparar celular'}</button><button className="secondary-action" type="button" disabled={testingNotifications} onClick={testNotifications}>{testingNotifications?notificationStage:'Enviar prueba'}</button></div>
+    </section>
 
     <section className="programming-presets" aria-label="Configuraciones manuales">
       <button className={`panel preset-button preset-sunny ${qualifies ? 'recommended' : ''}`} type="button" disabled={Boolean(applying)} onClick={() => applyPreset('sunny')}><span className="preset-icon"><Sun/></span><span><small>{qualifies ? 'Recomendado por la proyección' : 'Configuración alternativa'}</small><strong>Mañana día de sol</strong><em>Redischarge {draft.sunny.redischarge}% · Output {draft.sunny.output}</em></span><b>{applying === 'sunny' ? 'Aplicando…' : 'Aplicar'}</b></button>

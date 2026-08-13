@@ -30,6 +30,14 @@ export async function readInverterSettings(deviceSn, session) {
   return parseInverterSettings(result.payload.data || {});
 }
 
+export async function readInverterRealtime(deviceSn, session) {
+  const result = await tumRequest('realData/getRealByDeviceSn', {
+    params: { deviceSn }, token: session.token, vrtKey: session.vrtKey
+  });
+  session.token = result.token;
+  return result.payload.data || {};
+}
+
 export async function applyInverterTarget(deviceSn, target, session) {
   const before = await readInverterSettings(deviceSn, session);
   const commands = buildSettingsCommands(before, target);

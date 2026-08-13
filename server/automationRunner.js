@@ -8,7 +8,7 @@ import {
   recordAutomationExecution,
   recordConfigurationEvent
 } from './automationStore.js';
-import { sendAutomationPush } from './pushNotifications.js';
+import { sendSiteNotification } from './pushNotifications.js';
 import { automationSiteProfile } from './siteProfiles.js';
 
 function chileClock(now = new Date()) {
@@ -102,7 +102,16 @@ async function executeRule(rule, now) {
       before: result.before, target, after: result.after,
       commands: { requested: result.commands, sent: result.commandResults }, success: result.confirmed, message
     });
-    const pushed = await sendAutomationPush(rule.siteId, `Mi Solar · ${profile.label}`, message, { url: '/?page=programming', preset, forecastDate: projection.date });
+    const pushed = rule.notificationPreferences.automationExecuted
+      ? await sendSiteNotification(
+        rule.siteId,
+        'automation_executed',
+        `${preset === 'sunny' ? '☀️' : '☁️'} Mi Solar · ${profile.label}`,
+        message,
+        { url: '/?page=programming', preset, forecastDate: projection.date },
+        `automation-${projection.date}`
+      )
+      : { sent: 0, failed: 0, configured: true, skipped: true };
     if (execution?.id && pushed.sent > 0) {
       await recordAutomationExecution(rule.siteId, { ...execution, notified: true });
     }

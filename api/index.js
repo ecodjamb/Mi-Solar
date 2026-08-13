@@ -9,9 +9,11 @@ import {
 } from '../server/automationStore.js';
 import { encryptCredentials } from '../server/secretBox.js';
 import { applyInverterTarget, loginOrigin, logoutOrigin } from '../server/inverterControl.js';
-import { pushConfiguration, pushPublicKey, sendAutomationPush } from '../server/pushNotifications.js';
+import { pushConfiguration, pushPublicKey, sendAutomationPush, sendSiteNotification } from '../server/pushNotifications.js';
 import { ensureSite } from '../server/archive.js';
 import { runDueAutomations } from '../server/automationRunner.js';
+import { runNotificationMonitors } from '../server/notificationMonitor.js';
+import { automationSiteProfile } from '../server/siteProfiles.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
   res.statusCode = statusCode;
@@ -155,7 +157,7 @@ export default async function handler(req, res) {
   try {
     if (method === 'GET' && route === 'health') {
       const push = pushConfiguration();
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.14.3', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.15.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -163,6 +165,13 @@ export default async function handler(req, res) {
         return sendJson(res, 401, { error: 'Ejecución programada no autorizada.' });
       }
       return sendJson(res, 200, await runDueAutomations());
+    }
+
+    if (method === 'POST' && route === 'notifications/monitor') {
+      if (!process.env.CRON_SECRET || req.headers?.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+        return sendJson(res, 401, { error: 'Monitor de notificaciones no autorizado.' });
+      }
+      return sendJson(res, 200, await runNotificationMonitors());
     }
 
     if (method === 'GET' && route === 'weather') {
@@ -315,9 +324,13 @@ export default async function handler(req, res) {
       const cloudy = body.cloudy || current.cloudy;
       const conditions = body.conditions == null ? current.conditions : body.conditions;
       const enabled = body.enabled == null ? current.enabled : body.enabled;
+      const notificationPreferences = body.notificationPreferences == null ? current.notificationPreferences : body.notificationPreferences;
       const outputAllowed = (value) => ['Utility', 'SOL', 'SBU'].includes(value);
       const redischargeAllowed = (value) => Number.isInteger(Number(value)) && Number(value) >= 10 && Number(value) <= 100;
       if (typeof enabled !== 'boolean') return sendJson(res, 400, { error: 'El estado de automatización debe ser verdadero o falso.' });
+      if (!notificationPreferences || ['automationExecuted','automationState','serviceOutage','solarSurplus'].some((key) => typeof notificationPreferences[key] !== 'boolean')) {
+        return sendJson(res, 400, { error: 'Las preferencias de notificación no son válidas.' });
+      }
       if (!Number.isFinite(thresholdKwh) || thresholdKwh < 0 || thresholdKwh > 60) return sendJson(res, 400, { error: 'La generación de activación debe estar entre 0 y 60 kWh.' });
       if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(runAtLocal)) return sendJson(res, 400, { error: 'La hora chilena no es válida.' });
       if (Number(runAtLocal.slice(3, 5)) % 5 !== 0) return sendJson(res, 400, { error: 'Selecciona una hora en intervalos de cinco minutos.' });
@@ -336,15 +349,32 @@ export default async function handler(req, res) {
         if (![0,-1].includes(Number(condition.dayOffset))) return sendJson(res, 400, { error: 'Selecciona el mismo día o el día anterior.' });
       }
       if (enabled && !current.credentialsConfigured) return sendJson(res, 409, { error: 'Guarda primero el acceso automático a i.Solar.' });
-      return sendJson(res, 200, await updateAutomationRule(sn, {
+      const saved = await updateAutomationRule(sn, {
         enabled,
         executionMode: enabled ? 'automatic' : 'manual',
         thresholdKwh,
         runAtLocal,
         sunny: { redischarge: Number(sunny.redischarge), output: sunny.output },
         cloudy: { redischarge: Number(cloudy.redischarge), output: cloudy.output },
-        conditions: conditions.map(condition => ({ id: String(condition.id), enabled: condition.enabled !== false, kind: condition.kind, minKwh: Number(condition.minKwh ?? 0), maxKwh: Number(condition.maxKwh), preset: condition.preset, runAtLocal: String(condition.runAtLocal), dayOffset: Number(condition.dayOffset) }))
-      }));
+        conditions: conditions.map(condition => ({ id: String(condition.id), enabled: condition.enabled !== false, kind: condition.kind, minKwh: Number(condition.minKwh ?? 0), maxKwh: Number(condition.maxKwh), preset: condition.preset, runAtLocal: String(condition.runAtLocal), dayOffset: Number(condition.dayOffset) })),
+        notificationPreferences
+      });
+      if (current.enabled !== saved.enabled && saved.notificationPreferences.automationState) {
+        const siteId = await ensureSite(sn);
+        const profile = automationSiteProfile(sn);
+        const active = saved.enabled;
+        await sendSiteNotification(
+          siteId,
+          'automation_state',
+          `Mi Solar · automatización ${active ? 'activada' : 'desactivada'}`,
+          active
+            ? `La programación automática de ${profile.label} quedó activada. Mi Solar evaluará las reglas guardadas en hora de Chile.`
+            : `La programación automática de ${profile.label} quedó desactivada. No se modificarán parámetros hasta volver a activarla.`,
+          { url: '/?page=programming', enabled: active, site: profile.key },
+          `automation-state-${active ? 'on' : 'off'}-${Date.now()}`
+        );
+      }
+      return sendJson(res, 200, saved);
     }
 
     const automationCredentials = route.match(/^devices\/([^/]+)\/automation-credentials$/);

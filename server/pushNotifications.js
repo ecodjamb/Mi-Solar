@@ -1,5 +1,5 @@
 import webpush from 'web-push';
-import { deletePushSubscription, listPushSubscriptions, markPushFailure, markPushSuccess } from './automationStore.js';
+import { deletePushSubscription, listPushSubscriptions, markPushFailure, markPushSuccess, recordNotificationEvent } from './automationStore.js';
 
 function configure() {
   const publicKey = process.env.VAPID_PUBLIC_KEY;
@@ -34,7 +34,7 @@ export async function sendAutomationPush(siteId, title, body, data = {}) {
       await webpush.sendNotification({
         endpoint: row.endpoint,
         keys: { p256dh: row.p256dh, auth: row.auth }
-      }, JSON.stringify({ title, body, data, icon: '/misolar-panel-sol-192.png' }), { TTL: 3600 });
+      }, JSON.stringify({ title, body, data, icon: '/misolar-los-cod-192.png' }), { TTL: 3600 });
       await markPushSuccess(row.id);
       sent += 1;
     } catch (error) {
@@ -46,4 +46,17 @@ export async function sendAutomationPush(siteId, title, body, data = {}) {
     }
   }
   return { sent, failed, configured: true, lastError };
+}
+
+export async function sendSiteNotification(siteId, type, title, body, data = {}, dedupeKey = null) {
+  const result = await sendAutomationPush(siteId, title, body, { ...data, type });
+  await recordNotificationEvent(siteId, {
+    type,
+    title,
+    body,
+    dedupeKey,
+    delivered: result.sent,
+    failed: result.failed
+  }).catch((error) => console.error('[push] audit failed', error instanceof Error ? error.message : String(error)));
+  return result;
 }

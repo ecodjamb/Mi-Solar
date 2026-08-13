@@ -9,8 +9,16 @@ const defaults = {
   sunny_output: 'SBU',
   cloudy_redischarge: 50,
   cloudy_output: 'SOL',
-  conditions: []
+  conditions: [],
+  notification_preferences: {
+    automationExecuted: true,
+    automationState: true,
+    serviceOutage: true,
+    solarSurplus: true
+  }
 };
+
+export const DEFAULT_NOTIFICATION_PREFERENCES = { ...defaults.notification_preferences };
 
 function defaultConditions(row) {
   const threshold = Number(row?.threshold_kwh ?? 20);
@@ -30,6 +38,7 @@ function normalize(row, extras = {}) {
     sunny: { redischarge: Number(row?.sunny_redischarge ?? 25), output: row?.sunny_output || 'SBU' },
     cloudy: { redischarge: Number(row?.cloudy_redischarge ?? 50), output: row?.cloudy_output || 'SOL' },
     conditions: Array.isArray(row?.conditions) && row.conditions.length ? row.conditions : defaultConditions(row),
+    notificationPreferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, ...(row?.notification_preferences || {}) },
     updatedAt: row?.updated_at || null,
     credentialsConfigured: Boolean(extras.credentialsConfigured),
     notificationsConfigured: Boolean(extras.notificationsConfigured),
@@ -77,6 +86,7 @@ export async function updateAutomationRule(deviceSn, patch) {
     cloudy_redischarge: patch.cloudy?.redischarge ?? current.cloudy_redischarge,
     cloudy_output: patch.cloudy?.output ?? current.cloudy_output,
     conditions: patch.conditions ?? current.conditions ?? defaultConditions(current),
+    notification_preferences: patch.notificationPreferences ?? current.notification_preferences ?? DEFAULT_NOTIFICATION_PREFERENCES,
     updated_at: new Date().toISOString()
   };
   delete next.id;
@@ -104,18 +114,19 @@ export async function readAutomationCredentials(deviceSn) {
 }
 
 export async function savePushSubscription(deviceSn, subscription) {
-  const siteId = await ensureSite(deviceSn);
+  await ensureSite(deviceSn);
+  const sites = await rest('solar_sites?select=id') || [];
   const rows = await rest('push_subscriptions?on_conflict=site_id,endpoint', {
     method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-    body: JSON.stringify({
-      site_id: siteId,
+    body: JSON.stringify(sites.map((site) => ({
+      site_id: site.id,
       endpoint: subscription.endpoint,
       p256dh: subscription.keys.p256dh,
       auth: subscription.keys.auth,
       failure_count: 0
-    })
+    })))
   });
-  return { configured: Boolean(rows?.[0]?.id) };
+  return { configured: Boolean(rows?.[0]?.id), sites: rows?.length || 0 };
 }
 
 export async function removePushSubscription(deviceSn, endpoint) {
@@ -158,6 +169,58 @@ export async function listEnabledAutomationRules() {
     const sites = await rest(`solar_sites?id=eq.${rule.site_id}&select=device_sn&limit=1`);
     return { ...normalize(rule), siteId: rule.site_id, deviceSn: sites?.[0]?.device_sn || null };
   }));
+}
+
+export async function listNotificationSites() {
+  const rules = await rest('automation_rules?select=*&order=site_id.asc') || [];
+  const values = [];
+  for (const rule of rules) {
+    const [sites, subscriptions, credentials] = await Promise.all([
+      rest(`solar_sites?id=eq.${rule.site_id}&select=device_sn&limit=1`),
+      rest(`push_subscriptions?site_id=eq.${rule.site_id}&select=id&limit=1`),
+      rest(`automation_credentials?site_id=eq.${rule.site_id}&select=id&limit=1`)
+    ]);
+    if (subscriptions?.[0]?.id) values.push({
+      ...normalize(rule),
+      siteId: rule.site_id,
+      deviceSn: sites?.[0]?.device_sn || null,
+      credentialsConfigured: Boolean(credentials?.[0]?.id)
+    });
+  }
+  return values;
+}
+
+export async function readNotificationState(siteId, eventKey) {
+  const rows = await rest(`notification_states?site_id=eq.${siteId}&event_key=eq.${encodeURIComponent(eventKey)}&select=*&limit=1`);
+  return rows?.[0] || null;
+}
+
+export async function saveNotificationState(siteId, eventKey, state, metadata = {}, lastNotifiedAt = null) {
+  const payload = { site_id: siteId, event_key: eventKey, state, metadata, updated_at: new Date().toISOString() };
+  if (lastNotifiedAt) payload.last_notified_at = lastNotifiedAt;
+  const rows = await rest('notification_states?on_conflict=site_id,event_key', {
+    method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify(payload)
+  });
+  return rows?.[0] || payload;
+}
+
+export async function recordNotificationEvent(siteId, event) {
+  const payload = {
+    site_id: siteId,
+    event_type: event.type,
+    title: String(event.title || 'Mi Solar'),
+    body: String(event.body || ''),
+    dedupe_key: event.dedupeKey || null,
+    delivered_count: Number(event.delivered || 0),
+    failed_count: Number(event.failed || 0)
+  };
+  try {
+    const rows = await rest('notification_events', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify(payload) });
+    return rows?.[0] || null;
+  } catch (error) {
+    if (String(error?.message || '').includes('409')) return null;
+    throw error;
+  }
 }
 
 export async function readAutomationExecution(siteId, forecastDate) {
