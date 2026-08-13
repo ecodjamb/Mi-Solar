@@ -18,6 +18,7 @@ async function executeOnce<T>(path: string, options: RequestInit = {}): Promise<
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
+      if (response.status === 401 && path !== 'login') window.dispatchEvent(new CustomEvent('misolar:auth-expired'));
       const error = new Error(data.error || `Error ${response.status}`) as Error & { status?: number; details?: unknown };
       error.status = response.status;
       error.details = data;

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BellRing, CalendarClock, CheckCircle2, ChevronDown, CloudSun, Clock3, KeyRound, Minus, PlayCircle, Plus, Save, Settings2, ShieldCheck, Sun } from 'lucide-react';
+import { BellRing, CalendarClock, CheckCircle2, ChevronDown, CloudSun, Clock3, KeyRound, PlayCircle, Plus, Save, Settings2, ShieldCheck, Sun, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
 
 type InverterSettings = {
@@ -9,6 +9,7 @@ type InverterSettings = {
 type SettingsCheck = InverterSettings & { observedAt: string; readOnly: boolean };
 type Preset = 'sunny' | 'cloudy';
 type ProfileConfig = { redischarge: number; output: 'Utility' | 'SOL' | 'SBU' };
+type AutomationCondition = { id:string; enabled:boolean; kind:'lessThan'|'between'; minKwh:number; maxKwh:number; preset:Preset; runAtLocal:string; dayOffset:0|-1 };
 type LastExecution = { forecast_date: string; evaluated_at: string; forecast_kwh: number; preset: Preset; action: 'changed' | 'unchanged' | 'failed'; message: string; notified: boolean };
 type AutomationRule = {
   enabled: boolean;
@@ -17,6 +18,7 @@ type AutomationRule = {
   runAtLocal: string;
   sunny: ProfileConfig;
   cloudy: ProfileConfig;
+  conditions: AutomationCondition[];
   updatedAt: string | null;
   configured: boolean;
   credentialsConfigured: boolean;
@@ -29,9 +31,13 @@ type ApplyResponse = {
 };
 type Props = { deviceSn: string; siteLabel: string; currentTime: string; tomorrowDate: string; tomorrowForecast: number | null };
 
-const DEFAULTS: Pick<AutomationRule, 'enabled'|'executionMode'|'thresholdKwh'|'runAtLocal'|'sunny'|'cloudy'|'updatedAt'|'configured'|'credentialsConfigured'|'notificationsConfigured'|'lastExecution'> = {
+const DEFAULTS: Pick<AutomationRule, 'enabled'|'executionMode'|'thresholdKwh'|'runAtLocal'|'sunny'|'cloudy'|'conditions'|'updatedAt'|'configured'|'credentialsConfigured'|'notificationsConfigured'|'lastExecution'> = {
   enabled: false, executionMode: 'manual', thresholdKwh: 20, runAtLocal: '22:00',
   sunny: { redischarge: 25, output: 'SBU' }, cloudy: { redischarge: 50, output: 'SOL' },
+  conditions: [
+    {id:'cloudy-default',enabled:true,kind:'lessThan',minKwh:0,maxKwh:20,preset:'cloudy',runAtLocal:'22:00',dayOffset:-1},
+    {id:'sunny-default',enabled:true,kind:'between',minKwh:20,maxKwh:60,preset:'sunny',runAtLocal:'22:00',dayOffset:-1}
+  ],
   updatedAt: null, configured: false, credentialsConfigured: false, notificationsConfigured: false, lastExecution: null
 };
 
@@ -54,13 +60,15 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
   const [saving, setSaving] = useState(false);
   const [savingCredentials, setSavingCredentials] = useState(false);
   const [savingNotifications, setSavingNotifications] = useState(false);
+  const [testingNotifications, setTestingNotifications] = useState(false);
   const [applying, setApplying] = useState<Preset | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [actionMessage, setActionMessage] = useState('');
   const [error, setError] = useState('');
   const hasForecast = tomorrowForecast != null;
-  const qualifies = hasForecast && tomorrowForecast > draft.thresholdKwh;
+  const matchedCondition = hasForecast ? draft.conditions.find((condition) => condition.enabled && (condition.kind === 'lessThan' ? tomorrowForecast < condition.maxKwh : tomorrowForecast >= condition.minKwh && tomorrowForecast <= condition.maxKwh)) : null;
+  const qualifies = matchedCondition?.preset === 'sunny';
 
   async function loadAutomation() {
     const value = await api<AutomationRule>(`devices/${deviceSn}/automation`);
@@ -106,7 +114,7 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
     setSaving(true); setError(''); setActionMessage('');
     try {
       const next = await api<AutomationRule>(`devices/${deviceSn}/automation`, {
-        method: 'PUT', body: JSON.stringify({ thresholdKwh: draft.thresholdKwh, runAtLocal: draft.runAtLocal, sunny: draft.sunny, cloudy: draft.cloudy })
+        method: 'PUT', body: JSON.stringify({ thresholdKwh: draft.conditions.find(item=>item.preset==='sunny')?.minKwh ?? draft.thresholdKwh, runAtLocal: draft.conditions[0]?.runAtLocal ?? draft.runAtLocal, sunny: draft.sunny, cloudy: draft.cloudy, conditions: draft.conditions })
       });
       setAutomation(next); setDraft(next); setActionMessage('Configuración de automatización guardada en Mi Solar.');
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible guardar la configuración.'); }
@@ -135,9 +143,17 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
       let subscription = await registration.pushManager.getSubscription();
       if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidArray(publicKey) });
       await api(`devices/${deviceSn}/push-subscription`, { method: 'POST', body: JSON.stringify(subscription.toJSON()) });
-      await loadAutomation(); setActionMessage('Notificaciones del celular activadas para esta instalación.');
+      const test = await api<{message:string}>(`devices/${deviceSn}/push-test`, {method:'POST'});
+      await loadAutomation(); setActionMessage(test.message);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible activar las notificaciones.'); }
     finally { setSavingNotifications(false); }
+  }
+
+  async function testNotifications(){
+    setTestingNotifications(true);setError('');setActionMessage('');
+    try{const response=await api<{message:string}>(`devices/${deviceSn}/push-test`,{method:'POST'});setActionMessage(response.message)}
+    catch(cause){setError(cause instanceof Error?cause.message:'No fue posible enviar la prueba.')}
+    finally{setTestingNotifications(false)}
   }
 
   async function toggleAutomation() {
@@ -146,13 +162,15 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
     try {
       const next = await api<AutomationRule>(`devices/${deviceSn}/automation`, { method: 'PUT', body: JSON.stringify({ enabled: !automation.enabled }) });
       setAutomation(next); setDraft(next);
-      setActionMessage(`Automatización ${next.enabled ? 'activada' : 'desactivada'} y guardada. ${next.enabled ? `Se evaluará diariamente a las ${next.runAtLocal}, hora de Chile.` : ''}`);
+      setActionMessage(`Automatización ${next.enabled ? 'activada' : 'desactivada'} y guardada. ${next.enabled ? 'Cada condición se evaluará en su propio horario, hora de Chile.' : ''}`);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo cambiar el estado de automatización.'); }
     finally { setSaving(false); }
   }
 
   const setProfile = (preset: Preset, patch: Partial<ProfileConfig>) => setDraft((value) => ({ ...value, [preset]: { ...value[preset], ...patch } }));
-  const setThreshold = (value: number) => setDraft((current) => ({ ...current, thresholdKwh: Math.max(0, Math.min(60, value)) }));
+  const updateCondition=(id:string,patch:Partial<AutomationCondition>)=>setDraft(value=>({...value,conditions:value.conditions.map(item=>item.id===id?{...item,...patch}:item)}));
+  const addCondition=()=>setDraft(value=>({...value,conditions:[...value.conditions,{id:globalThis.crypto?.randomUUID?.()||`rule-${Date.now()}`,enabled:true,kind:'between',minKwh:0,maxKwh:60,preset:'cloudy',runAtLocal:'22:00',dayOffset:-1}]}));
+  const removeCondition=(id:string)=>setDraft(value=>({...value,conditions:value.conditions.filter(item=>item.id!==id)}));
 
   return <section className="settings-page">
     <header className="page-heading"><div><small>Automatización · {siteLabel}</small><h1>Programación solar</h1><p>La decisión utiliza exactamente la proyección recalibrada de la sección Radiación.</p></div></header>
@@ -160,31 +178,40 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
     <section className="panel programming-alert programming-safe"><ShieldCheck/><div><strong>Control secuencial con verificación</strong><p>Cada parámetro se envía por separado, espera cinco segundos y se confirma antes de continuar.</p></div></section>
 
     <section className="panel automation-rule-card">
-      <header><div><small>Pronóstico de mañana</small><h2>{dateLabel(tomorrowDate)}</h2></div><span className="automation-time"><Clock3 size={17}/> Evaluación · {draft.runAtLocal}</span></header>
+      <header><div><small>Pronóstico de mañana</small><h2>{dateLabel(tomorrowDate)}</h2></div><span className="automation-time"><Clock3 size={17}/> {matchedCondition?`${matchedCondition.runAtLocal} · ${matchedCondition.dayOffset===-1?'día anterior':'mismo día'}`:'Sin regla coincidente'}</span></header>
       <div className="automation-rule-grid">
         <article className="automation-step"><CalendarClock/><span><small>Hora actual</small><strong>{currentTime} · Chile</strong></span></article>
         <article className="automation-step"><Sun/><span><small>Generación estimada</small><strong>{hasForecast ? `${tomorrowForecast.toFixed(1)} kWh` : 'Pronóstico pendiente'}</strong></span></article>
-        <article className={`automation-step automation-condition ${hasForecast ? (qualifies ? 'pass' : 'fail') : 'pending'}`}><CheckCircle2/><span><small>Umbral {draft.thresholdKwh} kWh</small><strong>{hasForecast ? (qualifies ? 'Mañana día de sol' : 'Mañana día nublado') : 'Esperando radiación'}</strong></span></article>
+        <article className={`automation-step automation-condition ${hasForecast ? (matchedCondition?'pass':'fail') : 'pending'}`}><CheckCircle2/><span><small>Condición automática</small><strong>{hasForecast ? (matchedCondition?`Perfil ${matchedCondition.preset==='sunny'?'soleado':'nublado'}`:'Ninguna regla cubre la proyección') : 'Esperando radiación'}</strong></span></article>
       </div>
     </section>
 
     <details className="panel automation-setup">
       <summary><span><Settings2/><b>Setup de automatización</b><small>Perfiles, umbral, horario, acceso y notificaciones</small></span><ChevronDown/></summary>
       <div className="automation-setup-body">
-        <section className="setup-section"><header><div><small>Condición de activación</small><h3>Generación solar de mañana</h3></div></header>
-          <div className="threshold-control"><button type="button" aria-label="Disminuir umbral" onClick={() => setThreshold(draft.thresholdKwh - 1)}><Minus/></button><label><input aria-label="Umbral de generación solar" type="number" min="0" max="60" step="1" value={draft.thresholdKwh} onChange={(event) => setThreshold(Number(event.target.value))}/><span>kWh</span></label><button type="button" aria-label="Aumentar umbral" onClick={() => setThreshold(draft.thresholdKwh + 1)}><Plus/></button></div>
-          <p>Sobre {draft.thresholdKwh} kWh se utiliza “día soleado”; con {draft.thresholdKwh} kWh o menos se utiliza “día nublado”.</p>
+        <section className="setup-section automation-conditions"><header><div><small>Condiciones de activación</small><h3>Reglas según la generación proyectada</h3></div><button type="button" className="add-condition" disabled={draft.conditions.length>=12} onClick={addCondition}><Plus/> Agregar condición</button></header>
+          <p>Las reglas se evalúan con la proyección de Radiación. Puedes decidir el perfil, la hora chilena y si se ejecuta el día anterior o el mismo día pronosticado.</p>
+          <div className="condition-list">{draft.conditions.map((condition,index)=><article className="condition-editor" key={condition.id}>
+            <span className="condition-number">{index+1}</span>
+            <label>Cuando la generación sea<select value={condition.kind} onChange={event=>updateCondition(condition.id,{kind:event.target.value as AutomationCondition['kind']})}><option value="lessThan">Menor a</option><option value="between">Entre</option></select></label>
+            {condition.kind==='between'&&<label>Desde<input type="number" min="0" max="60" value={condition.minKwh} onChange={event=>updateCondition(condition.id,{minKwh:Math.max(0,Math.min(60,Number(event.target.value)))})}/><small>kWh</small></label>}
+            <label>{condition.kind==='between'?'Hasta':'Límite'}<input type="number" min="0" max="60" value={condition.maxKwh} onChange={event=>updateCondition(condition.id,{maxKwh:Math.max(0,Math.min(60,Number(event.target.value)))})}/><small>kWh</small></label>
+            <label>Aplicar perfil<select value={condition.preset} onChange={event=>updateCondition(condition.id,{preset:event.target.value as Preset})}><option value="cloudy">☁️ Día nublado</option><option value="sunny">☀️ Día soleado</option></select></label>
+            <label>Ejecutar<input type="time" step="300" value={condition.runAtLocal} onChange={event=>updateCondition(condition.id,{runAtLocal:event.target.value})}/></label>
+            <label>Momento<select value={condition.dayOffset} onChange={event=>updateCondition(condition.id,{dayOffset:Number(event.target.value) as 0|-1})}><option value={-1}>Día anterior</option><option value={0}>Mismo día</option></select></label>
+            <button type="button" className="delete-condition" aria-label={`Eliminar condición ${index+1}`} disabled={draft.conditions.length===1} onClick={()=>removeCondition(condition.id)}><Trash2/></button>
+          </article>)}</div>
         </section>
 
         <section className="setup-profile-grid">
           {(['sunny','cloudy'] as Preset[]).map((preset) => <article className={`setup-profile ${preset}`} key={preset}><header>{preset === 'sunny' ? <Sun/> : <CloudSun/>}<div><small>Perfil automático</small><h3>{preset === 'sunny' ? 'Mañana día de sol' : 'Mañana día nublado'}</h3></div></header><label>Redischarge<input type="number" min="10" max="100" step="5" value={draft[preset].redischarge} onChange={(event) => setProfile(preset, { redischarge: Number(event.target.value) })}/><span>%</span></label><label>Output<select value={draft[preset].output} onChange={(event) => setProfile(preset, { output: event.target.value as ProfileConfig['output'] })}><option value="Utility">Utility</option><option value="SOL">SOL</option><option value="SBU">SBU</option></select></label></article>)}
         </section>
 
-        <section className="setup-section schedule-setup"><header><Clock3/><div><small>Hora local de Chile</small><h3>Ejecución diaria</h3></div></header><input type="time" step="300" value={draft.runAtLocal} onChange={(event) => setDraft((value) => ({ ...value, runAtLocal: event.target.value }))}/><p>Supabase revisa cada cinco minutos y ejecuta una sola vez por día.</p></section>
+        <section className="setup-section schedule-setup"><header><Clock3/><div><small>Servicio autónomo</small><h3>Revisión cada cinco minutos</h3></div></header><p>Cada condición tiene su propio horario. Mi Solar ejecuta como máximo una configuración por fecha proyectada, aunque la página esté cerrada.</p></section>
         <button className="primary-action setup-save" type="button" disabled={saving} onClick={saveConfiguration}><Save/>{saving ? 'Guardando…' : 'Guardar configuración'}</button>
 
         <details className="setup-subdetails"><summary><span><KeyRound/> Acceso automático a i.Solar</span><b>{automation?.credentialsConfigured ? 'Configurado' : 'Pendiente'}</b></summary><div><p>Se valida una vez y se guarda cifrado. Nunca se muestra nuevamente.</p><input autoComplete="username" placeholder="Usuario i.Solar" value={username} onChange={(event) => setUsername(event.target.value)}/><input autoComplete="new-password" type="password" placeholder="Contraseña i.Solar" value={password} onChange={(event) => setPassword(event.target.value)}/><button className="primary-action" type="button" disabled={savingCredentials || !username || !password} onClick={saveCredentials}>{savingCredentials ? 'Validando…' : 'Validar y guardar acceso'}</button></div></details>
-        <details className="setup-subdetails"><summary><span><BellRing/> Notificaciones del celular</span><b>{automation?.notificationsConfigured ? 'Activadas' : 'Pendientes'}</b></summary><div><p>En iPhone, agrega primero Mi Solar a la pantalla de inicio y abre la aplicación desde ese icono.</p><button className="primary-action" type="button" disabled={savingNotifications} onClick={enableNotifications}>{savingNotifications ? 'Activando…' : 'Activar notificaciones en este celular'}</button></div></details>
+        <details className="setup-subdetails"><summary><span><BellRing/> Notificaciones del celular</span><b>{automation?.notificationsConfigured ? 'Suscripción guardada' : 'Sin celular suscrito'}</b></summary><div><p>No había ninguna suscripción guardada para las instalaciones. En iPhone, agrega Mi Solar a la pantalla de inicio, ábrela desde el ícono y usa “Activar y probar”.</p><button className="primary-action" type="button" disabled={savingNotifications} onClick={enableNotifications}>{savingNotifications ? 'Activando y probando…' : 'Activar y probar en este celular'}</button><button className="secondary-action" type="button" disabled={testingNotifications||!automation?.notificationsConfigured} onClick={testNotifications}>{testingNotifications?'Enviando…':'Enviar otra prueba'}</button></div></details>
       </div>
     </details>
 
@@ -195,6 +222,6 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
 
     <section className="panel settings-test-card"><header><div><small>Equipo seleccionado</small><h2>{siteLabel}</h2></div><span className="read-only-badge">Comprobación</span></header><button className="primary-action settings-test-button" type="button" disabled={checking || !deviceSn || Boolean(applying)} onClick={checkSettings}><PlayCircle/>{checking ? 'Consultando inversor…' : 'Leer configuración actual'}</button>{error ? <p className="settings-test-error" role="alert">{error}</p> : null}{actionMessage ? <p className="settings-action-success" role="status">{actionMessage}</p> : null}{result ? <div className="settings-result-grid" aria-live="polite"><article><small>Redischarge actual</small><strong>{result.redischarge.percent == null ? 'No identificado' : `${result.redischarge.percent}%`}</strong></article><article><small>Output actual</small><strong>{result.output.mode || 'No identificado'}</strong></article></div> : null}{automation?.lastExecution ? <p className="last-automation-result"><b>Última automatización:</b> {automation.lastExecution.message}</p> : null}</section>
 
-    <section className="panel automation-switch-card"><div><small>Estado persistente</small><h2>Automatizar</h2><p>{automation?.enabled ? `Activa · próxima evaluación diaria a las ${automation.runAtLocal}, hora de Chile.` : 'Actívala después de guardar el acceso automático. Funcionará aunque la página esté cerrada.'}</p></div><button className={`automation-switch ${automation?.enabled ? 'on' : ''}`} type="button" role="switch" aria-checked={Boolean(automation?.enabled)} disabled={!automation || saving} onClick={toggleAutomation}><span/><strong>{saving ? 'Guardando…' : automation?.enabled ? 'Activada' : 'Desactivada'}</strong></button></section>
+    <section className="panel automation-switch-card"><div><small>Estado persistente</small><h2>Automatizar</h2><p>{automation?.enabled ? `Activa · ${automation.conditions.filter(item=>item.enabled).length} condiciones programadas en hora de Chile.` : 'Actívala después de guardar el acceso automático. Funcionará aunque la página esté cerrada.'}</p></div><button className={`automation-switch ${automation?.enabled ? 'on' : ''}`} type="button" role="switch" aria-checked={Boolean(automation?.enabled)} disabled={!automation || saving} onClick={toggleAutomation}><span/><strong>{saving ? 'Guardando…' : automation?.enabled ? 'Activada' : 'Desactivada'}</strong></button></section>
   </section>;
 }

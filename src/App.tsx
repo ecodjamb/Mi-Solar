@@ -6,7 +6,6 @@ import KpiCard from './components/KpiCard';
 import SimpleEnergyFlow from './components/SimpleEnergyFlow';
 import DailyQuote from './components/DailyQuote';
 import FunModeToggle from './components/FunModeToggle';
-import EChart from './components/EChart';
 import PowerGauge from './components/PowerGauge';
 import SolarForecastPage from './components/SolarForecastPage';
 import HouseIllustration from './components/HouseIllustration';
@@ -23,6 +22,8 @@ import CostsPage from './components/CostsPage';
 import HomeDateNavigator from './components/HomeDateNavigator';
 import ProgrammingPage from './components/ProgrammingPage';
 import IntegrationsPage from './components/IntegrationsPage';
+import DailyConsumptionChart from './components/DailyConsumptionChart';
+import EquipmentPage from './components/EquipmentPage';
 import { api } from './services/api';
 import { fetchWeather, type WeatherData } from './services/weather';
 import { accumulatedTheoreticalToday, calibrateSolarModel, expectedPowerNow, theoreticalDayKwh } from './utils/solarForecast';
@@ -249,7 +250,7 @@ export default function App(){
   }
 
   useEffect(()=>{const timer=setInterval(()=>setClock(formatClock()),1000);return()=>clearInterval(timer)},[]);
-  useEffect(()=>{api<{authenticated:boolean}>('session').then(x=>setAuth(x.authenticated)).catch(()=>setAuth(false))},[]);
+  useEffect(()=>{api<{authenticated:boolean}>('session?validate=1').then(x=>setAuth(x.authenticated)).catch(()=>setAuth(false));const expired=()=>setAuth(false);window.addEventListener('misolar:auth-expired',expired);return()=>window.removeEventListener('misolar:auth-expired',expired)},[]);
   useEffect(()=>{
     if(!auth)return;
     let lastPing=0;
@@ -277,7 +278,7 @@ export default function App(){
       ['scroll',registerActivity,{passive:true}]
     ];
     events.forEach(([name,handler,options])=>window.addEventListener(name,handler,options));
-    const onVisibility=()=>{if(document.visibilityState==='visible')registerActivity()};
+    const onVisibility=()=>{if(document.visibilityState==='visible'){registerActivity();void api<{authenticated:boolean}>('session?validate=1').then(value=>{if(!value.authenticated)setAuth(false)}).catch(()=>setAuth(false))}};
     document.addEventListener('visibilitychange',onVisibility);
     const idleTimer=window.setInterval(checkIdle,60_000);
     return()=>{
@@ -326,21 +327,6 @@ export default function App(){
     return()=>{clearInterval(weatherTimer);clearInterval(radiationTimer)};
   },[auth,device?.deviceSn]);
 
-  const chartOption=useMemo(()=>({
-    backgroundColor:'transparent',
-    tooltip:{trigger:'axis',confine:true,formatter:(params:any[])=>{const p=params?.[0];if(!p)return '';return `<strong>${p.axisValue}</strong><br/>${params.map(x=>`${x.marker}${x.seriesName}: <b>${Number(x.value).toLocaleString('es-CL')} W</b>`).join('<br/>')}`}},
-    legend:{top:0,textStyle:{color:'#9fb2ba'}},grid:{left:48,right:18,top:58,bottom:40,containLabel:true},
-    xAxis:{type:'category',data:homeRows.map(r=>{const d=parseApiTime(r.currentTime??r.createTime??r.collectTime??r.dataTime??r.time);return d?d.toLocaleTimeString('es-CL',{timeZone:'America/Santiago',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}):''}),axisLabel:{color:'#789099',hideOverlap:true},axisLine:{lineStyle:{color:'#27404a'}}},
-    yAxis:{type:'value',name:'W',nameTextStyle:{color:'#789099'},axisLabel:{color:'#789099'},splitLine:{lineStyle:{color:'rgba(110,150,160,.12)'}}},
-    series:[
-      {name:'Solar PV1 + PV2',type:'line',smooth:true,showSymbol:false,data:homeRows.map(r=>pvPower(r,1)+pvPower(r,2)),lineStyle:{width:3,color:'#efbd34'},itemStyle:{color:'#efbd34'},areaStyle:{opacity:.08,color:'#efbd34'}},
-      {name:'Consumo casa',type:'line',smooth:true,showSymbol:false,data:homeRows.map(loadPower),lineStyle:{width:2,color:'#a96fff'},itemStyle:{color:'#a96fff'}},
-      {name:gridSourceLabel,type:'line',smooth:true,showSymbol:false,data:homeRows.map(r=>Math.max(0,effectiveGridPower(r))),lineStyle:{width:2,color:'#4f9fff'},itemStyle:{color:'#4f9fff'}},
-      {name:'Aporte sistema solar',type:'line',smooth:true,showSymbol:false,data:homeRows.map(solarSystemToLoadPower),lineStyle:{width:2,color:'#49d984'},itemStyle:{color:'#49d984'}},
-      {name:'Batería descargando',type:'line',smooth:true,showSymbol:false,data:homeRows.map(batteryDischargePower),lineStyle:{width:2,color:'#4bd98a'},itemStyle:{color:'#4bd98a'}}
-    ]
-  }),[homeRows,gridSourceLabel]);
-
   if(auth===null)return <div className="boot">Cargando Mi Solar…</div>;
   if(!auth)return <Login done={()=>setAuth(true)}/>;
 
@@ -383,9 +369,8 @@ export default function App(){
         </section>
         <DailyQuote/>
         <LoadCoverageBar today={homeEnergy} month={month} lastUpdate={isHistoricalDay?parseApiTime(homeEnergy.lastSample):quality.last} gridLabel={gridSourceLabel} historical={isHistoricalDay}/>
-        <RecentEnergyChart rows={homeRows} siteLabel={siteLabel}/>
+        <RecentEnergyChart rows={homeRows} siteLabel={siteLabel} gridLabel={gridSourceLabel}/>
         {!isHistoricalDay&&<HouseIllustration weather={weather} funMode={funMode} siteName={device?.nickName||'Casa ECO Arrayán'}/>}
-        <section className="panel chart-panel"><header className="section-head"><div><small>Producción y consumo</small><h2>{isHistoricalDay?homeDate:'Hoy'} · {siteLabel} · horario de Chile</h2></div></header><EChart option={chartOption}/></section>
         <div className="home-grid secondary-home-grid"><aside className="side-stack">
           <section className="panel health-card"><small>Estado del sistema</small><strong>{health(realtime)}/100</strong><p>{health(realtime)>90?'Excelente · sin anomalías relevantes':'Conviene revisar algunos parámetros'}</p></section>
           <section className="panel best-card"><small>Mejor día del mes · {siteLabel}</small><strong>{best?kwh(best.solar):'—'}</strong><p>{best?new Date(`${best.date}T12:00`).toLocaleDateString('es-CL',{dateStyle:'long'}):'Aún sin histórico suficiente'}</p></section>
@@ -396,6 +381,7 @@ export default function App(){
       {page==='charts'&&<section className="analytics-page">
         <header className="analytics-title"><div><small>Análisis energético</small><h1>Gráficos y acumulados</h1><p>Todos los cortes pertenecen exclusivamente a la instalación seleccionada y usan el día calendario de Chile.</p></div><section className={`instant-gauge-grid ${pvCount===1?'two-gauges':''}`}><article className="panel gauge-card"><small>Demanda actual</small><PowerGauge value={load} label="Consumo instantáneo"/><div className="gauge-note"><span className="safe-dot"/>normal <span className="danger-dot"/>carga alta</div></article><article className="panel gauge-card solar-gauge"><small>Producción string 1</small><PowerGauge value={pvPower(realtime,1)} max={Math.max(3000,installedWp/Math.max(1,pvCount))} label="PV1 instantáneo" color="#efbd34"/></article>{pvCount===2&&<article className="panel gauge-card solar-gauge"><small>Producción string 2</small><PowerGauge value={pvPower(realtime,2)} max={Math.max(3000,installedWp/2)} label="PV2 instantáneo" color="#f29b38"/></article>}</section></header>
         <EnergyRangeChart deviceSn={selected} siteLabel={siteLabel} gridLabel={gridSourceLabel}/>
+        <DailyConsumptionChart deviceSn={selected} siteLabel={siteLabel}/>
         <section className="analytics-period-summary"><article className="panel"><small>Hoy</small><strong>{kwh(today.solar)}</strong><p>Solar · consumo {kwh(today.load)} · {gridSourceLabel.toLocaleLowerCase('es-CL')} {kwh(today.gridImport)}</p></article><article className="panel"><small>Esta semana</small><strong>{kwh(week.solar)}</strong><p>Solar · consumo {kwh(week.load)} · {gridSourceLabel.toLocaleLowerCase('es-CL')} {kwh(week.gridImport)}</p></article><article className="panel"><small>Este mes</small><strong>{kwh(month.solar)}</strong><p>Solar · consumo {kwh(month.load)} · {gridSourceLabel.toLocaleLowerCase('es-CL')} {kwh(month.gridImport)}</p></article></section>
         <HistoricalBackfill devices={devices}/>
         <HistoryExplorer deviceSn={selected} siteLabel={siteLabel} gridLabel={gridSourceLabel}/>
@@ -407,7 +393,7 @@ export default function App(){
 
       {page==='costs'&&<CostsPage key={selected} deviceSn={selected} siteLabel={siteLabel} gridLabel={gridSourceLabel} today={today} week={week} currentMonth={month} tariff={tariff} onTariffChange={value=>{setTariff(value);localStorage.setItem(siteStorageKey('tariffCLP',device?.nickName||''),String(value))}}/>}
 
-      {page==='equipment'&&<section className="equipment-grid">{[['Paneles',`PV1 ${watts(pvPower(realtime,1))}${detectPvCount(realtime,monthRows)===2?` · PV2 ${watts(pvPower(realtime,2))}`:''}`],['Inversor',String(summary.workMode||realtime.workMode||'—')],['Batería',`${soc.toFixed(0)}% · ${batteryVoltage(realtime).toFixed(1)} V`],[profile.gridConnected?'Red activa · estado 1':'Generador de respaldo',`${watts(Math.abs(grid))} · ${gridVoltage(realtime).toFixed(1)} V · ${gridFrequency(realtime).toFixed(1)} Hz`],['Salida AC',`${outputVoltage(realtime).toFixed(1)} V · ${outputFrequency(realtime).toFixed(1)} Hz`],['Temperatura',`${inverterTemperature(realtime).toFixed(1)} °C`]].map(([a,b])=><article className="panel equipment-card" key={a}><h2>{a}</h2><p>{b}</p></article>)}</section>}
+      {page==='equipment'&&<EquipmentPage deviceSn={selected} siteLabel={siteLabel} realtime={realtime} summary={summary} gridLabel={gridSourceLabel}/>}
 
       {page==='technical'&&<section className="technical-page"><section className="technical-summary"><article className="panel"><small>Versión de la app</small><strong>v{APP_VERSION}</strong></article><article className="panel"><small>Política de actualización</small><strong>30 s · 5 min · 5 min · 5 min</strong><p>Tiempo real · día · semana · mes</p></article><article className="panel"><small>Datos catalogados</small><strong>{catalog.reduce((n,s)=>n+s.items.filter(i=>i.value!==null).length,0)}</strong></article><article className="panel"><small>Muestras hoy</small><strong>{today.samples}</strong></article><article className="panel"><small>Muestras mes</small><strong>{month.samples}</strong></article></section><section className="technical-grid">{catalog.map(section=><article className="panel technical-section" key={section.title}><h2>{section.title}</h2>{section.items.map(item=><div className="technical-row" key={item.key}><span>{item.label}</span><strong>{item.value===null?'—':`${typeof item.value==='number'?item.value.toLocaleString('es-CL',{maximumFractionDigits:2}):item.value}${item.unit?` ${item.unit}`:''}`}</strong><small>{item.source||'campo no disponible'}</small></div>)}</article>)}</section><section className="panel technical"><h2>Parámetros disponibles no usados en el dashboard</h2><p>Se muestran aquí para mantener el inicio limpio y facilitar futuras estadísticas.</p><div className="unknown-parameter-grid">{rawUnknown.map(key=><div className="unknown-parameter" key={key}><span>{key}</span><strong>{String((realtime as Record<string,unknown>)[key]??(summary as Record<string,unknown>)[key]??'—')}</strong></div>)}</div><details><summary>Auditoría completa en JSON</summary><pre>{JSON.stringify({version:APP_VERSION,architecture:'Vercel native · caché aislado por equipo',refreshPolicyMs:REFRESH_MS,lastSectionUpdate,realtime,summary,today,week,month,quality,solarModel},null,2)}</pre></details></section></section>}
       {page==='programming'&&<ProgrammingPage deviceSn={selected} siteLabel={siteLabel} currentTime={clock} tomorrowDate={tomorrowDate} tomorrowForecast={forecastTomorrow}/>}

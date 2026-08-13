@@ -76,7 +76,7 @@ function season(date) {
   return 'spring';
 }
 
-export async function forecastTomorrow(deviceSn) {
+export async function forecastForDate(deviceSn, targetDate) {
   const profile = automationSiteProfile(deviceSn);
   const siteRows = await rest(`solar_sites?device_sn=eq.${encodeURIComponent(deviceSn)}&select=id&limit=1`);
   if (!siteRows?.[0]?.id) throw new Error('La instalación todavía no existe en el respaldo permanente.');
@@ -97,7 +97,8 @@ export async function forecastTomorrow(deviceSn) {
   const mad = median(rawSamples.map((item) => Math.abs(item.ratio - center)));
   const filtered = rawSamples.filter((item) => Math.abs(item.ratio - center) <= Math.max(0.1, mad * 3));
   const samples = filtered.length >= 3 ? filtered : rawSamples;
-  const targetDate = addDays(today, 1);
+  if (!targetDate) targetDate = addDays(today, 1);
+  if (targetDate < today || targetDate > addDays(today, 2)) throw new Error('La fecha de proyección automática no es válida.');
   const globalCoefficients = regression(samples, profile.installedKwp, today);
   const localCoefficients = regression(samples, profile.installedKwp, targetDate);
   const confidence = Math.min(0.82, 0.48 + samples.length / 55);
@@ -120,4 +121,8 @@ export async function forecastTomorrow(deviceSn) {
     rSquared: Number(coefficients.rSquared.toFixed(3)),
     site: profile
   };
+}
+
+export async function forecastTomorrow(deviceSn) {
+  return forecastForDate(deviceSn, addDays(chileDate(), 1));
 }

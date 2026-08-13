@@ -4,12 +4,13 @@ import { archiveRows, readArchive, readArchiveSeries } from '../server/archive.j
 import { getTuyaDevice, getTuyaDeviceProfile, listTuyaDevices, sendTuyaCommand, tuyaConfiguration } from '../server/tuya.js';
 import { parseInverterSettings } from '../server/isolarSettings.js';
 import {
-  readAutomationRule, recordConfigurationEvent, removePushSubscription, saveAutomationCredentials,
-  savePushSubscription, updateAutomationRule
+  deleteEquipment, listEquipment, readAutomationRule, recordConfigurationEvent, removePushSubscription, saveAutomationCredentials,
+  saveEquipment, savePushSubscription, updateAutomationRule
 } from '../server/automationStore.js';
 import { encryptCredentials } from '../server/secretBox.js';
 import { applyInverterTarget, loginOrigin, logoutOrigin } from '../server/inverterControl.js';
-import { pushPublicKey } from '../server/pushNotifications.js';
+import { pushPublicKey, sendAutomationPush } from '../server/pushNotifications.js';
+import { ensureSite } from '../server/archive.js';
 import { runDueAutomations } from '../server/automationRunner.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
@@ -153,7 +154,7 @@ export default async function handler(req, res) {
 
   try {
     if (method === 'GET' && route === 'health') {
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.13.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY), time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.14.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY), time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -215,6 +216,14 @@ export default async function handler(req, res) {
 
     if (method === 'GET' && route === 'session') {
       const session = openSession(cookieHeader(req));
+      if (session?.token && session?.vrtKey && String(req.query?.validate || '') === '1') {
+        try {
+          await listAllDevices(session);
+          return sendJson(res, 200, { authenticated: true, user: { username: session.username, nickname: session.nickname }, expiresAt: session.expiresAt || null, idleTimeoutMs: SESSION_IDLE_MS }, { 'Set-Cookie': sessionCookie(session) });
+        } catch {
+          return sendJson(res, 200, { authenticated: false, user: null, expiresAt: null, idleTimeoutMs: SESSION_IDLE_MS }, { 'Set-Cookie': clearCookie() });
+        }
+      }
       return sendJson(res, 200, {
         authenticated: Boolean(session?.token && session?.vrtKey),
         user: session ? { username: session.username, nickname: session.nickname } : null,
@@ -303,6 +312,7 @@ export default async function handler(req, res) {
       const runAtLocal = body.runAtLocal == null ? current.runAtLocal : String(body.runAtLocal).slice(0, 5);
       const sunny = body.sunny || current.sunny;
       const cloudy = body.cloudy || current.cloudy;
+      const conditions = body.conditions == null ? current.conditions : body.conditions;
       const enabled = body.enabled == null ? current.enabled : body.enabled;
       const outputAllowed = (value) => ['Utility', 'SOL', 'SBU'].includes(value);
       const redischargeAllowed = (value) => Number.isInteger(Number(value)) && Number(value) >= 10 && Number(value) <= 100;
@@ -313,6 +323,17 @@ export default async function handler(req, res) {
       if (!redischargeAllowed(sunny.redischarge) || !redischargeAllowed(cloudy.redischarge) || !outputAllowed(sunny.output) || !outputAllowed(cloudy.output)) {
         return sendJson(res, 400, { error: 'Los parámetros de día soleado o nublado no son válidos.' });
       }
+      if (!Array.isArray(conditions) || conditions.length < 1 || conditions.length > 12) return sendJson(res, 400, { error: 'Debes guardar entre 1 y 12 condiciones.' });
+      const ids = new Set();
+      for (const condition of conditions) {
+        const min = Number(condition.minKwh ?? 0), max = Number(condition.maxKwh);
+        if (!String(condition.id || '') || ids.has(condition.id)) return sendJson(res, 400, { error: 'Cada condición debe tener un identificador único.' });
+        ids.add(condition.id);
+        if (!['lessThan','between'].includes(condition.kind) || !['sunny','cloudy'].includes(condition.preset)) return sendJson(res, 400, { error: 'Una condición contiene una opción no válida.' });
+        if (!Number.isFinite(min) || !Number.isFinite(max) || min < 0 || max > 60 || min > max) return sendJson(res, 400, { error: 'Los rangos de generación deben estar entre 0 y 60 kWh.' });
+        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(condition.runAtLocal || '')) || Number(String(condition.runAtLocal).slice(3,5)) % 5 !== 0) return sendJson(res, 400, { error: 'Las horas deben usar intervalos de cinco minutos.' });
+        if (![0,-1].includes(Number(condition.dayOffset))) return sendJson(res, 400, { error: 'Selecciona el mismo día o el día anterior.' });
+      }
       if (enabled && !current.credentialsConfigured) return sendJson(res, 409, { error: 'Guarda primero el acceso automático a i.Solar.' });
       return sendJson(res, 200, await updateAutomationRule(sn, {
         enabled,
@@ -320,7 +341,8 @@ export default async function handler(req, res) {
         thresholdKwh,
         runAtLocal,
         sunny: { redischarge: Number(sunny.redischarge), output: sunny.output },
-        cloudy: { redischarge: Number(cloudy.redischarge), output: cloudy.output }
+        cloudy: { redischarge: Number(cloudy.redischarge), output: cloudy.output },
+        conditions: conditions.map(condition => ({ id: String(condition.id), enabled: condition.enabled !== false, kind: condition.kind, minKwh: Number(condition.minKwh ?? 0), maxKwh: Number(condition.maxKwh), preset: condition.preset, runAtLocal: String(condition.runAtLocal), dayOffset: Number(condition.dayOffset) }))
       }));
     }
 
@@ -358,6 +380,33 @@ export default async function handler(req, res) {
       if (method === 'DELETE') return sendJson(res, 200, await removePushSubscription(sn, String(body.endpoint)));
       if (!body.keys?.p256dh || !body.keys?.auth) return sendJson(res, 400, { error: 'La suscripción no contiene sus llaves públicas.' });
       return sendJson(res, 200, await savePushSubscription(sn, body));
+    }
+
+    const pushTest = route.match(/^devices\/([^/]+)\/push-test$/);
+    if (method === 'POST' && pushTest) {
+      requireSession(req);
+      const sn = decodeURIComponent(pushTest[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      const siteId = await ensureSite(sn);
+      const result = await sendAutomationPush(siteId, 'Mi Solar · prueba', 'Las notificaciones están funcionando correctamente en este celular.', { url: '/?page=programming', test: true });
+      if (!result.configured) return sendJson(res, 503, { error: 'El servidor de notificaciones no está configurado.' });
+      if (result.sent < 1) return sendJson(res, 409, { error: 'No hay un celular suscrito o la suscripción dejó de ser válida. Activa nuevamente las notificaciones en este equipo.', ...result });
+      return sendJson(res, 200, { ...result, message: 'Notificación de prueba enviada. Debe aparecer en el celular en unos segundos.' });
+    }
+
+    const equipment = route.match(/^devices\/([^/]+)\/equipment(?:\/([^/]+))?$/);
+    if (equipment && ['GET','POST','PUT','DELETE'].includes(method)) {
+      requireSession(req);
+      const sn = decodeURIComponent(equipment[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (method === 'GET') return sendJson(res, 200, { assets: await listEquipment(sn) });
+      const body = parseBody(req);
+      if (method === 'DELETE') return sendJson(res, 200, await deleteEquipment(sn, equipment[2]));
+      const category = String(body.category || '');
+      const quantity = Number(body.quantity || 1);
+      if (!['panel','battery','inverter','generator','other'].includes(category) || !Number.isInteger(quantity) || quantity < 1 || quantity > 10000) return sendJson(res, 400, { error: 'Categoría o cantidad de equipo inválida.' });
+      const saved = await saveEquipment(sn, { ...body, id: method === 'PUT' ? equipment[2] : null, category, quantity });
+      return sendJson(res, 200, { asset: saved });
     }
 
     const settingsApply = route.match(/^devices\/([^/]+)\/settings-apply$/);

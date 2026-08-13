@@ -23,7 +23,7 @@ export async function sendAutomationPush(siteId, title, body, data = {}) {
       await webpush.sendNotification({
         endpoint: row.endpoint,
         keys: { p256dh: row.p256dh, auth: row.auth }
-      }, JSON.stringify({ title, body, data, icon: '/scenes/home-day.webp' }), { TTL: 3600 });
+      }, JSON.stringify({ title, body, data, icon: '/sun-icon.svg' }), { TTL: 3600 });
       await markPushSuccess(row.id);
       sent += 1;
     } catch (error) {

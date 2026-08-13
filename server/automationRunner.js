@@ -1,6 +1,6 @@
 import { decryptCredentials } from './secretBox.js';
 import { applyInverterTarget, loginOrigin, logoutOrigin } from './inverterControl.js';
-import { forecastTomorrow } from './solarProjection.js';
+import { forecastForDate } from './solarProjection.js';
 import {
   listEnabledAutomationRules,
   readAutomationCredentials,
@@ -29,6 +29,22 @@ export function automationDueNow(rule, now) {
   return difference >= 0 && difference < 5;
 }
 
+function addDays(value, days) {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
+function conditionDueNow(condition, now) {
+  const difference = minutes(now.time) - minutes(condition.runAtLocal);
+  return condition.enabled !== false && difference >= 0 && difference < 5;
+}
+
+function conditionMatches(condition, forecastKwh) {
+  const min = Number(condition.minKwh ?? 0);
+  const max = Number(condition.maxKwh ?? 60);
+  return condition.kind === 'lessThan' ? forecastKwh < max : forecastKwh >= min && forecastKwh <= max;
+}
+
 export function automationNotificationMessage(preset, changed) {
   if (changed && preset === 'sunny') return 'Se realizó cambio de configuración en inversor a día soleado para mañana.';
   if (changed && preset === 'cloudy') return 'Se realizó cambio de configuración en inversor a día nublado para mañana.';
@@ -37,10 +53,23 @@ export function automationNotificationMessage(preset, changed) {
 }
 
 async function executeRule(rule, now) {
-  if (!rule.deviceSn || !automationDueNow(rule, now)) return { deviceSn: rule.deviceSn, status: 'not-due' };
-  const projection = await forecastTomorrow(rule.deviceSn);
+  if (!rule.deviceSn) return { deviceSn: rule.deviceSn, status: 'not-due' };
+  const dueConditions = (rule.conditions || []).filter((condition) => conditionDueNow(condition, now));
+  if (!dueConditions.length) return { deviceSn: rule.deviceSn, status: 'not-due' };
+  let condition = null;
+  let projection = null;
+  for (const candidate of dueConditions) {
+    const targetDate = addDays(now.date, candidate.dayOffset === 0 ? 0 : 1);
+    const candidateProjection = await forecastForDate(rule.deviceSn, targetDate);
+    if (conditionMatches(candidate, candidateProjection.forecastKwh)) {
+      condition = candidate;
+      projection = candidateProjection;
+      break;
+    }
+  }
+  if (!condition || !projection) return { deviceSn: rule.deviceSn, status: 'no-condition-match' };
   if (await readAutomationExecution(rule.siteId, projection.date)) return { deviceSn: rule.deviceSn, status: 'already-executed' };
-  const preset = projection.forecastKwh > rule.thresholdKwh ? 'sunny' : 'cloudy';
+  const preset = condition.preset;
   const target = rule[preset];
   const encrypted = await readAutomationCredentials(rule.deviceSn);
   if (!encrypted) throw new Error(`Faltan credenciales automáticas para ${rule.deviceSn}.`);
@@ -59,7 +88,8 @@ async function executeRule(rule, now) {
       forecast_date: projection.date,
       evaluated_at: new Date().toISOString(),
       forecast_kwh: projection.forecastKwh,
-      threshold_kwh: rule.thresholdKwh,
+      threshold_kwh: Number(condition.maxKwh ?? condition.minKwh ?? rule.thresholdKwh),
+      automation_condition_id: condition.id,
       preset,
       action,
       before_config: result.before,

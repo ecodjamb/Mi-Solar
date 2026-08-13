@@ -4,8 +4,8 @@ self.addEventListener('push', (event) => {
   const title = payload.title || 'Mi Solar';
   event.waitUntil(self.registration.showNotification(title, {
     body: payload.body || 'La automatización solar fue evaluada.',
-    icon: payload.icon || '/scenes/home-day.webp',
-    badge: payload.icon || '/scenes/home-day.webp',
+    icon: payload.icon || '/sun-icon.svg',
+    badge: payload.icon || '/sun-icon.svg',
     data: payload.data || { url: '/?page=programming' },
     tag: 'mi-solar-automation',
     renotify: true

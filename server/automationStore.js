@@ -8,8 +8,18 @@ const defaults = {
   sunny_redischarge: 25,
   sunny_output: 'SBU',
   cloudy_redischarge: 50,
-  cloudy_output: 'SOL'
+  cloudy_output: 'SOL',
+  conditions: []
 };
+
+function defaultConditions(row) {
+  const threshold = Number(row?.threshold_kwh ?? 20);
+  const runAtLocal = String(row?.run_at_local || '22:00').slice(0, 5);
+  return [
+    { id: 'cloudy-default', enabled: true, kind: 'lessThan', minKwh: 0, maxKwh: threshold, preset: 'cloudy', runAtLocal, dayOffset: -1 },
+    { id: 'sunny-default', enabled: true, kind: 'between', minKwh: threshold, maxKwh: 60, preset: 'sunny', runAtLocal, dayOffset: -1 }
+  ];
+}
 
 function normalize(row, extras = {}) {
   return {
@@ -19,6 +29,7 @@ function normalize(row, extras = {}) {
     runAtLocal: String(row?.run_at_local || '22:00').slice(0, 5),
     sunny: { redischarge: Number(row?.sunny_redischarge ?? 25), output: row?.sunny_output || 'SBU' },
     cloudy: { redischarge: Number(row?.cloudy_redischarge ?? 50), output: row?.cloudy_output || 'SOL' },
+    conditions: Array.isArray(row?.conditions) && row.conditions.length ? row.conditions : defaultConditions(row),
     updatedAt: row?.updated_at || null,
     credentialsConfigured: Boolean(extras.credentialsConfigured),
     notificationsConfigured: Boolean(extras.notificationsConfigured),
@@ -65,6 +76,7 @@ export async function updateAutomationRule(deviceSn, patch) {
     sunny_output: patch.sunny?.output ?? current.sunny_output,
     cloudy_redischarge: patch.cloudy?.redischarge ?? current.cloudy_redischarge,
     cloudy_output: patch.cloudy?.output ?? current.cloudy_output,
+    conditions: patch.conditions ?? current.conditions ?? defaultConditions(current),
     updated_at: new Date().toISOString()
   };
   delete next.id;
@@ -168,4 +180,37 @@ export async function recordConfigurationEvent(deviceSn, event) {
     })
   });
   return { stored: Boolean(rows?.[0]?.id), id: rows?.[0]?.id || null };
+}
+
+export async function listEquipment(deviceSn) {
+  const siteId = await ensureSite(deviceSn);
+  return await rest(`equipment_assets?site_id=eq.${siteId}&select=*&order=category.asc,created_at.asc`) || [];
+}
+
+export async function saveEquipment(deviceSn, asset) {
+  const siteId = await ensureSite(deviceSn);
+  const payload = {
+    site_id: siteId,
+    category: asset.category,
+    brand: asset.brand || '',
+    model: asset.model || '',
+    quantity: Number(asset.quantity || 1),
+    unit_power_w: asset.unitPowerW == null || asset.unitPowerW === '' ? null : Number(asset.unitPowerW),
+    capacity_kwh: asset.capacityKwh == null || asset.capacityKwh === '' ? null : Number(asset.capacityKwh),
+    installed_at: asset.installedAt || null,
+    notes: asset.notes || '',
+    updated_at: new Date().toISOString()
+  };
+  if (asset.id) {
+    const rows = await rest(`equipment_assets?id=eq.${Number(asset.id)}&site_id=eq.${siteId}`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify(payload) });
+    return rows?.[0] || null;
+  }
+  const rows = await rest('equipment_assets', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify(payload) });
+  return rows?.[0] || null;
+}
+
+export async function deleteEquipment(deviceSn, id) {
+  const siteId = await ensureSite(deviceSn);
+  await rest(`equipment_assets?id=eq.${Number(id)}&site_id=eq.${siteId}`, { method: 'DELETE' });
+  return { deleted: true };
 }
