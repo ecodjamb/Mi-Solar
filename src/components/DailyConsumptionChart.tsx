@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart3 } from 'lucide-react';
+import { BarChart3, Sun } from 'lucide-react';
 import EChart from './EChart';
 import { api } from '../services/api';
 import type { HistoryRow } from '../types';
@@ -23,6 +23,7 @@ export default function DailyConsumptionChart({deviceSn,siteLabel}:{deviceSn:str
   },[deviceSn,selected.days]);
   const days=useMemo(()=>groupDailyEnergy(rows),[rows]);
   const average=days.length?days.reduce((sum,day)=>sum+day.load,0)/days.length:0;
+  const solarAverage=days.length?days.reduce((sum,day)=>sum+day.solar,0)/days.length:0;
   const option=useMemo(()=>({
     tooltip:{trigger:'axis',confine:true,valueFormatter:(value:unknown)=>`${Number(value).toLocaleString('es-CL',{maximumFractionDigits:2})} kWh`},
     legend:{top:4,textStyle:{color:'#a9bdc3'}},grid:{left:52,right:20,top:58,bottom:60,containLabel:true},
@@ -31,5 +32,17 @@ export default function DailyConsumptionChart({deviceSn,siteLabel}:{deviceSn:str
     yAxis:{type:'value',name:'kWh',axisLabel:{color:'#8ba0a8'},nameTextStyle:{color:'#8ba0a8'},splitLine:{lineStyle:{color:'rgba(110,150,160,.12)'}}},
     series:[{name:'Consumo diario',type:'bar',data:days.map(day=>Number(day.load.toFixed(3))),itemStyle:{color:'#a96fff',borderRadius:[5,5,0,0]}},{name:`Promedio ${average.toFixed(1)} kWh`,type:'line',showSymbol:false,data:days.map(()=>Number(average.toFixed(3))),lineStyle:{color:'#f0c34d',type:'dashed',width:2},itemStyle:{color:'#f0c34d'}}]
   }),[days,average]);
-  return <section className="panel daily-consumption-chart"><header><div><small>Histórico respaldado · {siteLabel}</small><h2><BarChart3/> Consumo diario y promedio</h2></div><strong>{average.toLocaleString('es-CL',{maximumFractionDigits:2})} kWh/día</strong></header><div className="period-selector" role="group" aria-label="Período del consumo diario">{PERIODS.map(item=><button type="button" className={period===item.key?'active':''} onClick={()=>setPeriod(item.key)} key={item.key}>{item.label}</button>)}</div>{loading?<div className="chart-loading">Cargando consumo diario…</div>:days.length?<EChart option={option}/>:<div className="chart-loading">Todavía no hay datos diarios guardados para este período.</div>}</section>;
+  const solarOption=useMemo(()=>({
+    tooltip:{trigger:'axis',confine:true,valueFormatter:(value:unknown)=>`${Number(value).toLocaleString('es-CL',{maximumFractionDigits:2})} kWh`},
+    legend:{top:4,textStyle:{color:'#a9bdc3'}},grid:{left:52,right:20,top:58,bottom:60,containLabel:true},
+    dataZoom:days.length>35?[{type:'inside'},{type:'slider',height:18,bottom:14,borderColor:'#29444e',backgroundColor:'#07171d',fillerColor:'rgba(255,205,54,.18)'}]:undefined,
+    xAxis:{type:'category',data:days.map(day=>day.date),axisLabel:{color:'#8ba0a8',hideOverlap:true},axisLine:{lineStyle:{color:'#29444e'}}},
+    yAxis:{type:'value',name:'kWh',axisLabel:{color:'#8ba0a8'},nameTextStyle:{color:'#8ba0a8'},splitLine:{lineStyle:{color:'rgba(110,150,160,.12)'}}},
+    series:[{name:'Producción solar diaria',type:'bar',data:days.map(day=>Number(day.solar.toFixed(3))),itemStyle:{color:'#f1bd32',borderRadius:[5,5,0,0]}},{name:`Promedio ${solarAverage.toFixed(1)} kWh`,type:'line',showSymbol:false,data:days.map(()=>Number(solarAverage.toFixed(3))),lineStyle:{color:'#49d58b',type:'dashed',width:2},itemStyle:{color:'#49d58b'}}]
+  }),[days,solarAverage]);
+  const selector=(label:string)=><div className="period-selector" role="group" aria-label={label}>{PERIODS.map(item=><button type="button" className={period===item.key?'active':''} aria-pressed={period===item.key} onClick={()=>setPeriod(item.key)} key={item.key}>{item.label}</button>)}</div>;
+  return <div className="daily-energy-charts">
+    <section className="panel daily-consumption-chart"><header><div><small>Histórico respaldado · {siteLabel}</small><h2><BarChart3/> Consumo diario y promedio</h2></div><strong>{average.toLocaleString('es-CL',{maximumFractionDigits:2})} kWh/día</strong></header>{selector('Período del consumo diario')}{loading?<div className="chart-loading">Cargando consumo diario…</div>:days.length?<EChart option={option}/>:<div className="chart-loading">Todavía no hay datos diarios guardados para este período.</div>}</section>
+    <section className="panel daily-consumption-chart daily-solar-chart"><header><div><small>Generación respaldada · {siteLabel}</small><h2><Sun/> Producción solar diaria y promedio</h2></div><strong>{solarAverage.toLocaleString('es-CL',{maximumFractionDigits:2})} kWh/día</strong></header>{selector('Período de la producción solar diaria')}{loading?<div className="chart-loading">Cargando producción solar…</div>:days.length?<EChart option={solarOption}/>:<div className="chart-loading">Todavía no hay producción solar guardada para este período.</div>}</section>
+  </div>;
 }

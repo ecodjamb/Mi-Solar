@@ -3,6 +3,7 @@ import { CalendarDays, CircleDollarSign, Leaf, Landmark, RadioTower, TrendingUp,
 import { api } from '../services/api';
 import type { DailyEnergy, HistoryRow } from '../types';
 import { clp, dailyEnergy, formatSiteDate, kwh, siteRangeUtc } from '../utils/energy';
+import EnelBillsSection from './EnelBillsSection';
 
 const MONTHS=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const empty:DailyEnergy={date:'',solar:0,pv1:0,pv2:0,load:0,grid:0,gridImport:0,gridExport:0,gridToLoad:0,charge:0,discharge:0,solarToLoad:0,batteryToLoad:0,solarToBattery:0,samples:0};
@@ -78,5 +79,6 @@ export default function CostsPage({deviceSn,siteLabel,gridLabel='Red activa',tod
     </div>
     <section className="cost-section"><header><div><small>Avance reciente</small><h2>Hoy y esta semana</h2></div></header><div className="cost-metric-grid two"><CostMetric icon={Zap} label="Ahorro conseguido hoy" value={clp((today.solarToLoad+today.batteryToLoad)*tariff)} detail={`Paneles ${kwh(today.solarToLoad)} + batería ${kwh(today.batteryToLoad)}`} tone="yellow"/><CostMetric icon={TrendingUp} label="Ahorro conseguido esta semana" value={clp((week.solarToLoad+week.batteryToLoad)*tariff)} detail={`${kwh(week.solarToLoad+week.batteryToLoad)} cubiertos por el sistema solar`} tone="green"/></div></section>
     <section className="cost-section"><header><div><small>{closed?'Resultado consolidado':'Estimación según el avance del mes'}</small><h2>{closed?'Cierre real del mes':'Proyección para final de mes'}</h2></div></header><div className="cost-metric-grid"><CostMetric icon={CircleDollarSign} label={gridLabel==='Generador'?'Costo del generador':'Cuenta eléctrica'} value={clp(projectedBill)} detail={`${kwh(projectedGrid)} desde ${gridLabel.toLocaleLowerCase('es-CL')}`}/><CostMetric icon={Leaf} label="Ahorro del sistema solar" value={clp(projectedSystem*tariff)} detail={`Paneles + batería: ${kwh(projectedSystem)}`} tone="green"/><CostMetric icon={RadioTower} label={`${gridLabel} hacia la casa`} value={kwh(projectedGrid)} detail={`Equivalente a ${clp(projectedGrid*tariff)}`}/><CostMetric icon={Zap} label="Paneles hacia la casa" value={kwh(projectedSolar)} detail={`Equivalente a ${clp(projectedSolar*tariff)}`} tone="yellow"/><CostMetric icon={TrendingUp} label="Batería hacia la casa" value={kwh(projectedBattery)} detail={`Equivalente a ${clp(projectedBattery*tariff)}`} tone="green"/></div></section>
+    {gridLabel !== 'Generador' ? <EnelBillsSection deviceSn={deviceSn} siteLabel={siteLabel}/> : null}
   </section>;
 }

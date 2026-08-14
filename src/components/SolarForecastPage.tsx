@@ -71,6 +71,8 @@ export default function SolarForecastPage({ actual, weather, model, deviceSn, si
     return stored ? { ...item, value: stored.forecastKwh } : item;
   }), [storedByDate, theoretical]);
   const current = displayedTheoretical.find((item) => item.date === todayKey);
+  const currentStored = storedForecast?.today?.date === todayKey ? storedForecast.today : null;
+  const currentCutoff = currentStored?.lockedAt ? new Date(currentStored.lockedAt).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) : null;
   const currentSeason = seasonForDate(todayKey);
   const seasons = Object.values(SEASON_PROFILES[siteKey]);
   const coefficients = projectionCoefficients(todayKey, model);
@@ -123,10 +125,10 @@ export default function SolarForecastPage({ actual, weather, model, deviceSn, si
     <header className="page-heading"><div><small>Radiación y rendimiento · {siteLabel}</small><h1>Histórico y proyección solar</h1><p>El modelo se calibra con días completos respaldados en Mi Solar, la radiación meteorológica local y la estación del año. Aquí se muestra la generación solar bruta; {siteKey === 'puerto-montt' ? 'el aporte efectivo a la casa separa paneles, batería y generador de respaldo.' : 'el aporte solar efectivo a la casa y los ahorros se calculan aparte usando solamente red activa (statusGrid = 1).'}</p></div><div className="provider-chip">Fuente: {weather.provider || 'Sin conexión meteorológica'}</div></header>
 
     <section className="forecast-kpis">
+      <article className="panel stat forecast-today-primary"><small>Producción prevista para hoy</small><strong>{current ? `${current.value.toFixed(2)} kWh` : '—'}</strong><p>Estimación del día actual combinando radiación y comportamiento real.</p><em>{currentCutoff ? `🔒 Corte fijado el ${currentCutoff} h` : `Cálculo vigente · corte programado el día anterior a las ${storedForecast?.lockTimeChile || '21:30'} h`}</em></article>
       <article className="panel stat"><small>Potencia instalada</small><strong>{model.installedKwp.toFixed(2)} kWp</strong><p>Capacidad nominal total de los paneles instalados.</p></article>
       <article className="panel stat"><small>Factor histórico real</small><strong>{Math.round(model.factor * 100)}%</strong><p>Compara la energía realmente producida con la radiación disponible y la potencia instalada. Usa {model.sampleDays} días completos.</p></article>
       <article className="panel stat"><small>Ajuste por rendimiento de hoy</small><strong>{Math.round(model.liveCorrection * 100)}%</strong><p>Corrige solo la estimación de hoy según su producción observada, incluyendo nubosidad, orientación y sombras.</p></article>
-      <article className="panel stat"><small>Producción prevista hoy</small><strong>{current ? `${current.value.toFixed(2)} kWh` : '—'}</strong><p>Estimación del día actual combinando radiación y comportamiento real.</p></article>
       <article className="panel stat"><small>Error histórico mediano</small><strong>{model.sampleDays ? `${model.medianErrorPct.toFixed(1)}%` : '—'}</strong><p>Diferencia típica entre lo proyectado y lo realmente generado; mientras más bajo, más preciso es el modelo.</p></article>
     </section>
 
@@ -136,7 +138,7 @@ export default function SolarForecastPage({ actual, weather, model, deviceSn, si
       <EChart option={option}/>
     </section>
 
-    <section className="panel projection-formula"><small>Cálculo usado en esta proyección</small><strong>Generación estimada = máx(0; {coefficients.slope.toFixed(2)} × radiación {coefficients.intercept >= 0 ? '+' : '−'} {Math.abs(coefficients.intercept).toFixed(2)})</strong><p>Radiación en kWh/m²/día y resultado en kWh/día. Regresión con {model.sampleDays} días reales completos · ajuste R² {coefficients.rSquared.toFixed(2)}. La proyección de mañana puede ajustarse hasta las {storedForecast?.lockTimeChile || '21:50'} de Chile del día anterior; después queda guardada e inamovible.</p></section>
+    <section className="panel projection-formula"><small>Cálculo usado en esta proyección</small><strong>Generación estimada = máx(0; {coefficients.slope.toFixed(2)} × radiación {coefficients.intercept >= 0 ? '+' : '−'} {Math.abs(coefficients.intercept).toFixed(2)})</strong><p>Radiación en kWh/m²/día y resultado en kWh/día. Regresión con {model.sampleDays} días reales completos · ajuste R² {coefficients.rSquared.toFixed(2)}. La proyección de mañana puede ajustarse hasta las {storedForecast?.lockTimeChile || '21:30'} de Chile del día anterior; después queda guardada e inamovible.</p></section>
 
     <section className="forecast-section-heading"><div><small>Pronóstico solar y decisión automática</small><h2>Los próximos días</h2><p>Cada estimación conversa con el umbral guardado en Programación: sobre {thresholdKwh} kWh se prepara “día soleado”; con {thresholdKwh} kWh o menos, “día nublado”.</p></div><span className={thresholdSynced ? 'threshold-synced' : 'threshold-default'}>{thresholdSynced ? 'Sincronizado con Programación' : 'Umbral predeterminado'} · {thresholdKwh} kWh</span></section>
     <section className="forecast-days">{displayedTheoretical.filter((item) => item.date > todayKey).map((day) => {

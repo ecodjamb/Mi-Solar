@@ -15,7 +15,7 @@ function minutes(value) {
 }
 
 export function forecastLockDue(now = new Date()) {
-  return minutes(chileTime(now)) >= 21 * 60 + 50;
+  return minutes(chileTime(now)) >= 21 * 60 + 30;
 }
 
 function addDays(value, days) {

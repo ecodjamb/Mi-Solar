@@ -7,8 +7,8 @@ self.addEventListener('push', (event) => {
   const title = payload.title || 'Mi Solar';
   event.waitUntil(self.registration.showNotification(title, {
     body: payload.body || 'La automatización solar fue evaluada.',
-    icon: payload.icon || '/misolar-los-cod-192.png',
-    badge: payload.icon || '/misolar-los-cod-192.png',
+    icon: payload.icon || '/misolar-casa-192.png?v=3',
+    badge: payload.icon || '/misolar-casa-192.png?v=3',
     data: payload.data || { url: '/?page=programming' },
     tag: payload.data?.type ? `mi-solar-${payload.data.type}` : 'mi-solar',
     renotify: true

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { forecastLockDue } from '../server/solarProjection.js';
 
-assert.equal(forecastLockDue(new Date('2026-08-14T01:49:00Z')), false, '21:49 de Chile todavía permite ajustar');
-assert.equal(forecastLockDue(new Date('2026-08-14T01:50:00Z')), true, '21:50 de Chile fija la proyección');
+assert.equal(forecastLockDue(new Date('2026-08-14T01:29:00Z')), false, '21:29 de Chile todavía permite ajustar');
+assert.equal(forecastLockDue(new Date('2026-08-14T01:30:00Z')), true, '21:30 de Chile fija la proyección');
 assert.equal(forecastLockDue(new Date('2026-08-14T03:30:00Z')), true, 'La proyección permanece fija hasta medianoche');
 assert.equal(forecastLockDue(new Date('2026-08-14T04:01:00Z')), false, 'Tras medianoche comienza la ventana del día siguiente');
 
