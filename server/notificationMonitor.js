@@ -8,6 +8,12 @@ import { automationSiteProfile } from './siteProfiles.js';
 const PV1_KEYS = ['pvInputPower1', 'pvPower1', 'powerPv1', 'solarPower1', 'pv1Power', 'pvPowerInput1'];
 const PV2_KEYS = ['pvInputPower2', 'pvPower2', 'powerPv2', 'solarPower2', 'pv2Power', 'pvPowerInput2'];
 const LOAD_KEYS = ['acOutputActivePowerTotal', 'loadPower', 'outputActivePower', 'acOutputPower'];
+const BATTERY_DISCHARGE_KEYS = ['batteryDischargingPower', 'batteryDischargePower', 'dischargePower'];
+const GRID_STATUS_KEYS = ['statusGrid', 'gridStatus'];
+const GRID_VOLTAGE_KEYS = ['gridVoltageR', 'gridInputVoltage', 'acInputVoltageR'];
+const GRID_FREQUENCY_KEYS = ['gridFrequency', 'gridInputFrequency', 'acInputFrequency'];
+const LOAD_STATUS_KEYS = ['statusLoad', 'loadStatus'];
+const SOLAR_STATUS_KEYS = ['statusSolar1', 'statusSolar2'];
 
 function first(row, keys) {
   for (const key of keys) {
@@ -15,6 +21,62 @@ function first(row, keys) {
     if (row?.[key] !== '' && Number.isFinite(value)) return value;
   }
   return 0;
+}
+
+function signal(row, keys) {
+  for (const key of keys) {
+    const raw = row?.[key];
+    const value = Number(raw);
+    if (raw !== '' && raw != null && Number.isFinite(value)) return { found: true, key, value };
+  }
+  return { found: false, key: null, value: null };
+}
+
+export function assessGridOutage(row) {
+  const gridStatus = signal(row, GRID_STATUS_KEYS);
+  const gridVoltage = signal(row, GRID_VOLTAGE_KEYS);
+  const gridFrequency = signal(row, GRID_FREQUENCY_KEYS);
+  const loadStatus = signal(row, LOAD_STATUS_KEYS);
+  const dischargeW = Math.max(0, first(row, BATTERY_DISCHARGE_KEYS));
+  const loadW = Math.max(0, first(row, LOAD_KEYS));
+  const solarW = Math.max(0, first(row, PV1_KEYS) + first(row, PV2_KEYS));
+  const solarStates = SOLAR_STATUS_KEYS.map((key) => signal(row, [key])).filter((item) => item.found);
+
+  const statusSaysOff = gridStatus.found && gridStatus.value !== 1;
+  const voltageSaysOff = gridVoltage.found && gridVoltage.value < 30;
+  const frequencySaysOff = gridFrequency.found && gridFrequency.value < 5;
+  const electricalSignalsSayOff = voltageSaysOff && frequencySaysOff;
+  const gridLost = statusSaysOff || (!gridStatus.found && electricalSignalsSayOff);
+  const voltageHealthy = !gridVoltage.found || (gridVoltage.value >= 150 && gridVoltage.value <= 280);
+  const frequencyHealthy = !gridFrequency.found || (gridFrequency.value >= 45 && gridFrequency.value <= 55);
+  const gridHealthy = gridStatus.found && gridStatus.value === 1 && voltageHealthy && frequencyHealthy;
+  const batterySupplying = dischargeW >= 30;
+  const housePowered = loadW >= 50 && (!loadStatus.found || loadStatus.value === 1);
+  const solarDisconnectedOrIdle = solarW < 50 && (solarStates.length === 0 || solarStates.every((item) => item.value === 0));
+  const highConfidence = gridLost && batterySupplying && housePowered && electricalSignalsSayOff;
+
+  return {
+    outage: gridLost && batterySupplying && housePowered,
+    gridHealthy,
+    highConfidence,
+    solarDisconnectedOrIdle,
+    solarW,
+    loadW,
+    dischargeW,
+    gridStatus: gridStatus.value,
+    gridVoltage: gridVoltage.value,
+    gridFrequency: gridFrequency.value,
+    evidence: {
+      gridStatusKey: gridStatus.key,
+      gridVoltageKey: gridVoltage.key,
+      gridFrequencyKey: gridFrequency.key,
+      statusSaysOff,
+      voltageSaysOff,
+      frequencySaysOff,
+      batterySupplying,
+      housePowered
+    }
+  };
 }
 
 function chileDate(now = new Date()) {
@@ -78,6 +140,62 @@ async function evaluateSolarSurplus(site, row) {
   return { status: 'active', solarW, loadW };
 }
 
+async function evaluateGridOutage(site, row) {
+  const profile = automationSiteProfile(site.deviceSn);
+  if (profile.key !== 'arrayan') return { status: 'not-grid-connected' };
+  if (!site.notificationPreferences.gridOutage) return { status: 'disabled' };
+
+  const assessment = assessGridOutage(row);
+  const previous = await readNotificationState(site.siteId, 'grid-outage');
+  const previousConsecutive = Number(previous?.metadata?.consecutive || 0);
+
+  if (assessment.outage) {
+    const consecutive = previousConsecutive + 1;
+    const confirmed = assessment.highConfidence || consecutive >= 2;
+    const startedAt = previous?.metadata?.startedAt || new Date().toISOString();
+    if (confirmed && previous?.state !== 'outage') {
+      const solarContext = assessment.solarDisconnectedOrIdle
+        ? ' Los paneles están sin producción.'
+        : ` Los paneles aportan ${(assessment.solarW / 1000).toFixed(1)} kW.`;
+      const body = `La red eléctrica está inactiva y la casa continúa funcionando con batería: consumo ${(assessment.loadW / 1000).toFixed(1)} kW y descarga ${(assessment.dischargeW / 1000).toFixed(1)} kW.${solarContext}`;
+      const pushed = await sendSiteNotification(
+        site.siteId,
+        'grid_outage',
+        `⚡ Corte de red en ${profile.label}`,
+        body,
+        { url: '/', site: profile.key, ...assessment },
+        `grid-outage-${Date.now()}`
+      );
+      await saveNotificationState(site.siteId, 'grid-outage', 'outage', { ...assessment, consecutive, startedAt }, new Date().toISOString());
+      return { status: 'notified', assessment, pushed };
+    }
+    await saveNotificationState(site.siteId, 'grid-outage', confirmed ? 'outage' : 'suspected', { ...assessment, consecutive, startedAt }, previous?.last_notified_at || null);
+    return { status: confirmed ? 'outage' : 'confirming', assessment, consecutive };
+  }
+
+  if (previous?.state === 'outage' && !assessment.gridHealthy) {
+    await saveNotificationState(site.siteId, 'grid-outage', 'outage', { ...previous.metadata, ...assessment, consecutive: 0 }, previous?.last_notified_at || null);
+    return { status: 'outage-until-grid-recovers', assessment };
+  }
+
+  let pushed = null;
+  if (previous?.state === 'outage') {
+    const startedAt = Date.parse(previous?.metadata?.startedAt || '');
+    const durationMinutes = Number.isFinite(startedAt) ? Math.max(1, Math.round((Date.now() - startedAt) / 60000)) : null;
+    const durationText = durationMinutes ? ` El corte duró aproximadamente ${durationMinutes} min.` : '';
+    pushed = await sendSiteNotification(
+      site.siteId,
+      'grid_recovery',
+      `✅ Red eléctrica restablecida en ${profile.label}`,
+      `La red volvió a estar activa y estable.${durationText}`,
+      { url: '/', site: profile.key, durationMinutes, ...assessment },
+      `grid-recovery-${Date.now()}`
+    );
+  }
+  await saveNotificationState(site.siteId, 'grid-outage', 'normal', { ...assessment, consecutive: 0 }, pushed ? new Date().toISOString() : previous?.last_notified_at || null);
+  return { status: pushed ? 'recovered' : 'normal', assessment, pushed };
+}
+
 async function monitorSite(site) {
   if (!site.deviceSn || !site.credentialsConfigured) return { deviceSn: site.deviceSn, status: 'missing-credentials' };
   const encrypted = await readAutomationCredentials(site.deviceSn);
@@ -89,8 +207,9 @@ async function monitorSite(site) {
     const realtime = await readInverterRealtime(site.deviceSn, session);
     await archiveRows(site.deviceSn, [realtime], { bucketMinutes: 5 }).catch(() => undefined);
     const recovery = await notifyServiceHealthy(site);
+    const grid = await evaluateGridOutage(site, realtime);
     const solar = await evaluateSolarSurplus(site, realtime);
-    return { deviceSn: site.deviceSn, status: 'ok', recovery, solar };
+    return { deviceSn: site.deviceSn, status: 'ok', recovery, grid, solar };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const service = await notifyServiceFailure(site, message);

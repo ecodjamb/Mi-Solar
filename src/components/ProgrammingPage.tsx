@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BellRing, CalendarClock, CheckCircle2, ChevronDown, CloudSun, Clock3, KeyRound, PlayCircle, Plus, Save, Settings2, ShieldCheck, Sun, Trash2, WifiOff, Zap } from 'lucide-react';
+import { BellRing, CalendarClock, CheckCircle2, ChevronDown, CloudSun, Clock3, KeyRound, PlayCircle, PlugZap, Plus, Save, Settings2, ShieldCheck, Sun, Trash2, WifiOff, Zap } from 'lucide-react';
 import { api } from '../services/api';
 
 type InverterSettings = {
@@ -10,7 +10,7 @@ type SettingsCheck = InverterSettings & { observedAt: string; readOnly: boolean 
 type Preset = 'sunny' | 'cloudy';
 type ProfileConfig = { redischarge: number; output: 'Utility' | 'SOL' | 'SBU' };
 type AutomationCondition = { id:string; enabled:boolean; kind:'lessThan'|'between'; minKwh:number; maxKwh:number; preset:Preset; runAtLocal:string; dayOffset:0|-1 };
-type NotificationPreferences = { automationExecuted:boolean; automationState:boolean; serviceOutage:boolean; solarSurplus:boolean };
+type NotificationPreferences = { automationExecuted:boolean; automationState:boolean; serviceOutage:boolean; gridOutage:boolean; solarSurplus:boolean };
 type LastExecution = { forecast_date: string; evaluated_at: string; forecast_kwh: number; preset: Preset; action: 'changed' | 'unchanged' | 'failed'; message: string; notified: boolean };
 type AutomationRule = {
   enabled: boolean;
@@ -41,7 +41,7 @@ const DEFAULTS: Pick<AutomationRule, 'enabled'|'executionMode'|'thresholdKwh'|'r
     {id:'cloudy-default',enabled:true,kind:'lessThan',minKwh:0,maxKwh:20,preset:'cloudy',runAtLocal:'22:00',dayOffset:-1},
     {id:'sunny-default',enabled:true,kind:'between',minKwh:20,maxKwh:60,preset:'sunny',runAtLocal:'22:00',dayOffset:-1}
   ],
-  notificationPreferences: { automationExecuted: true, automationState: true, serviceOutage: true, solarSurplus: true },
+  notificationPreferences: { automationExecuted: true, automationState: true, serviceOutage: true, gridOutage: true, solarSurplus: true },
   updatedAt: null, configured: false, credentialsConfigured: false, notificationsConfigured: false, lastExecution: null
 };
 
@@ -153,7 +153,7 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
       const permission = await Notification.requestPermission();
       if (permission !== 'granted') throw new Error(permission === 'denied' ? 'El permiso está bloqueado. Ve a Ajustes del iPhone → Notificaciones → Mi Solar y actívalo; luego vuelve a probar.' : 'El permiso no fue aceptado. Presiona nuevamente y selecciona Permitir.');
       setNotificationStage('Preparando el servicio…');
-      const registration = await navigator.serviceWorker.register('/sw.js?v=8.15.0', {scope:'/'});
+      const registration = await navigator.serviceWorker.register('/sw.js?v=8.15.1', {scope:'/'});
       await registration.update().catch(()=>undefined);
       const ready = await Promise.race([navigator.serviceWorker.ready,new Promise<never>((_,reject)=>window.setTimeout(()=>reject(new Error('El servicio de notificaciones no terminó de iniciar. Cierra y vuelve a abrir Mi Solar desde el icono.')),12000))]);
       const { publicKey } = await api<{ publicKey: string }>('push/public-key');
@@ -260,6 +260,7 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
         <label><span><Zap/><b>Programación ejecutada</b><small>Avisa si se aplicó el perfil soleado o nublado y si hubo cambios.</small></span><input type="checkbox" checked={draft.notificationPreferences.automationExecuted} onChange={event=>setNotificationPreference('automationExecuted',event.target.checked)}/><i/></label>
         <label><span><CheckCircle2/><b>Automatización activada o desactivada</b><small>Confirma inmediatamente cualquier cambio del interruptor.</small></span><input type="checkbox" checked={draft.notificationPreferences.automationState} onChange={event=>setNotificationPreference('automationState',event.target.checked)}/><i/></label>
         <label><span><WifiOff/><b>Caída y recuperación del servicio</b><small>Avisa después de dos sincronizaciones fallidas y cuando el servicio regresa.</small></span><input type="checkbox" checked={draft.notificationPreferences.serviceOutage} onChange={event=>setNotificationPreference('serviceOutage',event.target.checked)}/><i/></label>
+        {siteLabel === 'El Arrayán' ? <label><span><PlugZap/><b>Corte y regreso de la red eléctrica</b><small>Detecta red inactiva con la casa funcionando desde batería. También confirma cuando vuelve la luz.</small></span><input type="checkbox" checked={draft.notificationPreferences.gridOutage} onChange={event=>setNotificationPreference('gridOutage',event.target.checked)}/><i/></label> : null}
         <label><span><Sun/><b>Solar mayor al consumo</b><small>Avisa una vez al día cuando los paneles superen el consumo de la casa.</small></span><input type="checkbox" checked={draft.notificationPreferences.solarSurplus} onChange={event=>setNotificationPreference('solarSurplus',event.target.checked)}/><i/></label>
       </div>
       <div className="notification-diagnostic"><span><small>Estado</small><strong>{notificationStage}</strong></span><span><small>Celulares guardados</small><strong>{pushStatus?.count ?? (automation?.notificationsConfigured?1:0)}</strong></span><span><small>Última entrega</small><strong>{pushStatus?.lastSuccessAt?new Date(pushStatus.lastSuccessAt).toLocaleString('es-CL'):'Sin entrega confirmada'}</strong></span></div>

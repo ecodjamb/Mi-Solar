@@ -157,7 +157,7 @@ export default async function handler(req, res) {
   try {
     if (method === 'GET' && route === 'health') {
       const push = pushConfiguration();
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.15.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.15.1', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -328,7 +328,7 @@ export default async function handler(req, res) {
       const outputAllowed = (value) => ['Utility', 'SOL', 'SBU'].includes(value);
       const redischargeAllowed = (value) => Number.isInteger(Number(value)) && Number(value) >= 10 && Number(value) <= 100;
       if (typeof enabled !== 'boolean') return sendJson(res, 400, { error: 'El estado de automatización debe ser verdadero o falso.' });
-      if (!notificationPreferences || ['automationExecuted','automationState','serviceOutage','solarSurplus'].some((key) => typeof notificationPreferences[key] !== 'boolean')) {
+      if (!notificationPreferences || ['automationExecuted','automationState','serviceOutage','gridOutage','solarSurplus'].some((key) => typeof notificationPreferences[key] !== 'boolean')) {
         return sendJson(res, 400, { error: 'Las preferencias de notificación no son válidas.' });
       }
       if (!Number.isFinite(thresholdKwh) || thresholdKwh < 0 || thresholdKwh > 60) return sendJson(res, 400, { error: 'La generación de activación debe estar entre 0 y 60 kWh.' });

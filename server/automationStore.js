@@ -14,6 +14,7 @@ const defaults = {
     automationExecuted: true,
     automationState: true,
     serviceOutage: true,
+    gridOutage: true,
     solarSurplus: true
   }
 };
