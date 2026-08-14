@@ -22,7 +22,7 @@ export default function PowerGauge({value,max=10000,label='Consumo instantáneo'
       splitLine:{distance:-30,length:13,lineStyle:{color:'#c4d0d5',width:2}},
       axisLabel:{distance:-48,color:'#8ea5ae',fontSize:10,formatter:(v:number)=>`${Math.round(v/1000)}k`},
       title:{offsetCenter:[0,'55%'],color:'#93a9b2',fontSize:13},
-      detail:{offsetCenter:[0,'34%'],valueAnimation:false,color:'#f4f8fa',fontSize:30,fontWeight:700,formatter:(v:number)=>`${Math.round(v).toLocaleString('es-CL')} W`},
+      detail:{offsetCenter:[0,'34%'],valueAnimation:false,color:'#f4f8fa',fontSize:22,fontWeight:700,formatter:(v:number)=>`${Math.round(v).toLocaleString('es-CL')} W`},
       data:[{value:safe,name:label}]
     }]
   }}/>;

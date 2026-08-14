@@ -8,6 +8,8 @@ import { projectionCoefficients, seasonForDate, SEASON_PROFILES, theoreticalSeri
 type SiteKey = 'arrayan' | 'puerto-montt';
 type RangeDays = 7 | 15 | 30 | 90;
 type AutomationSummary = { thresholdKwh: number };
+type StoredForecast = { date: string; forecastKwh: number; radiationKwhM2: number; locked: boolean; lockedAt: string | null };
+type StoredForecastResponse = { today: StoredForecast; tomorrow: StoredForecast; lockTimeChile: string } | null;
 
 const RANGE_OPTIONS: Array<{ value: RangeDays; label: string }> = [
   { value: 7, label: '7 días' },
@@ -48,13 +50,14 @@ function radiationForDate(radiation: RadiationDay[], date: string) {
   return radiation.find((item) => item.date === date);
 }
 
-export default function SolarForecastPage({ actual, weather, model, deviceSn, siteLabel = 'El Arrayán', siteKey = 'arrayan' }: {
+export default function SolarForecastPage({ actual, weather, model, deviceSn, siteLabel = 'El Arrayán', siteKey = 'arrayan', storedForecast }: {
   actual: DailyEnergy[];
   weather: WeatherData;
   model: SolarModel;
   deviceSn: string;
   siteLabel?: string;
   siteKey?: SiteKey;
+  storedForecast?: StoredForecastResponse;
 }) {
   const [rangeDays, setRangeDays] = useState<RangeDays>(30);
   const [thresholdKwh, setThresholdKwh] = useState(20);
@@ -62,8 +65,12 @@ export default function SolarForecastPage({ actual, weather, model, deviceSn, si
   const radiation = useMemo(() => weather.dailyRadiation || [], [weather.dailyRadiation]);
   const todayKey = chileDate(new Date());
   const theoretical = useMemo(() => theoreticalSeries(radiation, model), [radiation, model]);
-  const future = theoretical.filter((item) => item.date > todayKey);
-  const current = theoretical.find((item) => item.date === todayKey);
+  const storedByDate = useMemo(() => new Map([storedForecast?.today, storedForecast?.tomorrow].filter((item): item is StoredForecast => Boolean(item) && (Boolean(item?.locked) || String(item?.date) > todayKey)).map((item) => [item.date, item])), [storedForecast, todayKey]);
+  const displayedTheoretical = useMemo(() => theoretical.map((item) => {
+    const stored = storedByDate.get(item.date);
+    return stored ? { ...item, value: stored.forecastKwh } : item;
+  }), [storedByDate, theoretical]);
+  const current = displayedTheoretical.find((item) => item.date === todayKey);
   const currentSeason = seasonForDate(todayKey);
   const seasons = Object.values(SEASON_PROFILES[siteKey]);
   const coefficients = projectionCoefficients(todayKey, model);
@@ -82,7 +89,7 @@ export default function SolarForecastPage({ actual, weather, model, deviceSn, si
 
   const option = useMemo(() => {
     const startKey = subtractDays(todayKey, rangeDays - 1);
-    const visibleDays = theoretical.filter((item) => item.date >= startKey);
+    const visibleDays = displayedTheoretical.filter((item) => item.date >= startKey);
     const labels = visibleDays.map((item) => item.date);
     const actualMap = new Map(actual.map((item) => [item.date, item.solar]));
     return {
@@ -107,10 +114,10 @@ export default function SolarForecastPage({ actual, weather, model, deviceSn, si
       yAxis: { type: 'value', name: 'kWh', nameTextStyle: { color: '#8298a1' }, axisLabel: { color: '#8298a1' }, splitLine: { lineStyle: { color: 'rgba(110,150,160,.12)' } } },
       series: [
         { name: 'Producción real', type: 'bar', data: labels.map((date) => actualMap.has(date) ? Number(actualMap.get(date)?.toFixed(2)) : null), itemStyle: { color: '#4dd58a', borderRadius: [5, 5, 0, 0] }, emphasis: { focus: 'series' } },
-        { name: 'Modelo estacional por radiación', type: 'line', smooth: true, connectNulls: true, data: labels.map((date) => { const day = radiationForDate(radiation, date); return day ? Number(theoreticalDayKwh(day.shortwaveKwhM2, model, date === todayKey, date).toFixed(2)) : null; }), lineStyle: { width: 3, type: 'dashed', color: '#efbd34' }, itemStyle: { color: '#efbd34' }, emphasis: { focus: 'series' } }
+        { name: 'Modelo estacional por radiación', type: 'line', smooth: true, connectNulls: true, data: labels.map((date) => { const stored = storedByDate.get(date); if (stored) return stored.forecastKwh; const day = radiationForDate(radiation, date); return day ? Number(theoreticalDayKwh(day.shortwaveKwhM2, model, date === todayKey, date).toFixed(2)) : null; }), lineStyle: { width: 3, type: 'dashed', color: '#efbd34' }, itemStyle: { color: '#efbd34' }, emphasis: { focus: 'series' } }
       ]
     };
-  }, [actual, model, radiation, rangeDays, theoretical, todayKey]);
+  }, [actual, displayedTheoretical, model, radiation, rangeDays, storedByDate, todayKey]);
 
   return <section className="solar-forecast-page">
     <header className="page-heading"><div><small>Radiación y rendimiento · {siteLabel}</small><h1>Histórico y proyección solar</h1><p>El modelo se calibra con días completos respaldados en Mi Solar, la radiación meteorológica local y la estación del año. Aquí se muestra la generación solar bruta; {siteKey === 'puerto-montt' ? 'el aporte efectivo a la casa separa paneles, batería y generador de respaldo.' : 'el aporte solar efectivo a la casa y los ahorros se calculan aparte usando solamente red activa (statusGrid = 1).'}</p></div><div className="provider-chip">Fuente: {weather.provider || 'Sin conexión meteorológica'}</div></header>
@@ -129,14 +136,15 @@ export default function SolarForecastPage({ actual, weather, model, deviceSn, si
       <EChart option={option}/>
     </section>
 
-    <section className="panel projection-formula"><small>Cálculo usado en esta proyección</small><strong>Generación estimada = máx(0; {coefficients.slope.toFixed(2)} × radiación {coefficients.intercept >= 0 ? '+' : '−'} {Math.abs(coefficients.intercept).toFixed(2)})</strong><p>Radiación en kWh/m²/día y resultado en kWh/día. Regresión con {model.sampleDays} días reales completos · ajuste R² {coefficients.rSquared.toFixed(2)}. El ajuste de hoy solo se aplica al día en curso, no altera el pronóstico de mañana.</p></section>
+    <section className="panel projection-formula"><small>Cálculo usado en esta proyección</small><strong>Generación estimada = máx(0; {coefficients.slope.toFixed(2)} × radiación {coefficients.intercept >= 0 ? '+' : '−'} {Math.abs(coefficients.intercept).toFixed(2)})</strong><p>Radiación en kWh/m²/día y resultado en kWh/día. Regresión con {model.sampleDays} días reales completos · ajuste R² {coefficients.rSquared.toFixed(2)}. La proyección de mañana puede ajustarse hasta las {storedForecast?.lockTimeChile || '21:50'} de Chile del día anterior; después queda guardada e inamovible.</p></section>
 
     <section className="forecast-section-heading"><div><small>Pronóstico solar y decisión automática</small><h2>Los próximos días</h2><p>Cada estimación conversa con el umbral guardado en Programación: sobre {thresholdKwh} kWh se prepara “día soleado”; con {thresholdKwh} kWh o menos, “día nublado”.</p></div><span className={thresholdSynced ? 'threshold-synced' : 'threshold-default'}>{thresholdSynced ? 'Sincronizado con Programación' : 'Umbral predeterminado'} · {thresholdKwh} kWh</span></section>
-    <section className="forecast-days">{future.map((day) => {
+    <section className="forecast-days">{displayedTheoretical.filter((item) => item.date > todayKey).map((day) => {
       const radiationDay = radiationForDate(radiation, day.date);
+      const stored = storedByDate.get(day.date);
       const weatherMood = weatherVisual(radiationDay?.weatherCode);
       const sunny = day.value > thresholdKwh;
-      return <article className={`panel forecast-day-card ${sunny ? 'sunny' : 'cloudy'}`} key={day.date}><div className="forecast-weather-icon" role="img" aria-label={weatherMood.label}>{weatherMood.icon}</div><div><small>{new Date(`${day.date}T12:00`).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })}</small><b>{weatherMood.label}</b></div><strong>{day.value.toFixed(2)} kWh</strong><p>Radiación: {radiationDay?.shortwaveKwhM2.toFixed(2) ?? '—'} kWh/m²</p><em>{sunny ? '☀️ Configuración prevista: día soleado' : '☁️ Configuración prevista: día nublado'}</em></article>;
+      return <article className={`panel forecast-day-card ${sunny ? 'sunny' : 'cloudy'}`} key={day.date}><div className="forecast-weather-icon" role="img" aria-label={weatherMood.label}>{weatherMood.icon}</div><div><small>{new Date(`${day.date}T12:00`).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })}</small><b>{weatherMood.label}</b></div><strong>{day.value.toFixed(2)} kWh</strong><p>Radiación: {(stored?.radiationKwhM2 ?? radiationDay?.shortwaveKwhM2)?.toFixed(2) ?? '—'} kWh/m²</p><em>{stored?.locked ? `🔒 Proyección fijada a las ${new Date(stored.lockedAt || '').toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' })}` : sunny ? '☀️ Configuración prevista: día soleado' : '☁️ Configuración prevista: día nublado'}</em></article>;
     })}</section>
 
     <section className="season-information"><header className="forecast-section-heading"><div><small>Referencia anual</small><h2>Cómo cambia el sistema durante el año</h2><p>Estos cuadros son informativos. Resumen el comportamiento típico de la instalación por estación; la proyección diaria siempre utiliza radiación y datos reales.</p></div><span>🌦️ Modelo de cuatro estaciones</span></header>

@@ -14,6 +14,7 @@ import { ensureSite } from '../server/archive.js';
 import { runDueAutomations } from '../server/automationRunner.js';
 import { runNotificationMonitors } from '../server/notificationMonitor.js';
 import { automationSiteProfile } from '../server/siteProfiles.js';
+import { forecastForDate, lockTomorrowForecasts } from '../server/solarProjection.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
   res.statusCode = statusCode;
@@ -157,14 +158,15 @@ export default async function handler(req, res) {
   try {
     if (method === 'GET' && route === 'health') {
       const push = pushConfiguration();
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.15.1', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.16.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
       if (!process.env.CRON_SECRET || req.headers?.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
         return sendJson(res, 401, { error: 'Ejecución programada no autorizada.' });
       }
-      return sendJson(res, 200, await runDueAutomations());
+      const [automation, forecastLocks] = await Promise.all([runDueAutomations(), lockTomorrowForecasts()]);
+      return sendJson(res, 200, { automation, forecastLocks });
     }
 
     if (method === 'POST' && route === 'notifications/monitor') {
@@ -566,6 +568,18 @@ export default async function handler(req, res) {
       if (!start || !end || !Number.isFinite(Date.parse(start)) || !Number.isFinite(Date.parse(end))) return sendJson(res, 400, { error: 'Rango de serie inválido.' });
       const stored = await readArchiveSeries(sn, new Date(start).toISOString(), new Date(end).toISOString(), resolution);
       return sendJson(res, 200, { list: stored.rows, total: stored.rows.length, source: 'misolar-archive', resolution: stored.resolution, configured: stored.configured });
+    }
+
+    const solarForecast = route.match(/^devices\/([^/]+)\/solar-forecast$/);
+    if (method === 'GET' && solarForecast) {
+      requireSession(req);
+      const sn = decodeURIComponent(solarForecast[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+      const [year, month, day] = today.split('-').map(Number);
+      const tomorrow = new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+      const [current, next] = await Promise.all([forecastForDate(sn, today), forecastForDate(sn, tomorrow)]);
+      return sendJson(res, 200, { today: current, tomorrow: next, lockTimeChile: '21:50' });
     }
 
     const summary = route.match(/^devices\/([^/]+)\/summary$/);

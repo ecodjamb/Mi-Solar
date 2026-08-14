@@ -5,6 +5,19 @@ function chileDate(now = new Date()) {
   return now.toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
 }
 
+function chileTime(now = new Date()) {
+  return new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now);
+}
+
+function minutes(value) {
+  const [hour, minute] = value.split(':').map(Number);
+  return hour * 60 + minute;
+}
+
+export function forecastLockDue(now = new Date()) {
+  return minutes(chileTime(now)) >= 21 * 60 + 50;
+}
+
 function addDays(value, days) {
   const [year, month, day] = value.split('-').map(Number);
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
@@ -76,11 +89,52 @@ function season(date) {
   return 'spring';
 }
 
-export async function forecastForDate(deviceSn, targetDate) {
+async function readForecastLock(siteId, targetDate) {
+  const rows = await rest(`solar_forecast_locks?site_id=eq.${siteId}&forecast_date=eq.${targetDate}&select=*&limit=1`);
+  const row = rows?.[0];
+  if (!row) return null;
+  return {
+    date: row.forecast_date,
+    forecastKwh: Number(row.forecast_kwh),
+    radiationKwhM2: Number(row.radiation_kwh_m2),
+    sampleDays: Number(row.sample_days || 0),
+    slope: Number(row.slope || 0),
+    intercept: Number(row.intercept || 0),
+    rSquared: Number(row.r_squared || 0),
+    locked: true,
+    lockedAt: row.locked_at
+  };
+}
+
+async function saveForecastLock(siteId, forecast) {
+  await rest('solar_forecast_locks?on_conflict=site_id,forecast_date', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=ignore-duplicates,return=minimal' },
+    body: JSON.stringify({
+      site_id: siteId,
+      forecast_date: forecast.date,
+      forecast_kwh: forecast.forecastKwh,
+      radiation_kwh_m2: forecast.radiationKwhM2,
+      sample_days: forecast.sampleDays,
+      slope: forecast.slope,
+      intercept: forecast.intercept,
+      r_squared: forecast.rSquared,
+      locked_at: new Date().toISOString()
+    })
+  });
+  return readForecastLock(siteId, forecast.date);
+}
+
+export async function forecastForDate(deviceSn, targetDate, nowDate = new Date()) {
   const profile = automationSiteProfile(deviceSn);
   const siteRows = await rest(`solar_sites?device_sn=eq.${encodeURIComponent(deviceSn)}&select=id&limit=1`);
   if (!siteRows?.[0]?.id) throw new Error('La instalación todavía no existe en el respaldo permanente.');
-  const today = chileDate();
+  const siteId = siteRows[0].id;
+  if (targetDate) {
+    const existingLock = await readForecastLock(siteId, targetDate);
+    if (existingLock) return { ...existingLock, site: profile };
+  }
+  const today = chileDate(nowDate);
   const start = addDays(today, -65);
   const [radiationDays, actualRows] = await Promise.all([
     radiation(profile),
@@ -111,7 +165,7 @@ export async function forecastForDate(deviceSn, targetDate) {
   if (!(targetRadiation > 0)) throw new Error('Open-Meteo todavía no entregó la radiación de mañana.');
   const upper = Math.max(SEASON_UPPER[profile.key][season(targetDate)], targetRadiation * profile.installedKwp * 1.05);
   const forecastKwh = Math.max(0, Math.min(upper, coefficients.slope * targetRadiation + coefficients.intercept));
-  return {
+  const result = {
     date: targetDate,
     forecastKwh: Number(forecastKwh.toFixed(2)),
     radiationKwhM2: Number(targetRadiation.toFixed(2)),
@@ -119,10 +173,34 @@ export async function forecastForDate(deviceSn, targetDate) {
     slope: Number(coefficients.slope.toFixed(3)),
     intercept: Number(coefficients.intercept.toFixed(3)),
     rSquared: Number(coefficients.rSquared.toFixed(3)),
-    site: profile
+    site: profile,
+    locked: false,
+    lockedAt: null
   };
+  const shouldLock = targetDate === addDays(today, 1) && forecastLockDue(nowDate);
+  if (!shouldLock) return result;
+  const locked = await saveForecastLock(siteId, result);
+  return locked ? { ...locked, site: profile } : result;
 }
 
 export async function forecastTomorrow(deviceSn) {
   return forecastForDate(deviceSn, addDays(chileDate(), 1));
+}
+
+export async function lockTomorrowForecasts(nowDate = new Date()) {
+  const today = chileDate(nowDate);
+  const time = chileTime(nowDate);
+  if (!forecastLockDue(nowDate)) return { status: 'before-lock-time', chile: { date: today, time }, results: [] };
+  const sites = await rest('solar_sites?select=device_sn&order=device_sn.asc');
+  const targetDate = addDays(today, 1);
+  const results = [];
+  for (const site of sites || []) {
+    try {
+      const projection = await forecastForDate(site.device_sn, targetDate, nowDate);
+      results.push({ deviceSn: site.device_sn, status: projection.locked ? 'locked' : 'live', projection });
+    } catch (error) {
+      results.push({ deviceSn: site.device_sn, status: 'failed', error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return { status: 'checked', chile: { date: today, time }, targetDate, results };
 }

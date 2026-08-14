@@ -7,6 +7,8 @@ import SimpleEnergyFlow from './components/SimpleEnergyFlow';
 import DailyQuote from './components/DailyQuote';
 import FunModeToggle from './components/FunModeToggle';
 import PowerGauge from './components/PowerGauge';
+import DualSolarGauge from './components/DualSolarGauge';
+import PvAccumulatedBar from './components/PvAccumulatedBar';
 import SolarForecastPage from './components/SolarForecastPage';
 import HouseIllustration from './components/HouseIllustration';
 import RecentEnergyChart from './components/RecentEnergyChart';
@@ -43,6 +45,8 @@ const LAST_ACTIVITY_KEY=SESSION_POLICY.storageKey;
 const REFRESH_MS=REFRESH_POLICY;
 const requestedPage=()=>{const value=new URLSearchParams(window.location.search).get('page');return(['home','charts','solar','costs','equipment','programming','integrations','technical'] as PageKey[]).includes(value as PageKey)?value as PageKey:'home'};
 const emptyEnergy:DailyEnergy={date:'',solar:0,pv1:0,pv2:0,load:0,grid:0,gridImport:0,gridExport:0,gridToLoad:0,charge:0,discharge:0,solarToLoad:0,batteryToLoad:0,solarToBattery:0,samples:0};
+type StoredSolarForecast={date:string;forecastKwh:number;radiationKwhM2:number;locked:boolean;lockedAt:string|null};
+type SolarForecastResponse={today:StoredSolarForecast;tomorrow:StoredSolarForecast;lockTimeChile:string};
 const sumDays=(days:DailyEnergy[])=>days.reduce((a,d)=>({...a,solar:a.solar+d.solar,pv1:a.pv1+d.pv1,pv2:a.pv2+d.pv2,load:a.load+d.load,grid:a.grid+d.grid,gridImport:a.gridImport+d.gridImport,gridExport:a.gridExport+d.gridExport,gridToLoad:a.gridToLoad+d.gridToLoad,charge:a.charge+d.charge,discharge:a.discharge+d.discharge,solarToLoad:a.solarToLoad+d.solarToLoad,batteryToLoad:a.batteryToLoad+d.batteryToLoad,solarToBattery:a.solarToBattery+d.solarToBattery,samples:a.samples+d.samples}),{...emptyEnergy});
 
 function addDays(date:string,days:number){const [y,m,d]=date.split('-').map(Number);return new Date(Date.UTC(y,m-1,d+days)).toISOString().slice(0,10)}
@@ -88,6 +92,7 @@ export default function App(){
   const [historicalDayLoading,setHistoricalDayLoading]=useState(false);
   const [peerSolar,setPeerSolar]=useState<{deviceSn:string;siteLabel:string;power:number;updatedAt:Date|null}|null>(null);
   const [projectionHistory,setProjectionHistory]=useState<DailyEnergy[]>([]);
+  const [storedForecast,setStoredForecast]=useState<SolarForecastResponse|null>(null);
   const markUpdated=(key:string)=>setLastSectionUpdate(prev=>({...prev,[key]:new Date()}));
 
   const siteDate=formatSiteDate();
@@ -125,10 +130,12 @@ export default function App(){
   const expectedSolarNow=useMemo(()=>expectedPowerNow(weather.hourly,solarModel),[weather.hourly,solarModel,clock]);
   const theoreticalToday=useMemo(()=>accumulatedTheoreticalToday(weather.hourly,solarModel),[weather.hourly,solarModel,clock]);
   const todayRadiation=weather.dailyRadiation?.find(d=>d.date===siteDate)?.shortwaveKwhM2||0;
-  const forecastToday=theoreticalDayKwh(todayRadiation,solarModel,true);
+  const liveForecastToday=theoreticalDayKwh(todayRadiation,solarModel,true);
   const tomorrowDate=addDays(siteDate,1);
   const tomorrowRadiation=weather.dailyRadiation?.find(d=>d.date===tomorrowDate)?.shortwaveKwhM2;
-  const forecastTomorrow=tomorrowRadiation&&tomorrowRadiation>0?theoreticalDayKwh(tomorrowRadiation,solarModel,false,tomorrowDate):null;
+  const liveForecastTomorrow=tomorrowRadiation&&tomorrowRadiation>0?theoreticalDayKwh(tomorrowRadiation,solarModel,false,tomorrowDate):null;
+  const forecastToday=storedForecast?.today?.date===siteDate&&storedForecast.today.locked?storedForecast.today.forecastKwh:liveForecastToday;
+  const forecastTomorrow=storedForecast?.tomorrow?.date===tomorrowDate?storedForecast.tomorrow.forecastKwh:liveForecastTomorrow;
 
   async function fetchHistoryRange(sn:string,start:string,end:string,maxPages=18){
     return api<{list:HistoryRow[];total:number;truncated?:boolean;pages?:number}>(`devices/${sn}/history?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&maxPages=${maxPages}`);
@@ -316,6 +323,7 @@ export default function App(){
   },[auth,page,peerDevice?.deviceSn]);
   useEffect(()=>{if(!auth||!selected||!isHistoricalDay){setHistoricalDayRows([]);return}let active=true;setHistoricalDayLoading(true);setTimelineIndex(null);const utc=siteRangeUtc(homeDate,addDays(homeDate,1));api<{list:HistoryRow[]}>(`devices/${selected}/archive-series?start=${encodeURIComponent(utc.start)}&end=${encodeURIComponent(utc.end)}&resolution=hour`).then(result=>{if(active){const rows=filterRowsForSiteDate(result.list||[],homeDate);setHistoricalDayRows(rows);setTimelineIndex(rows.length?rows.length-1:null)}}).catch(error=>active&&setHistoryMessage(`No fue posible cargar ${homeDate}: ${error instanceof Error?error.message:'error'}.`)).finally(()=>active&&setHistoricalDayLoading(false));return()=>{active=false}},[auth,selected,homeDate,isHistoricalDay]);
   useEffect(()=>{const start=weather.dailyRadiation?.[0]?.date;if(!auth||!selected||!start){setProjectionHistory([]);return}let active=true;const utc=siteRangeUtc(start,addDays(siteDate,1));api<{list:HistoryRow[]}>(`devices/${selected}/archive-series?start=${encodeURIComponent(utc.start)}&end=${encodeURIComponent(utc.end)}&resolution=day`).then(result=>{if(active)setProjectionHistory(groupDailyEnergy(result.list||[]))}).catch(()=>active&&setProjectionHistory([]));return()=>{active=false}},[auth,selected,weather.dailyRadiation?.[0]?.date,siteDate]);
+  useEffect(()=>{if(!auth||!selected||!weather.dailyRadiation?.length){setStoredForecast(null);return}let active=true;api<SolarForecastResponse>(`devices/${selected}/solar-forecast`).then(value=>active&&setStoredForecast(value)).catch(()=>active&&setStoredForecast(null));return()=>{active=false}},[auth,selected,weather.updatedAt]);
   useEffect(()=>{
     if(!auth||!device)return;
     const loadFull=()=>fetchWeather(device.nickName||'').then(data=>{setWeather({...data,error:undefined});markUpdated('weather');markUpdated('radiation')}).catch(err=>setWeather(prev=>({...prev,error:err instanceof Error?err.message:'Clima no disponible'})));
@@ -358,6 +366,7 @@ export default function App(){
         </aside>}
         <HomeDateNavigator value={homeDate} max={siteDate} loading={historicalDayLoading} onChange={date=>{setHomeDate(date);setTimelineIndex(null)}}/>
         <SimpleEnergyFlow data={displayedData} history={homeRows} today={homeEnergy} gridLabel={gridSourceLabel} pvCountOverride={pvCount} historical={isHistoricalDay} dateLabel={new Date(`${homeDate}T12:00`).toLocaleDateString('es-CL',{dateStyle:'long'})}/>
+        <PvAccumulatedBar energy={homeEnergy} title={isHistoricalDay ? `PV1 y PV2 · ${new Date(`${homeDate}T12:00`).toLocaleDateString('es-CL',{dateStyle:'long'})}` : 'PV1 y PV2 · hoy'} compact/>
         <EnergyTimeline rows={homeRows} index={timelineIndex} onChange={setTimelineIndex} historical={isHistoricalDay}/>
         <section className="kpi-grid kpi-grid-six">
           <KpiCard icon={Sun} label="Producción solar" value={watts(solar)} detail={`Día: ${kwh(homeEnergy.solar)}${isHistoricalDay?'':` · esperado ahora ${watts(expectedSolarNow)}`}`} tone="solar"/>
@@ -379,17 +388,16 @@ export default function App(){
       </>}
 
       {page==='charts'&&<section className="analytics-page">
-        <header className="analytics-title"><div><small>Análisis energético</small><h1>Gráficos y acumulados</h1><p>Todos los cortes pertenecen exclusivamente a la instalación seleccionada y usan el día calendario de Chile.</p></div><section className={`instant-gauge-grid ${pvCount===1?'two-gauges':''}`}><article className="panel gauge-card"><small>Demanda actual</small><PowerGauge value={load} label="Consumo instantáneo"/><div className="gauge-note"><span className="safe-dot"/>normal <span className="danger-dot"/>carga alta</div></article><article className="panel gauge-card solar-gauge"><small>Producción string 1</small><PowerGauge value={pvPower(realtime,1)} max={Math.max(3000,installedWp/Math.max(1,pvCount))} label="PV1 instantáneo" color="#efbd34"/></article>{pvCount===2&&<article className="panel gauge-card solar-gauge"><small>Producción string 2</small><PowerGauge value={pvPower(realtime,2)} max={Math.max(3000,installedWp/2)} label="PV2 instantáneo" color="#f29b38"/></article>}</section></header>
+        <header className="analytics-title"><div><small>Análisis energético</small><h1>Gráficos y acumulados</h1><p>Todos los cortes pertenecen exclusivamente a la instalación seleccionada y usan el día calendario de Chile.</p></div><section className="instant-gauge-grid two-gauges"><article className="panel gauge-card"><small>Demanda actual</small><PowerGauge value={load} label="Consumo instantáneo"/><div className="gauge-note"><span className="safe-dot"/>normal <span className="danger-dot"/>carga alta</div></article><article className="panel gauge-card solar-gauge"><small>{pvCount===2?'Producción instantánea · PV1 y PV2':'Producción instantánea · PV1'}</small>{pvCount===2?<DualSolarGauge pv1={pvPower(realtime,1)} pv2={pvPower(realtime,2)} max={Math.max(3000,installedWp/2)}/>:<PowerGauge value={pvPower(realtime,1)} max={Math.max(3000,installedWp)} label="PV1 instantáneo" color="#efbd34"/>}</article></section></header>
         <EnergyRangeChart deviceSn={selected} siteLabel={siteLabel} gridLabel={gridSourceLabel}/>
         <DailyConsumptionChart deviceSn={selected} siteLabel={siteLabel}/>
         <section className="analytics-period-summary"><article className="panel"><small>Hoy</small><strong>{kwh(today.solar)}</strong><p>Solar · consumo {kwh(today.load)} · {gridSourceLabel.toLocaleLowerCase('es-CL')} {kwh(today.gridImport)}</p></article><article className="panel"><small>Esta semana</small><strong>{kwh(week.solar)}</strong><p>Solar · consumo {kwh(week.load)} · {gridSourceLabel.toLocaleLowerCase('es-CL')} {kwh(week.gridImport)}</p></article><article className="panel"><small>Este mes</small><strong>{kwh(month.solar)}</strong><p>Solar · consumo {kwh(month.load)} · {gridSourceLabel.toLocaleLowerCase('es-CL')} {kwh(month.gridImport)}</p></article></section>
         <HistoricalBackfill devices={devices}/>
         <HistoryExplorer deviceSn={selected} siteLabel={siteLabel} gridLabel={gridSourceLabel}/>
-        <section className="panel pv-day-card"><header><div><small>Aporte fotovoltaico acumulado de hoy</small><h2>PV1 vs. PV2</h2></div><strong>{kwh(today.solar)}</strong></header><div className="pv-day-row"><span>PV1</span><div className="pv-day-track"><i style={{width:`${today.solar?Math.max(2,today.pv1/today.solar*100):0}%`}}/></div><b>{kwh(today.pv1)}</b></div>{pvCount===2&&<div className="pv-day-row pv2-day"><span>PV2</span><div className="pv-day-track"><i style={{width:`${today.solar?Math.max(2,today.pv2/today.solar*100):0}%`}}/></div><b>{kwh(today.pv2)}</b></div>}<p>Datos integrados desde las 00:00 de Chile; no son los watts instantáneos.</p></section>
         <section className="analytics-summary-grid"><article className="panel stat"><small>Consumo semana</small><strong>{kwh(week.load)}</strong></article><article className="panel stat"><small>Solar semana</small><strong>{kwh(week.solar)}</strong></article><article className="panel stat"><small>{gridSourceLabel} semana</small><strong>{kwh(week.gridImport)}</strong></article><article className="panel stat"><small>Consumo mes</small><strong>{kwh(month.load)}</strong></article><article className="panel stat"><small>Solar mes</small><strong>{kwh(month.solar)}</strong></article><article className="panel stat"><small>{gridSourceLabel} mes</small><strong>{kwh(month.gridImport)}</strong></article>{profile.gridConnected&&<article className="panel stat"><small>Red exportada mes</small><strong>{kwh(month.gridExport)}</strong></article>}<article className="panel stat"><small>Carga batería mes</small><strong>{kwh(month.charge)}</strong></article><article className="panel stat"><small>Descarga batería mes</small><strong>{kwh(month.discharge)}</strong></article></section>
       </section>}
 
-      {page==='solar'&&<SolarForecastPage actual={projectionActual} weather={weather} model={solarModel} deviceSn={selected} siteLabel={siteLabel} siteKey={profile.key}/>}
+      {page==='solar'&&<SolarForecastPage actual={projectionActual} weather={weather} model={solarModel} deviceSn={selected} siteLabel={siteLabel} siteKey={profile.key} storedForecast={storedForecast}/>}
 
       {page==='costs'&&<CostsPage key={selected} deviceSn={selected} siteLabel={siteLabel} gridLabel={gridSourceLabel} today={today} week={week} currentMonth={month} tariff={tariff} onTariffChange={value=>{setTariff(value);localStorage.setItem(siteStorageKey('tariffCLP',device?.nickName||''),String(value))}}/>}
 
