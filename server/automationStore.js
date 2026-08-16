@@ -96,7 +96,13 @@ export async function updateAutomationRule(deviceSn, patch) {
     headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
     body: JSON.stringify({ site_id: siteId, ...next })
   });
-  return { ...normalize(rows?.[0] || next, await extras(siteId)), configured: true };
+  const persistedRows = await rest(`automation_rules?site_id=eq.${siteId}&select=*&limit=1`);
+  const persisted = persistedRows?.[0];
+  if (!persisted) throw new Error('La base de datos no confirmó la configuración de automatización.');
+  if (patch.conditions && JSON.stringify(persisted.conditions) !== JSON.stringify(patch.conditions)) {
+    throw new Error('La base de datos respondió, pero las condiciones guardadas no coinciden con los cambios solicitados.');
+  }
+  return { ...normalize(persisted, await extras(siteId)), configured: true, saveVerified: true, verifiedAt: new Date().toISOString() };
 }
 
 export async function saveAutomationCredentials(deviceSn, credentialsCipher) {

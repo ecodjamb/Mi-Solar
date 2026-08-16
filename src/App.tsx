@@ -47,7 +47,8 @@ const REFRESH_MS=REFRESH_POLICY;
 const requestedPage=()=>{const value=new URLSearchParams(window.location.search).get('page');return(['home','charts','solar','costs','equipment','programming','integrations','technical'] as PageKey[]).includes(value as PageKey)?value as PageKey:'home'};
 const emptyEnergy:DailyEnergy={date:'',solar:0,pv1:0,pv2:0,load:0,grid:0,gridImport:0,gridExport:0,gridToLoad:0,charge:0,discharge:0,solarToLoad:0,batteryToLoad:0,solarToBattery:0,samples:0};
 type StoredSolarForecast={date:string;forecastKwh:number;radiationKwhM2:number;locked:boolean;lockedAt:string|null};
-type SolarForecastResponse={today:StoredSolarForecast;tomorrow:StoredSolarForecast;lockTimeChile:string};
+type ForecastRevision={date:string;forecastKwh:number;radiationKwhM2:number;observedAt:string};
+type SolarForecastResponse={today:StoredSolarForecast;tomorrow:StoredSolarForecast;revisions:Record<string,ForecastRevision[]>;lockTimeChile:string};
 const sumDays=(days:DailyEnergy[])=>days.reduce((a,d)=>({...a,solar:a.solar+d.solar,pv1:a.pv1+d.pv1,pv2:a.pv2+d.pv2,load:a.load+d.load,grid:a.grid+d.grid,gridImport:a.gridImport+d.gridImport,gridExport:a.gridExport+d.gridExport,gridToLoad:a.gridToLoad+d.gridToLoad,charge:a.charge+d.charge,discharge:a.discharge+d.discharge,solarToLoad:a.solarToLoad+d.solarToLoad,batteryToLoad:a.batteryToLoad+d.batteryToLoad,solarToBattery:a.solarToBattery+d.solarToBattery,samples:a.samples+d.samples}),{...emptyEnergy});
 
 function addDays(date:string,days:number){const [y,m,d]=date.split('-').map(Number);return new Date(Date.UTC(y,m-1,d+days)).toISOString().slice(0,10)}

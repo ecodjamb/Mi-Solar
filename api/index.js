@@ -14,7 +14,7 @@ import { ensureSite } from '../server/archive.js';
 import { runDueAutomations } from '../server/automationRunner.js';
 import { runNotificationMonitors } from '../server/notificationMonitor.js';
 import { automationSiteProfile } from '../server/siteProfiles.js';
-import { forecastForDate, lockTomorrowForecasts } from '../server/solarProjection.js';
+import { forecastForDate, listForecastRevisions, lockTomorrowForecasts } from '../server/solarProjection.js';
 import { listUtilityBills, saveUtilityBill } from '../server/utilityBills.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
@@ -159,7 +159,7 @@ export default async function handler(req, res) {
   try {
     if (method === 'GET' && route === 'health') {
       const push = pushConfiguration();
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.18.1', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.19.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -336,7 +336,6 @@ export default async function handler(req, res) {
       }
       if (!Number.isFinite(thresholdKwh) || thresholdKwh < 0 || thresholdKwh > 60) return sendJson(res, 400, { error: 'La generación de activación debe estar entre 0 y 60 kWh.' });
       if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(runAtLocal)) return sendJson(res, 400, { error: 'La hora chilena no es válida.' });
-      if (Number(runAtLocal.slice(3, 5)) % 5 !== 0) return sendJson(res, 400, { error: 'Selecciona una hora en intervalos de cinco minutos.' });
       if (!redischargeAllowed(sunny.redischarge) || !redischargeAllowed(cloudy.redischarge) || !outputAllowed(sunny.output) || !outputAllowed(cloudy.output)) {
         return sendJson(res, 400, { error: 'Los parámetros de día soleado o nublado no son válidos.' });
       }
@@ -348,7 +347,7 @@ export default async function handler(req, res) {
         ids.add(condition.id);
         if (!['lessThan','between'].includes(condition.kind) || !['sunny','cloudy'].includes(condition.preset)) return sendJson(res, 400, { error: 'Una condición contiene una opción no válida.' });
         if (!Number.isFinite(min) || !Number.isFinite(max) || min < 0 || max > 60 || min > max) return sendJson(res, 400, { error: 'Los rangos de generación deben estar entre 0 y 60 kWh.' });
-        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(condition.runAtLocal || '')) || Number(String(condition.runAtLocal).slice(3,5)) % 5 !== 0) return sendJson(res, 400, { error: 'Las horas deben usar intervalos de cinco minutos.' });
+        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(condition.runAtLocal || ''))) return sendJson(res, 400, { error: 'Una de las horas programadas no es válida.' });
         if (![0,-1].includes(Number(condition.dayOffset))) return sendJson(res, 400, { error: 'Selecciona el mismo día o el día anterior.' });
       }
       if (enabled && !current.credentialsConfigured) return sendJson(res, 409, { error: 'Guarda primero el acceso automático a i.Solar.' });
@@ -597,8 +596,8 @@ export default async function handler(req, res) {
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
       const [year, month, day] = today.split('-').map(Number);
       const tomorrow = new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
-      const [current, next] = await Promise.all([forecastForDate(sn, today), forecastForDate(sn, tomorrow)]);
-      return sendJson(res, 200, { today: current, tomorrow: next, lockTimeChile: '21:30' });
+      const [current, next, revisions] = await Promise.all([forecastForDate(sn, today), forecastForDate(sn, tomorrow), listForecastRevisions(sn, [today, tomorrow])]);
+      return sendJson(res, 200, { today: current, tomorrow: next, revisions, lockTimeChile: '21:35' });
     }
 
     const summary = route.match(/^devices\/([^/]+)\/summary$/);

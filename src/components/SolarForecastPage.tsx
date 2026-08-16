@@ -11,7 +11,8 @@ type SiteKey = 'arrayan' | 'puerto-montt';
 type RangeDays = 7 | 15 | 30 | 90;
 type AutomationSummary = { thresholdKwh: number };
 type StoredForecast = { date: string; forecastKwh: number; radiationKwhM2: number; locked: boolean; lockedAt: string | null };
-type StoredForecastResponse = { today: StoredForecast; tomorrow: StoredForecast; lockTimeChile: string } | null;
+type ForecastRevision = { date: string; forecastKwh: number; radiationKwhM2: number; observedAt: string };
+type StoredForecastResponse = { today: StoredForecast; tomorrow: StoredForecast; revisions?: Record<string, ForecastRevision[]>; lockTimeChile: string } | null;
 
 const RANGE_OPTIONS: Array<{ value: RangeDays; label: string }> = [
   { value: 7, label: '7 días' },
@@ -50,6 +51,15 @@ function weatherVisual(code = 0) {
 
 function radiationForDate(radiation: RadiationDay[], date: string) {
   return radiation.find((item) => item.date === date);
+}
+
+function ForecastRevisionList({ items = [], officialKwh }: { items?: ForecastRevision[]; officialKwh: number }) {
+  if (!items.length) return <p className="forecast-revisions-empty">Sin variaciones posteriores registradas todavía.</p>;
+  return <div className="forecast-revisions"><small>Seguimiento informativo · fuera del cálculo</small>{items.slice(-5).reverse().map((item) => {
+    const delta = item.forecastKwh - officialKwh;
+    const time = new Date(item.observedAt).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+    return <span key={`${item.observedAt}-${item.forecastKwh}`}><time>{time}</time><b>{item.forecastKwh.toFixed(2)} kWh</b><em>{delta === 0 ? 'sin cambio' : `${delta > 0 ? '+' : ''}${delta.toFixed(2)} kWh`} · radiación {item.radiationKwhM2.toFixed(2)}</em></span>;
+  })}</div>;
 }
 
 export default function SolarForecastPage({ actual, hourlyActual, weather, model, deviceSn, siteLabel = 'El Arrayán', siteKey = 'arrayan', storedForecast }: {
@@ -128,7 +138,7 @@ export default function SolarForecastPage({ actual, hourlyActual, weather, model
     <header className="page-heading"><div><small>Radiación y rendimiento · {siteLabel}</small><h1>Histórico y proyección solar</h1><p>El modelo se calibra con días completos respaldados en Mi Solar, la radiación meteorológica local y la estación del año. Aquí se muestra la generación solar bruta; {siteKey === 'puerto-montt' ? 'el aporte efectivo a la casa separa paneles, batería y generador de respaldo.' : 'el aporte solar efectivo a la casa y los ahorros se calculan aparte usando solamente red activa (statusGrid = 1).'}</p></div><div className="provider-chip">Fuente: {weather.provider || 'Sin conexión meteorológica'}</div></header>
 
     <section className="forecast-kpis">
-      <article className="panel stat forecast-today-primary"><small>Producción prevista para hoy</small><strong>{current ? `${current.value.toFixed(2)} kWh` : '—'}</strong><p>Estimación del día actual combinando radiación y comportamiento real.</p><em>{currentCutoff ? `🔒 Corte fijado el ${currentCutoff} h` : `Cálculo vigente · corte programado el día anterior a las ${storedForecast?.lockTimeChile || '21:30'} h`}</em></article>
+      <article className="panel stat forecast-today-primary"><small>Producción prevista para hoy</small><strong>{current ? `${current.value.toFixed(2)} kWh` : '—'}</strong><p>Estimación oficial usada en todos los cálculos.</p><em>{currentCutoff ? `🔒 Corte fijado el ${currentCutoff} h` : `Cálculo vigente · corte programado el día anterior a las ${storedForecast?.lockTimeChile || '21:35'} h`}</em>{currentStored?.locked?<ForecastRevisionList items={storedForecast?.revisions?.[todayKey]} officialKwh={currentStored.forecastKwh}/>:null}</article>
       <article className="panel stat"><small>Potencia instalada</small><strong>{model.installedKwp.toFixed(2)} kWp</strong><p>Capacidad nominal total de los paneles instalados.</p></article>
       <article className="panel stat"><small>Factor histórico real</small><strong>{Math.round(model.factor * 100)}%</strong><p>Compara la energía realmente producida con la radiación disponible y la potencia instalada. Usa {model.sampleDays} días completos.</p></article>
       <article className="panel stat"><small>Ajuste por rendimiento de hoy</small><strong>{Math.round(model.liveCorrection * 100)}%</strong><p>Corrige solo la estimación de hoy según su producción observada, incluyendo nubosidad, orientación y sombras.</p></article>
@@ -143,7 +153,7 @@ export default function SolarForecastPage({ actual, hourlyActual, weather, model
       <EChart option={option}/>
     </section>
 
-    <section className="panel projection-formula"><small>Cálculo usado en esta proyección</small><strong>Generación estimada = máx(0; {coefficients.slope.toFixed(2)} × radiación {coefficients.intercept >= 0 ? '+' : '−'} {Math.abs(coefficients.intercept).toFixed(2)})</strong><p>Radiación en kWh/m²/día y resultado en kWh/día. Regresión con {model.sampleDays} días reales completos · ajuste R² {coefficients.rSquared.toFixed(2)}. La proyección de mañana puede ajustarse hasta las {storedForecast?.lockTimeChile || '21:30'} de Chile del día anterior; después queda guardada e inamovible.</p></section>
+    <section className="panel projection-formula"><small>Cálculo usado en esta proyección</small><strong>Generación estimada = máx(0; {coefficients.slope.toFixed(2)} × radiación {coefficients.intercept >= 0 ? '+' : '−'} {Math.abs(coefficients.intercept).toFixed(2)})</strong><p>Radiación en kWh/m²/día y resultado en kWh/día. Regresión con {model.sampleDays} días reales completos · ajuste R² {coefficients.rSquared.toFixed(2)}. La proyección de mañana puede ajustarse hasta las {storedForecast?.lockTimeChile || '21:35'} de Chile del día anterior; después queda guardada e inamovible.</p></section>
 
     <section className="forecast-section-heading"><div><small>Pronóstico solar y decisión automática</small><h2>Los próximos días</h2><p>Cada estimación conversa con el umbral guardado en Programación: sobre {thresholdKwh} kWh se prepara “día soleado”; con {thresholdKwh} kWh o menos, “día nublado”.</p></div><span className={thresholdSynced ? 'threshold-synced' : 'threshold-default'}>{thresholdSynced ? 'Sincronizado con Programación' : 'Umbral predeterminado'} · {thresholdKwh} kWh</span></section>
     <section className="forecast-days">{displayedTheoretical.filter((item) => item.date > todayKey).map((day) => {
@@ -151,7 +161,7 @@ export default function SolarForecastPage({ actual, hourlyActual, weather, model
       const stored = storedByDate.get(day.date);
       const weatherMood = weatherVisual(radiationDay?.weatherCode);
       const sunny = day.value > thresholdKwh;
-      return <article className={`panel forecast-day-card ${sunny ? 'sunny' : 'cloudy'}`} key={day.date}><div className="forecast-weather-icon" role="img" aria-label={weatherMood.label}>{weatherMood.icon}</div><div><small>{new Date(`${day.date}T12:00`).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })}</small><b>{weatherMood.label}</b></div><strong>{day.value.toFixed(2)} kWh</strong><p>Radiación: {(stored?.radiationKwhM2 ?? radiationDay?.shortwaveKwhM2)?.toFixed(2) ?? '—'} kWh/m²</p><em>{stored?.locked ? `🔒 Proyección fijada a las ${new Date(stored.lockedAt || '').toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' })}` : sunny ? '☀️ Configuración prevista: día soleado' : '☁️ Configuración prevista: día nublado'}</em></article>;
+      return <article className={`panel forecast-day-card ${sunny ? 'sunny' : 'cloudy'}`} key={day.date}><div className="forecast-weather-icon" role="img" aria-label={weatherMood.label}>{weatherMood.icon}</div><div><small>{new Date(`${day.date}T12:00`).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })}</small><b>{weatherMood.label}</b></div><strong>{day.value.toFixed(2)} kWh</strong><p>Radiación: {(stored?.radiationKwhM2 ?? radiationDay?.shortwaveKwhM2)?.toFixed(2) ?? '—'} kWh/m²</p><em>{stored?.locked ? `🔒 Proyección y configuración fijadas a las ${new Date(stored.lockedAt || '').toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' })}` : sunny ? '☀️ Configuración prevista: día soleado' : '☁️ Configuración prevista: día nublado'}</em>{stored?.locked?<ForecastRevisionList items={storedForecast?.revisions?.[day.date]} officialKwh={stored.forecastKwh}/>:null}</article>;
     })}</section>
 
     <section className="season-information"><header className="forecast-section-heading"><div><small>Referencia anual</small><h2>Cómo cambia el sistema durante el año</h2><p>Estos cuadros son informativos. Resumen el comportamiento típico de la instalación por estación; la proyección diaria siempre utiliza radiación y datos reales.</p></div><span>🌦️ Modelo de cuatro estaciones</span></header>

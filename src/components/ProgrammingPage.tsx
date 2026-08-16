@@ -26,6 +26,8 @@ type AutomationRule = {
   credentialsConfigured: boolean;
   notificationsConfigured: boolean;
   lastExecution: LastExecution | null;
+  saveVerified?: boolean;
+  verifiedAt?: string;
 };
 type ApplyResponse = {
   confirmed: boolean; changed: boolean; preset: Preset; before: InverterSettings; target: ProfileConfig; after: InverterSettings;
@@ -56,6 +58,18 @@ function vapidArray(value: string) {
   return Uint8Array.from([...raw].map((character) => character.charCodeAt(0)));
 }
 
+function setupSignature(rule: AutomationRule) {
+  return JSON.stringify({
+    sunny: rule.sunny,
+    cloudy: rule.cloudy,
+    conditions: rule.conditions.map((condition) => ({
+      id: condition.id, enabled: condition.enabled, kind: condition.kind,
+      minKwh: Number(condition.minKwh), maxKwh: Number(condition.maxKwh),
+      preset: condition.preset, runAtLocal: condition.runAtLocal.slice(0, 5), dayOffset: Number(condition.dayOffset)
+    }))
+  });
+}
+
 export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomorrowDate, tomorrowForecast }: Props) {
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<SettingsCheck | null>(null);
@@ -74,6 +88,8 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
   const [password, setPassword] = useState('');
   const [actionMessage, setActionMessage] = useState('');
   const [error, setError] = useState('');
+  const [setupSaveMessage, setSetupSaveMessage] = useState('');
+  const [setupSaveError, setSetupSaveError] = useState('');
   const hasForecast = tomorrowForecast != null;
   const matchedCondition = hasForecast ? draft.conditions.find((condition) => condition.enabled && (condition.kind === 'lessThan' ? tomorrowForecast < condition.maxKwh : tomorrowForecast >= condition.minKwh && tomorrowForecast <= condition.maxKwh)) : null;
   const qualifies = matchedCondition?.preset === 'sunny';
@@ -120,13 +136,22 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
   }
 
   async function saveConfiguration() {
-    setSaving(true); setError(''); setActionMessage('');
+    setSaving(true); setError(''); setActionMessage(''); setSetupSaveMessage(''); setSetupSaveError('');
     try {
+      const requested = { ...draft, conditions: draft.conditions.map((condition) => ({ ...condition, runAtLocal: condition.runAtLocal.slice(0, 5) })) };
       const next = await api<AutomationRule>(`devices/${deviceSn}/automation`, {
-        method: 'PUT', body: JSON.stringify({ thresholdKwh: draft.conditions.find(item=>item.preset==='sunny')?.minKwh ?? draft.thresholdKwh, runAtLocal: draft.conditions[0]?.runAtLocal ?? draft.runAtLocal, sunny: draft.sunny, cloudy: draft.cloudy, conditions: draft.conditions })
+        method: 'PUT', body: JSON.stringify({ thresholdKwh: requested.conditions.find(item=>item.preset==='sunny')?.minKwh ?? requested.thresholdKwh, runAtLocal: requested.conditions[0]?.runAtLocal ?? requested.runAtLocal, sunny: requested.sunny, cloudy: requested.cloudy, conditions: requested.conditions })
       });
-      setAutomation(next); setDraft(next); setActionMessage('Configuración de automatización guardada en Mi Solar.');
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible guardar la configuración.'); }
+      if (!next.saveVerified) throw new Error('El servidor no confirmó la escritura de la configuración.');
+      const verified = await api<AutomationRule>(`devices/${deviceSn}/automation?verify=${Date.now()}`);
+      if (setupSignature(verified) !== setupSignature(requested)) throw new Error('La verificación posterior no coincide con los cambios solicitados. Intenta guardar nuevamente.');
+      setAutomation(verified); setDraft(verified);
+      const savedAt = new Date(verified.updatedAt || next.verifiedAt || Date.now()).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+      setSetupSaveMessage(`✓ Configuración guardada y verificada en la base de datos a las ${savedAt} h.`);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'No fue posible guardar la configuración.';
+      setSetupSaveError(message); setError(message);
+    }
     finally { setSaving(false); }
   }
 
@@ -153,7 +178,7 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
       const permission = await Notification.requestPermission();
       if (permission !== 'granted') throw new Error(permission === 'denied' ? 'El permiso está bloqueado. Ve a Ajustes del iPhone → Notificaciones → Mi Solar y actívalo; luego vuelve a probar.' : 'El permiso no fue aceptado. Presiona nuevamente y selecciona Permitir.');
       setNotificationStage('Preparando el servicio…');
-      const registration = await navigator.serviceWorker.register('/sw.js?v=8.18.1', {scope:'/'});
+      const registration = await navigator.serviceWorker.register('/sw.js?v=8.19.0', {scope:'/'});
       await registration.update().catch(()=>undefined);
       const ready = await Promise.race([navigator.serviceWorker.ready,new Promise<never>((_,reject)=>window.setTimeout(()=>reject(new Error('El servicio de notificaciones no terminó de iniciar. Cierra y vuelve a abrir Mi Solar desde el icono.')),12000))]);
       const { publicKey } = await api<{ publicKey: string }>('push/public-key');
@@ -206,10 +231,11 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
     finally { setSaving(false); }
   }
 
-  const setProfile = (preset: Preset, patch: Partial<ProfileConfig>) => setDraft((value) => ({ ...value, [preset]: { ...value[preset], ...patch } }));
-  const updateCondition=(id:string,patch:Partial<AutomationCondition>)=>setDraft(value=>({...value,conditions:value.conditions.map(item=>item.id===id?{...item,...patch}:item)}));
-  const addCondition=()=>setDraft(value=>({...value,conditions:[...value.conditions,{id:globalThis.crypto?.randomUUID?.()||`rule-${Date.now()}`,enabled:true,kind:'between',minKwh:0,maxKwh:60,preset:'cloudy',runAtLocal:'22:00',dayOffset:-1}]}));
-  const removeCondition=(id:string)=>setDraft(value=>({...value,conditions:value.conditions.filter(item=>item.id!==id)}));
+  const clearSetupConfirmation=()=>{setSetupSaveMessage('');setSetupSaveError('')};
+  const setProfile = (preset: Preset, patch: Partial<ProfileConfig>) => { clearSetupConfirmation(); setDraft((value) => ({ ...value, [preset]: { ...value[preset], ...patch } })) };
+  const updateCondition=(id:string,patch:Partial<AutomationCondition>)=>{clearSetupConfirmation();setDraft(value=>({...value,conditions:value.conditions.map(item=>item.id===id?{...item,...patch}:item)}))};
+  const addCondition=()=>{clearSetupConfirmation();setDraft(value=>({...value,conditions:[...value.conditions,{id:globalThis.crypto?.randomUUID?.()||`rule-${Date.now()}`,enabled:true,kind:'between',minKwh:0,maxKwh:60,preset:'cloudy',runAtLocal:'22:00',dayOffset:-1}]}))};
+  const removeCondition=(id:string)=>{clearSetupConfirmation();setDraft(value=>({...value,conditions:value.conditions.filter(item=>item.id!==id)}))};
   const setNotificationPreference=(key:keyof NotificationPreferences,value:boolean)=>setDraft(current=>({...current,notificationPreferences:{...current.notificationPreferences,[key]:value}}));
 
   return <section className="settings-page">
@@ -237,7 +263,7 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
             {condition.kind==='between'&&<label>Desde<input type="number" min="0" max="60" value={condition.minKwh} onChange={event=>updateCondition(condition.id,{minKwh:Math.max(0,Math.min(60,Number(event.target.value)))})}/><small>kWh</small></label>}
             <label>{condition.kind==='between'?'Hasta':'Límite'}<input type="number" min="0" max="60" value={condition.maxKwh} onChange={event=>updateCondition(condition.id,{maxKwh:Math.max(0,Math.min(60,Number(event.target.value)))})}/><small>kWh</small></label>
             <label>Aplicar perfil<select value={condition.preset} onChange={event=>updateCondition(condition.id,{preset:event.target.value as Preset})}><option value="cloudy">☁️ Día nublado</option><option value="sunny">☀️ Día soleado</option></select></label>
-            <label>Ejecutar<input type="time" step="300" value={condition.runAtLocal} onChange={event=>updateCondition(condition.id,{runAtLocal:event.target.value})}/></label>
+            <label>Ejecutar<input type="time" step="60" value={condition.runAtLocal} onChange={event=>updateCondition(condition.id,{runAtLocal:event.target.value})}/></label>
             <label>Momento<select value={condition.dayOffset} onChange={event=>updateCondition(condition.id,{dayOffset:Number(event.target.value) as 0|-1})}><option value={-1}>Día anterior</option><option value={0}>Mismo día</option></select></label>
             <button type="button" className="delete-condition" aria-label={`Eliminar condición ${index+1}`} disabled={draft.conditions.length===1} onClick={()=>removeCondition(condition.id)}><Trash2/></button>
           </article>)}</div>
@@ -249,6 +275,8 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
 
         <section className="setup-section schedule-setup"><header><Clock3/><div><small>Servicio autónomo</small><h3>Revisión cada cinco minutos</h3></div></header><p>Cada condición tiene su propio horario. Mi Solar ejecuta como máximo una configuración por fecha proyectada, aunque la página esté cerrada.</p></section>
         <button className="primary-action setup-save" type="button" disabled={saving} onClick={saveConfiguration}><Save/>{saving ? 'Guardando…' : 'Guardar configuración'}</button>
+        {setupSaveMessage?<p className="setup-save-feedback success" role="status"><CheckCircle2/>{setupSaveMessage}</p>:null}
+        {setupSaveError?<p className="setup-save-feedback error" role="alert">{setupSaveError}</p>:null}
 
         <details className="setup-subdetails"><summary><span><KeyRound/> Acceso automático a i.Solar</span><b>{automation?.credentialsConfigured ? 'Configurado' : 'Pendiente'}</b></summary><div><p>Se valida una vez y se guarda cifrado. Nunca se muestra nuevamente.</p><input autoComplete="username" placeholder="Usuario i.Solar" value={username} onChange={(event) => setUsername(event.target.value)}/><input autoComplete="new-password" type="password" placeholder="Contraseña i.Solar" value={password} onChange={(event) => setPassword(event.target.value)}/><button className="primary-action" type="button" disabled={savingCredentials || !username || !password} onClick={saveCredentials}>{savingCredentials ? 'Validando…' : 'Validar y guardar acceso'}</button></div></details>
       </div>
