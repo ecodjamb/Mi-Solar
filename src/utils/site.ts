@@ -15,7 +15,7 @@ export function siteProfile(name=''):SiteProfile{
  const value=name.toLocaleLowerCase('es-CL');
  if(value.includes('puerto')||value.includes('montt'))return {
   key:'puerto-montt',label:'Casa Puerto Montt',shortLabel:'Puerto Montt',latitude:-41.4693,longitude:-72.9424,
-  installedWp:1800,timezone:'America/Santiago',defaultTariff:250,defaultFeedInTariff:0,gridConnected:false
+  installedWp:1845,timezone:'America/Santiago',defaultTariff:250,defaultFeedInTariff:0,gridConnected:false
  };
  return {
   key:'arrayan',label:'Casa ECO Arrayán',shortLabel:'El Arrayán',latitude:-33.347,longitude:-70.515,
