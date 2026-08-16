@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import EChart from './EChart';
 import type { DailyEnergy } from '../types';
+import type { HistoryRow } from '../types';
 import type { RadiationDay, WeatherData } from '../services/weather';
+import HourlySolarForecastChart from './HourlySolarForecastChart';
 import { api } from '../services/api';
 import { projectionCoefficients, seasonForDate, SEASON_PROFILES, theoreticalSeries, theoreticalDayKwh, type SolarModel } from '../utils/solarForecast';
 
@@ -50,8 +52,9 @@ function radiationForDate(radiation: RadiationDay[], date: string) {
   return radiation.find((item) => item.date === date);
 }
 
-export default function SolarForecastPage({ actual, weather, model, deviceSn, siteLabel = 'El Arrayán', siteKey = 'arrayan', storedForecast }: {
+export default function SolarForecastPage({ actual, hourlyActual, weather, model, deviceSn, siteLabel = 'El Arrayán', siteKey = 'arrayan', storedForecast }: {
   actual: DailyEnergy[];
+  hourlyActual: HistoryRow[];
   weather: WeatherData;
   model: SolarModel;
   deviceSn: string;
@@ -131,6 +134,8 @@ export default function SolarForecastPage({ actual, weather, model, deviceSn, si
       <article className="panel stat"><small>Ajuste por rendimiento de hoy</small><strong>{Math.round(model.liveCorrection * 100)}%</strong><p>Corrige solo la estimación de hoy según su producción observada, incluyendo nubosidad, orientación y sombras.</p></article>
       <article className="panel stat"><small>Error histórico mediano</small><strong>{model.sampleDays ? `${model.medianErrorPct.toFixed(1)}%` : '—'}</strong><p>Diferencia típica entre lo proyectado y lo realmente generado; mientras más bajo, más preciso es el modelo.</p></article>
     </section>
+
+    <HourlySolarForecastChart weather={weather} rows={hourlyActual} date={todayKey} forecastKwh={current?.value || 0}/>
 
     <section className="panel forecast-chart"><header className="forecast-chart-heading"><div><small>Pasado real y modelo meteorológico estacional</small><h2>Producción diaria: real vs. radiación</h2><p>La proyección pondera con mayor fuerza los días históricos de la misma época del año y mantiene el ajuste horario por sombra.</p></div><span>El cuadro de detalle permanece visible mientras el cursor siga sobre la barra.</span></header>
       <nav className="period-selector radiation-period-selector" aria-label="Período histórico visible">{RANGE_OPTIONS.map((period) => <button type="button" className={rangeDays === period.value ? 'active' : ''} aria-pressed={rangeDays === period.value} onClick={() => setRangeDays(period.value)} key={period.value}>{period.label}</button>)}</nav>

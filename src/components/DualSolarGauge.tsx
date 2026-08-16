@@ -24,15 +24,15 @@ export default function DualSolarGauge({ pv1, pv2, max }: { pv1: number; pv2: nu
       {
         ...axis, type: 'gauge', progress: { show: true, width: 10, roundCap: true, itemStyle: { color: '#efbd34' } },
         pointer: { show: true, length: '66%', width: 6, itemStyle: { color: '#efbd34' } }, anchor: { show: true, size: 12, itemStyle: { color: '#efbd34' } },
-        title: { offsetCenter: ['-30%', '62%'], color: '#a9bdc3', fontSize: 10 },
-        detail: { offsetCenter: ['-30%', '43%'], valueAnimation: false, color: '#f4d56f', fontSize: 17, fontWeight: 750, formatter: (value: number) => `${Math.round(value).toLocaleString('es-CL')} W` },
+        title: { offsetCenter: ['-32%', '62%'], color: '#a9bdc3', fontSize: 9 },
+        detail: { offsetCenter: ['-32%', '43%'], valueAnimation: false, color: '#f4d56f', fontSize: 13, fontWeight: 750, formatter: (value: number) => `${Math.round(value).toLocaleString('es-CL')} W` },
         data: [{ value: first, name: 'PV1' }]
       },
       {
         ...axis, type: 'gauge', axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false },
         progress: { show: false }, pointer: { show: true, length: '50%', width: 6, itemStyle: { color: '#38a8ff' } }, anchor: { show: true, size: 7, itemStyle: { color: '#38a8ff' } },
-        title: { offsetCenter: ['30%', '62%'], color: '#a9bdc3', fontSize: 10 },
-        detail: { offsetCenter: ['30%', '43%'], valueAnimation: false, color: '#6fc1ff', fontSize: 17, fontWeight: 750, formatter: (value: number) => `${Math.round(value).toLocaleString('es-CL')} W` },
+        title: { offsetCenter: ['32%', '62%'], color: '#a9bdc3', fontSize: 9 },
+        detail: { offsetCenter: ['32%', '43%'], valueAnimation: false, color: '#6fc1ff', fontSize: 13, fontWeight: 750, formatter: (value: number) => `${Math.round(value).toLocaleString('es-CL')} W` },
         data: [{ value: second, name: 'PV2' }]
       }
     ]

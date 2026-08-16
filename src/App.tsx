@@ -8,6 +8,7 @@ import DailyQuote from './components/DailyQuote';
 import FunModeToggle from './components/FunModeToggle';
 import PowerGauge from './components/PowerGauge';
 import DualSolarGauge from './components/DualSolarGauge';
+import PvStringComparisonChart from './components/PvStringComparisonChart';
 import PvAccumulatedBar from './components/PvAccumulatedBar';
 import SolarForecastPage from './components/SolarForecastPage';
 import HouseIllustration from './components/HouseIllustration';
@@ -389,6 +390,7 @@ export default function App(){
 
       {page==='charts'&&<section className="analytics-page">
         <header className="analytics-title"><div><small>Análisis energético</small><h1>Gráficos y acumulados</h1><p>Todos los cortes pertenecen exclusivamente a la instalación seleccionada y usan el día calendario de Chile.</p></div><section className="instant-gauge-grid two-gauges"><article className="panel gauge-card"><small>Demanda actual</small><PowerGauge value={load} label="Consumo instantáneo"/><div className="gauge-note"><span className="safe-dot"/>normal <span className="danger-dot"/>carga alta</div></article><article className="panel gauge-card solar-gauge"><small>{pvCount===2?'Producción instantánea · PV1 y PV2':'Producción instantánea · PV1'}</small>{pvCount===2?<DualSolarGauge pv1={pvPower(realtime,1)} pv2={pvPower(realtime,2)} max={Math.max(3000,installedWp/2)}/>:<PowerGauge value={pvPower(realtime,1)} max={Math.max(3000,installedWp)} label="PV1 instantáneo" color="#efbd34"/>}</article></section></header>
+        {pvCount===2&&<PvStringComparisonChart deviceSn={selected} siteLabel={siteLabel}/>}
         <EnergyRangeChart deviceSn={selected} siteLabel={siteLabel} gridLabel={gridSourceLabel}/>
         <DailyConsumptionChart deviceSn={selected} siteLabel={siteLabel}/>
         <section className="analytics-period-summary"><article className="panel"><small>Hoy</small><strong>{kwh(today.solar)}</strong><p>Solar · consumo {kwh(today.load)} · {gridSourceLabel.toLocaleLowerCase('es-CL')} {kwh(today.gridImport)}</p></article><article className="panel"><small>Esta semana</small><strong>{kwh(week.solar)}</strong><p>Solar · consumo {kwh(week.load)} · {gridSourceLabel.toLocaleLowerCase('es-CL')} {kwh(week.gridImport)}</p></article><article className="panel"><small>Este mes</small><strong>{kwh(month.solar)}</strong><p>Solar · consumo {kwh(month.load)} · {gridSourceLabel.toLocaleLowerCase('es-CL')} {kwh(month.gridImport)}</p></article></section>
@@ -397,7 +399,7 @@ export default function App(){
         <section className="analytics-summary-grid"><article className="panel stat"><small>Consumo semana</small><strong>{kwh(week.load)}</strong></article><article className="panel stat"><small>Solar semana</small><strong>{kwh(week.solar)}</strong></article><article className="panel stat"><small>{gridSourceLabel} semana</small><strong>{kwh(week.gridImport)}</strong></article><article className="panel stat"><small>Consumo mes</small><strong>{kwh(month.load)}</strong></article><article className="panel stat"><small>Solar mes</small><strong>{kwh(month.solar)}</strong></article><article className="panel stat"><small>{gridSourceLabel} mes</small><strong>{kwh(month.gridImport)}</strong></article>{profile.gridConnected&&<article className="panel stat"><small>Red exportada mes</small><strong>{kwh(month.gridExport)}</strong></article>}<article className="panel stat"><small>Carga batería mes</small><strong>{kwh(month.charge)}</strong></article><article className="panel stat"><small>Descarga batería mes</small><strong>{kwh(month.discharge)}</strong></article></section>
       </section>}
 
-      {page==='solar'&&<SolarForecastPage actual={projectionActual} weather={weather} model={solarModel} deviceSn={selected} siteLabel={siteLabel} siteKey={profile.key} storedForecast={storedForecast}/>}
+      {page==='solar'&&<SolarForecastPage actual={projectionActual} hourlyActual={history} weather={weather} model={solarModel} deviceSn={selected} siteLabel={siteLabel} siteKey={profile.key} storedForecast={storedForecast}/>}
 
       {page==='costs'&&<CostsPage key={selected} deviceSn={selected} siteLabel={siteLabel} gridLabel={gridSourceLabel} today={today} week={week} currentMonth={month} tariff={tariff} onTariffChange={value=>{setTariff(value);localStorage.setItem(siteStorageKey('tariffCLP',device?.nickName||''),String(value))}}/>}
 
