@@ -8,6 +8,7 @@ type UtilityBill = {
   id: number; periodStart: string; periodEnd: string; previousReading: number | null; currentReading: number | null;
   billedKwh: number; reportedKwh: number | null; estimatedKwh: number | null; consumptionStatus: 'actual'|'estimated'|'pending'; isEstimated: boolean;
   periodDays: number; averageDailyKwh: number | null; amountClp: number; rateBaseClp: number | null; effectiveRateClp: number | null; theoreticalGridKwh: number;
+  estimateMethod?: string; rateMethod?: 'energy-transport'|'total-amount'|'unavailable';
   archiveCoveragePct: number; differenceKwh: number; issueDate?: string | null; dueDate?: string | null;
   customerNumber?: string | null; meterNumber?: string | null; tariffName?: string | null; invoiceNumber?: string | null;
   serviceAddress?: string | null; fixedChargeClp?: number | null; energyChargeClp?: number | null; transportChargeClp?: number | null; otherChargesClp?: number | null; taxesClp?: number | null;
@@ -58,13 +59,15 @@ export default function EnelBillsSection({ deviceSn, siteLabel }: { deviceSn: st
   const [saving, setSaving] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [message, setMessage] = useState('');
+  const [chartFilter, setChartFilter] = useState('12m');
   const fileRef = useRef<HTMLInputElement>(null);
   const readingKwh = draft.previousReading !== '' && draft.currentReading !== '' ? Math.max(0, Number(draft.currentReading) - Number(draft.previousReading)) : 0;
   const actualKwh = Number(draft.billedKwh || 0) > 0 ? Number(draft.billedKwh) : readingKwh;
-  const estimatedKwh = Number(draft.estimatedKwh || 0) > 0 ? Number(draft.estimatedKwh) : 0;
+  const amountEstimate = Number(draft.amountClp || 0) > 0 ? Number(draft.amountClp) / 250 : 0;
+  const estimatedKwh = Number(draft.estimatedKwh || 0) > 0 ? Number(draft.estimatedKwh) : amountEstimate;
   const calculatedKwh = actualKwh > 0 ? actualKwh : estimatedKwh;
   const rateBase = Number(draft.energyChargeClp || 0) + Number(draft.transportChargeClp || 0);
-  const calculatedRate = calculatedKwh > 0 && Number(draft.energyChargeClp || 0) > 0 ? rateBase / calculatedKwh : null;
+  const calculatedRate = calculatedKwh > 0 ? (Number(draft.energyChargeClp || 0) > 0 ? rateBase / calculatedKwh : Number(draft.amountClp || 0) > 0 ? Number(draft.amountClp) / calculatedKwh : null) : null;
 
   useEffect(() => {
     let active = true; setLoading(true);
@@ -72,20 +75,32 @@ export default function EnelBillsSection({ deviceSn, siteLabel }: { deviceSn: st
     return () => { active = false; };
   }, [deviceSn]);
   const largestKwh = useMemo(() => Math.max(1, ...bills.flatMap((bill) => [bill.billedKwh, bill.theoreticalGridKwh])), [bills]);
-  const consumptionChart = useMemo(() => {
+  const billYears = useMemo(() => [...new Set(bills.map((bill) => bill.periodEnd.slice(0, 4)))].sort((a, b) => b.localeCompare(a)), [bills]);
+  const chartBills = useMemo(() => {
     const ordered = [...bills].sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
+    if (/^\d{4}$/.test(chartFilter)) return ordered.filter((bill) => bill.periodEnd.startsWith(chartFilter));
+    const count = chartFilter === '6m' ? 6 : 12;
+    const anchor = ordered.at(-1)?.periodEnd;
+    if (!anchor) return [];
+    const [year, month] = anchor.split('-').map(Number);
+    const start = new Date(Date.UTC(year, month - count, 1)).toISOString().slice(0, 10);
+    return ordered.filter((bill) => bill.periodEnd >= start);
+  }, [bills, chartFilter]);
+  const consumptionChart = useMemo(() => {
+    const ordered = chartBills;
     return {
-      tooltip: { trigger: 'axis', confine: true, valueFormatter: (value: unknown) => value == null ? '—' : `${Number(value).toLocaleString('es-CL', { maximumFractionDigits: 2 })} kWh` },
+      tooltip: { trigger: 'axis', confine: true, formatter: (params: unknown) => { const items = Array.isArray(params) ? params as Array<{dataIndex?:number}> : []; const bill = ordered[Number(items[0]?.dataIndex || 0)]; return bill ? `<b>${monthLabel(bill.periodEnd)}</b><br/>${bill.isEstimated ? 'Estimado' : 'Real'}: ${bill.billedKwh.toLocaleString('es-CL', { maximumFractionDigits: 2 })} kWh<br/>Total a pagar: ${clp(bill.amountClp)}` : ''; } },
       legend: { top: 4, textStyle: { color: '#a9bdc3' } },
       grid: { left: 52, right: 20, top: 58, bottom: 50, containLabel: true },
       xAxis: { type: 'category', data: ordered.map((bill) => monthLabel(bill.periodEnd)), axisLabel: { color: '#8ba0a8', hideOverlap: true }, axisLine: { lineStyle: { color: '#29444e' } } },
-      yAxis: { type: 'value', name: 'kWh', axisLabel: { color: '#8ba0a8' }, nameTextStyle: { color: '#8ba0a8' }, splitLine: { lineStyle: { color: 'rgba(110,150,160,.12)' } } },
+      yAxis: [{ type: 'value', name: 'kWh', axisLabel: { color: '#8ba0a8' }, nameTextStyle: { color: '#8ba0a8' }, splitLine: { lineStyle: { color: 'rgba(110,150,160,.12)' } } }, { type: 'value', name: 'CLP', axisLabel: { color: '#8ba0a8', formatter: (value:number) => `$${Math.round(value / 1000)}k` }, nameTextStyle: { color: '#8ba0a8' }, splitLine: { show: false } }],
       series: [
-        { name: 'Consumo real', type: 'bar', stack: 'consumo', data: ordered.map((bill) => bill.isEstimated ? null : bill.billedKwh), itemStyle: { color: '#4e9dff', borderRadius: [5, 5, 0, 0] } },
-        { name: 'Consumo estimado', type: 'bar', stack: 'consumo', data: ordered.map((bill) => bill.isEstimated ? bill.billedKwh : null), itemStyle: { color: '#efbd42', borderRadius: [5, 5, 0, 0] } }
+        { name: 'Consumo real', type: 'bar', stack: 'consumo', data: ordered.map((bill) => bill.isEstimated ? null : bill.billedKwh), itemStyle: { color: '#4e9dff', borderRadius: [5, 5, 0, 0] }, label: { show: true, position: 'top', color: '#bcd9f7', formatter: (params:{value?:number}) => params.value == null ? '' : `${Number(params.value).toLocaleString('es-CL', { maximumFractionDigits: 1 })}` } },
+        { name: 'Consumo estimado', type: 'bar', stack: 'consumo', data: ordered.map((bill) => bill.isEstimated ? bill.billedKwh : null), itemStyle: { color: '#ef9d42', borderRadius: [5, 5, 0, 0] }, label: { show: true, position: 'top', color: '#f3c27e', formatter: (params:{value?:number}) => params.value == null ? '' : `${Number(params.value).toLocaleString('es-CL', { maximumFractionDigits: 1 })}` } },
+        { name: 'Total a pagar', type: 'line', yAxisIndex: 1, data: ordered.map((bill) => bill.amountClp), symbolSize: 7, lineStyle: { color: '#64d7aa', width: 2 }, itemStyle: { color: '#64d7aa' } }
       ]
     };
-  }, [bills]);
+  }, [chartBills]);
 
   async function chooseFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -114,7 +129,7 @@ export default function EnelBillsSection({ deviceSn, siteLabel }: { deviceSn: st
   async function save() {
     setSaving(true); setMessage('Guardando la cuenta, sus páginas y el comparativo permanente…');
     try {
-      const result = await api<{ bill: UtilityBill }>(`devices/${deviceSn}/utility-bills`, { method: 'POST', body: JSON.stringify({ ...draft, previousReading: draft.previousReading === '' ? null : Number(draft.previousReading), currentReading: draft.currentReading === '' ? null : Number(draft.currentReading), billedKwh: actualKwh > 0 ? actualKwh : null, estimatedKwh: estimatedKwh > 0 ? estimatedKwh : null, consumptionIsEstimated: aiExtraction?.consumptionIsEstimated === true, amountClp: Number(draft.amountClp), fixedChargeClp: draft.fixedChargeClp === '' ? null : Number(draft.fixedChargeClp), energyChargeClp: draft.energyChargeClp === '' ? null : Number(draft.energyChargeClp), transportChargeClp: draft.transportChargeClp === '' ? null : Number(draft.transportChargeClp), otherChargesClp: draft.otherChargesClp === '' ? null : Number(draft.otherChargesClp), taxesClp: draft.taxesClp === '' ? null : Number(draft.taxesClp), chargeItems: aiExtraction?.chargeItems || [], images, aiExtraction, aiConfidence: aiExtraction?.confidence ?? null, aiModel }) });
+      const result = await api<{ bill: UtilityBill }>(`devices/${deviceSn}/utility-bills`, { method: 'POST', body: JSON.stringify({ ...draft, previousReading: draft.previousReading === '' ? null : Number(draft.previousReading), currentReading: draft.currentReading === '' ? null : Number(draft.currentReading), billedKwh: actualKwh > 0 ? actualKwh : null, estimatedKwh: Number(draft.estimatedKwh || 0) > 0 ? Number(draft.estimatedKwh) : null, consumptionIsEstimated: aiExtraction?.consumptionIsEstimated === true, amountClp: Number(draft.amountClp || 0), fixedChargeClp: draft.fixedChargeClp === '' ? null : Number(draft.fixedChargeClp), energyChargeClp: draft.energyChargeClp === '' ? null : Number(draft.energyChargeClp), transportChargeClp: draft.transportChargeClp === '' ? null : Number(draft.transportChargeClp), otherChargesClp: draft.otherChargesClp === '' ? null : Number(draft.otherChargesClp), taxesClp: draft.taxesClp === '' ? null : Number(draft.taxesClp), chargeItems: aiExtraction?.chargeItems || [], images, aiExtraction, aiConfidence: aiExtraction?.confidence ?? null, aiModel }) });
       setBills((current) => [result.bill, ...current.filter((bill) => bill.id !== result.bill.id)].sort((a, b) => b.periodEnd.localeCompare(a.periodEnd)));
       setDraft(defaultDraft()); setImages([]); setAiExtraction(null); setAiModel(''); setOpen(false); setMessage(result.bill.documentWarnings?.length ? `Cuenta y monto guardados. ${result.bill.documentWarnings.join(' ')}` : 'Cuenta, documentos y datos analíticos guardados correctamente.');
     } catch (error) { setMessage(error instanceof Error ? error.message : 'No fue posible guardar la cuenta.'); }
@@ -124,6 +139,7 @@ export default function EnelBillsSection({ deviceSn, siteLabel }: { deviceSn: st
   const setField = (name: keyof ReturnType<typeof defaultDraft>, value: string) => setDraft((current) => ({ ...current, [name]: value }));
   return <section className="enel-bills-section">
     <header className="enel-bills-heading"><div><small>Control real frente a Mi Solar · {siteLabel}</small><h2>Cuentas eléctricas Enel</h2><p>Guarda siempre la cuenta y su monto final. La tarifa energética usa energía más traslado; deudas, intereses, descuentos e impuestos quedan registrados fuera del cálculo.</p></div><button type="button" className="primary-action" onClick={() => setOpen((value) => !value)}>{open ? <X/> : <FilePlus2/>}{open ? 'Cerrar' : 'Agregar cuenta'}</button></header>
+    {bills.length ? <section className="panel bill-consumption-history"><header><div><small>Historial mensual respaldado</small><h3><BarChart3/> Consumo facturado por período</h3></div><p><i/> Real <i/> Estimado</p></header><div className="bill-chart-filters" role="group" aria-label="Período del gráfico de cuentas"><button type="button" className={chartFilter === '6m' ? 'active' : ''} onClick={() => setChartFilter('6m')}>Últimos 6 meses</button><button type="button" className={chartFilter === '12m' ? 'active' : ''} onClick={() => setChartFilter('12m')}>Últimos 12 meses</button>{billYears.map((year) => <button type="button" className={chartFilter === year ? 'active' : ''} onClick={() => setChartFilter(year)} key={year}>{year}</button>)}</div>{chartBills.length ? <EChart option={consumptionChart}/> : <div className="chart-loading">No hay cuentas guardadas en este período.</div>}</section> : null}
     {open ? <section className="panel enel-bill-form">
       <header><div><small>Nueva cuenta · ingreso manual o inteligente</small><h3>Resumen de la cuenta</h3></div><strong>{kwh(calculatedKwh)}</strong></header>
       <div className="bill-ai-uploader"><input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/*" multiple hidden onChange={(event) => void chooseFiles(event.target.files)}/><button type="button" className="bill-upload-button" onClick={() => fileRef.current?.click()} disabled={images.length >= 4}><Upload/><span><b>Subir fotografías de la cuenta</b><small>Una a cuatro páginas · JPG, PNG o WebP</small></span></button>{images.length ? <div className="bill-image-strip">{images.map((image, index) => <figure key={`${image.name}-${index}`}><img src={image.dataUrl} alt={`Página ${index + 1} de la cuenta`}/><figcaption>Página {index + 1}</figcaption><button type="button" aria-label={`Eliminar página ${index + 1}`} onClick={() => { setImages((current) => current.filter((_, item) => item !== index)); setAiExtraction(null); }}><Trash2/></button></figure>)}</div> : null}<button type="button" className="primary-action bill-ai-action" disabled={!images.length || extracting} onClick={() => void extract()}><Sparkles/>{extracting ? 'Leyendo cuenta…' : 'Extraer datos con IA'}</button>{aiExtraction ? <div className="bill-ai-result"><CheckCircle2/><span><b>Datos extraídos y listos para revisar</b><small>Confianza {Math.round(aiExtraction.confidence * 100)}% · {images.length} {images.length === 1 ? 'página' : 'páginas'} consolidadas</small></span></div> : null}</div>
@@ -142,8 +158,8 @@ export default function EnelBillsSection({ deviceSn, siteLabel }: { deviceSn: st
         <label>Emisión<input type="date" value={draft.issueDate} onChange={(event) => setField('issueDate', event.target.value)}/></label><label>Vencimiento<input type="date" value={draft.dueDate} onChange={(event) => setField('dueDate', event.target.value)}/></label><label>N.º cliente<input value={draft.customerNumber} onChange={(event) => setField('customerNumber', event.target.value)}/></label><label>N.º medidor<input value={draft.meterNumber} onChange={(event) => setField('meterNumber', event.target.value)}/></label><label>Tarifa<input value={draft.tariffName} onChange={(event) => setField('tariffName', event.target.value)}/></label><label>N.º documento<input value={draft.invoiceNumber} onChange={(event) => setField('invoiceNumber', event.target.value)}/></label><label className="bill-address">Dirección de suministro<input value={draft.serviceAddress} onChange={(event) => setField('serviceAddress', event.target.value)}/></label><label>Cargo fijo<input type="number" min="0" value={draft.fixedChargeClp} onChange={(event) => setField('fixedChargeClp', event.target.value)}/></label><label>Otros cargos<input type="number" min="0" value={draft.otherChargesClp} onChange={(event) => setField('otherChargesClp', event.target.value)}/></label><label>Impuestos<input type="number" min="0" value={draft.taxesClp} onChange={(event) => setField('taxesClp', event.target.value)}/></label>
       </div>{aiExtraction?.chargeItems?.length ? <div className="bill-charge-breakdown"><header><strong>Desglose detectado</strong><small>Las filas verdes forman energía + traslado</small></header>{aiExtraction.chargeItems.map((item, index) => <div className={item.includedInEnergyRate ? 'included' : ''} key={`${item.label}-${index}`}><span>{item.label}<small>{item.includedInEnergyRate ? 'Incluido en $/kWh' : 'Guardado, fuera del cálculo'}</small></span><b>{clp(item.amountClp)}</b></div>)}</div> : null}{aiExtraction?.warnings?.length ? <ul className="bill-ai-warnings">{aiExtraction.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul> : null}</details>
       <div className="bill-rate-formula"><b>Fórmula energética</b><span>({clp(Number(draft.energyChargeClp || 0))} energía + {clp(Number(draft.transportChargeClp || 0))} traslado) ÷ {calculatedKwh > 0 ? kwh(calculatedKwh) : 'consumo pendiente'} = <strong>{calculatedRate == null ? 'Pendiente' : `${clp(calculatedRate)} / kWh`}</strong></span><small>El monto final siempre se guarda. Cargo fijo, impuestos, descuentos, deudas, intereses y repactaciones permanecen en el detalle, fuera de esta división.</small></div>
-      <div className="enel-calculated"><span><Gauge/><small>Consumo facturado del período</small><strong>{kwh(calculatedKwh)}</strong></span><span><CircleDollarSign/><small>Valor real de la energía</small><strong>{calculatedRate == null ? 'Pendiente' : `${clp(calculatedRate)} / kWh`}</strong></span></div>
-      <button type="button" className="primary-action enel-save" disabled={saving || !draft.periodStart || !draft.periodEnd || draft.amountClp === '' || !Number.isFinite(Number(draft.amountClp)) || Number(draft.amountClp) < 0} onClick={() => void save()}><Save/>{saving ? 'Guardando…' : 'Guardar cuenta y documentos'}</button>
+      <div className="enel-calculated"><span><Gauge/><small>Consumo del período {actualKwh > 0 ? 'real' : 'estimado'}</small><strong>{kwh(calculatedKwh)}</strong></span><span><CircleDollarSign/><small>Valor calculado por kWh</small><strong>{calculatedRate == null ? 'No se pudo calcular' : `${clp(calculatedRate)} / kWh`}</strong></span></div>
+      <button type="button" className="primary-action enel-save" disabled={saving} onClick={() => void save()}><Save/>{saving ? 'Guardando…' : 'Guardar siempre la cuenta'}</button>
     </section> : null}
     {message ? <p className="enel-bill-message" role="status">{message}</p> : null}
     {loading ? <div className="chart-loading">Consultando cuentas guardadas…</div> : bills.length ? <>
@@ -157,7 +173,6 @@ export default function EnelBillsSection({ deviceSn, siteLabel }: { deviceSn: st
           {bill.chargeItems?.length ? <details className="saved-charge-details"><summary>Ver todos los conceptos ({bill.chargeItems.length})</summary>{bill.chargeItems.map((item,itemIndex)=><div className={item.includedInEnergyRate?'included':''} key={`${item.label}-${itemIndex}`}><span>{item.label}</span><b>{clp(item.amountClp)}</b></div>)}</details>:null}<div className="enel-comparison" aria-label={`Cuenta ${bill.billedKwh.toFixed(2)} kWh; Mi Solar ${bill.theoreticalGridKwh.toFixed(2)} kWh`}><span className={bill.isEstimated ? 'estimated' : ''}><i style={{ width: `${bill.billedKwh / largestKwh * 100}%` }}/><small>{bill.isEstimated ? 'Cuenta estimada' : 'Cuenta real'}</small></span><span><i style={{ width: `${bill.theoreticalGridKwh / largestKwh * 100}%` }}/><small>Mi Solar</small></span></div><footer><CalendarRange/><span>{bill.previousReading != null && bill.currentReading != null ? `Lecturas: ${bill.previousReading.toLocaleString('es-CL')} → ${bill.currentReading.toLocaleString('es-CL')} kWh` : 'Lecturas pendientes o no informadas'}</span><small>Respaldo disponible: {bill.archiveCoveragePct.toFixed(1)}%</small></footer></div>
         </details>;
       })}</div>
-      <section className="panel bill-consumption-history"><header><div><small>Historial mensual respaldado</small><h3><BarChart3/> Consumo facturado por período</h3></div><p><i/> Real <i/> Estimado</p></header><EChart option={consumptionChart}/></section>
     </> : <section className="panel enel-empty"><FileImage/><div><strong>Aún no hay cuentas guardadas</strong><p>Sube las fotografías de la primera cuenta para comenzar el comparativo mensual.</p></div></section>}
   </section>;
 }

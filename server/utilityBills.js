@@ -18,6 +18,18 @@ export function billPeriodDays(periodStart, periodEnd) {
   return Number.isFinite(start) && Number.isFinite(end) && end >= start ? Math.round((end - start) / 86_400_000) + 1 : 0;
 }
 
+export function estimateBillConsumption({ reportedKwh, estimatedKwh, amountClp, theoreticalKwh, assumedRateClp = 250 }) {
+  const reported = Number(reportedKwh);
+  if (Number.isFinite(reported) && reported > 0) return { kwh: reported, status: 'actual', method: 'reported' };
+  const extracted = Number(estimatedKwh);
+  if (Number.isFinite(extracted) && extracted > 0) return { kwh: extracted, status: 'estimated', method: 'bill-estimate' };
+  const amount = Number(amountClp);
+  if (Number.isFinite(amount) && amount > 0) return { kwh: Number((amount / assumedRateClp).toFixed(2)), status: 'estimated', method: 'amount-divided-by-250' };
+  const theoretical = Number(theoreticalKwh);
+  if (Number.isFinite(theoretical) && theoretical > 0) return { kwh: theoretical, status: 'estimated', method: 'misolar-archive' };
+  return { kwh: 1, status: 'estimated', method: 'minimum-fallback' };
+}
+
 function dateAdd(date, days) {
   const [year, month, day] = date.split('-').map(Number);
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
@@ -73,7 +85,9 @@ function normalize(row, theoretical = null, documents = []) {
   const transportChargeClp = row.transport_charge_clp == null ? null : Number(row.transport_charge_clp);
   const theoreticalGridKwh = theoretical?.kwh ?? Number(row.theoretical_grid_kwh || 0);
   const periodDays = Number(row.period_days || billPeriodDays(row.period_start, row.period_end));
-  const consumptionStatus = reportedKwh && reportedKwh > 0 ? (row.consumption_status === 'estimated' ? 'estimated' : 'actual') : billedKwh > 0 ? 'estimated' : 'pending';
+  const consumptionStatus = reportedKwh && reportedKwh > 0 ? (row.consumption_status === 'estimated' ? 'estimated' : 'actual') : 'estimated';
+  const classifiedRate = calculateEnergyRate(energyChargeClp, billedKwh, transportChargeClp);
+  const fallbackRate = billedKwh > 0 && amountClp > 0 ? Number((amountClp / billedKwh).toFixed(2)) : null;
   return {
     id: row.id,
     periodStart: row.period_start,
@@ -85,11 +99,13 @@ function normalize(row, theoretical = null, documents = []) {
     estimatedKwh,
     consumptionStatus,
     isEstimated: consumptionStatus !== 'actual',
+    estimateMethod: row.estimate_method || (consumptionStatus === 'actual' ? 'reported' : 'unknown'),
     periodDays,
     averageDailyKwh: periodDays > 0 && billedKwh > 0 ? Number((billedKwh / periodDays).toFixed(3)) : null,
     amountClp,
     rateBaseClp: energyChargeClp == null && transportChargeClp == null ? null : Number(energyChargeClp || 0) + Number(transportChargeClp || 0),
-    effectiveRateClp: calculateEnergyRate(energyChargeClp, billedKwh, transportChargeClp),
+    effectiveRateClp: classifiedRate ?? fallbackRate,
+    rateMethod: row.rate_method || (classifiedRate != null ? 'energy-transport' : fallbackRate != null ? 'total-amount' : 'unavailable'),
     theoreticalGridKwh,
     archiveCoveragePct: theoretical?.coveragePct ?? Number(row.archive_coverage_pct || 0),
     differenceKwh: Number((billedKwh - theoreticalGridKwh).toFixed(3)),
@@ -148,11 +164,14 @@ export async function saveUtilityBill(deviceSn, bill, images = [], ai = null) {
   const theoretical = await theoreticalGrid(deviceSn, bill.periodStart, bill.periodEnd);
   const readingKwh = bill.previousReading != null && bill.currentReading != null ? Math.max(0, Number(bill.currentReading) - Number(bill.previousReading)) : null;
   const reportedKwh = Number(bill.billedKwh) > 0 ? Number(bill.billedKwh) : readingKwh && readingKwh > 0 ? readingKwh : null;
-  const extractedEstimate = Number(bill.estimatedKwh) > 0 ? Number(bill.estimatedKwh) : null;
-  const estimatedKwh = reportedKwh == null ? (extractedEstimate || (theoretical.kwh > 0 ? theoretical.kwh : null)) : null;
-  const consumptionStatus = reportedKwh != null ? (bill.consumptionIsEstimated ? 'estimated' : 'actual') : estimatedKwh != null ? 'estimated' : 'pending';
+  const actualReportedKwh = reportedKwh != null && !bill.consumptionIsEstimated ? reportedKwh : null;
+  const providedEstimate = bill.consumptionIsEstimated && reportedKwh != null ? reportedKwh : bill.estimatedKwh;
+  const consumption = estimateBillConsumption({ reportedKwh: actualReportedKwh, estimatedKwh: providedEstimate, amountClp: bill.amountClp, theoreticalKwh: theoretical.kwh });
+  const estimatedKwh = consumption.status === 'estimated' ? consumption.kwh : null;
+  const consumptionStatus = actualReportedKwh != null ? 'actual' : 'estimated';
   const transportFromItems = (bill.chargeItems || []).filter((item) => item.category === 'transport').reduce((sum, item) => sum + Math.max(0, Number(item.amountClp || 0)), 0);
   const transportChargeClp = bill.transportChargeClp == null ? (transportFromItems || null) : Number(bill.transportChargeClp);
+  const rateMethod = bill.energyChargeClp != null ? 'energy-transport' : Number(bill.amountClp) > 0 ? 'total-amount' : 'unavailable';
   const rows = await rest('utility_bills?on_conflict=site_id,period_start,period_end', {
     method: 'POST',
     headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
@@ -162,9 +181,12 @@ export async function saveUtilityBill(deviceSn, bill, images = [], ai = null) {
       period_end: bill.periodEnd,
       previous_reading: bill.previousReading,
       current_reading: bill.currentReading,
-      reported_kwh: reportedKwh,
+      reported_kwh: actualReportedKwh,
       estimated_kwh: estimatedKwh,
       consumption_status: consumptionStatus,
+      estimate_method: consumptionStatus === 'actual' ? 'reported' : consumption.method,
+      estimated_unit_rate_clp: 250,
+      rate_method: rateMethod,
       amount_clp: bill.amountClp,
       issue_date: bill.issueDate || null,
       due_date: bill.dueDate || null,

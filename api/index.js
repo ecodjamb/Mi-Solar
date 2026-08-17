@@ -160,7 +160,7 @@ export default async function handler(req, res) {
   try {
     if (method === 'GET' && route === 'health') {
       const push = pushConfiguration();
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.21.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.21.1', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -587,23 +587,32 @@ export default async function handler(req, res) {
       if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
       if (method === 'GET') return sendJson(res, 200, { list: await listUtilityBills(sn) });
       const body = parseBody(req);
-      const periodStart = String(body.periodStart || '');
-      const periodEnd = String(body.periodEnd || '');
-      const previousReading = body.previousReading === '' || body.previousReading == null ? null : Number(body.previousReading);
-      const currentReading = body.currentReading === '' || body.currentReading == null ? null : Number(body.currentReading);
-      const billedKwh = body.billedKwh === '' || body.billedKwh == null ? (previousReading != null && currentReading != null ? currentReading - previousReading : null) : Number(body.billedKwh);
-      const estimatedKwh = body.estimatedKwh === '' || body.estimatedKwh == null ? null : Number(body.estimatedKwh);
-      const amountClp = Number(body.amountClp);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd) || periodEnd < periodStart) return sendJson(res, 400, { error: 'El período de la cuenta no es válido.' });
-      if ((billedKwh != null && (!Number.isFinite(billedKwh) || billedKwh < 0)) || (estimatedKwh != null && (!Number.isFinite(estimatedKwh) || estimatedKwh < 0)) || !Number.isFinite(amountClp) || amountClp < 0 || (previousReading != null && (!Number.isFinite(previousReading) || previousReading < 0)) || (currentReading != null && (!Number.isFinite(currentReading) || currentReading < 0)) || (previousReading != null && currentReading != null && currentReading < previousReading)) return sendJson(res, 400, { error: 'El consumo, las lecturas o el monto de la cuenta no son válidos.' });
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+      const fallbackStart = new Date(Date.parse(`${today}T12:00:00Z`) - 29 * 86_400_000).toISOString().slice(0, 10);
+      const rawPeriodEnd = String(body.periodEnd || '');
+      const periodEnd = /^\d{4}-\d{2}-\d{2}$/.test(rawPeriodEnd) ? rawPeriodEnd : today;
+      const rawPeriodStart = String(body.periodStart || '');
+      const periodStart = /^\d{4}-\d{2}-\d{2}$/.test(rawPeriodStart) && rawPeriodStart <= periodEnd ? rawPeriodStart : fallbackStart > periodEnd ? periodEnd : fallbackStart;
+      const rawPrevious = body.previousReading === '' || body.previousReading == null ? null : Number(body.previousReading);
+      const rawCurrent = body.currentReading === '' || body.currentReading == null ? null : Number(body.currentReading);
+      const validReadingPair = rawPrevious != null && rawCurrent != null && Number.isFinite(rawPrevious) && Number.isFinite(rawCurrent) && rawPrevious >= 0 && rawCurrent >= rawPrevious;
+      const previousReading = validReadingPair ? rawPrevious : null;
+      const currentReading = validReadingPair ? rawCurrent : null;
+      const rawBilledKwh = body.billedKwh === '' || body.billedKwh == null ? null : Number(body.billedKwh);
+      const billedKwh = Number.isFinite(rawBilledKwh) && Number(rawBilledKwh) > 0 ? Number(rawBilledKwh) : (validReadingPair ? Number(rawCurrent) - Number(rawPrevious) : null);
+      const rawEstimatedKwh = body.estimatedKwh === '' || body.estimatedKwh == null ? null : Number(body.estimatedKwh);
+      const estimatedKwh = Number.isFinite(rawEstimatedKwh) && Number(rawEstimatedKwh) > 0 ? Number(rawEstimatedKwh) : null;
+      const rawAmountClp = Number(body.amountClp);
+      const amountClp = Number.isFinite(rawAmountClp) && rawAmountClp >= 0 ? rawAmountClp : 0;
       const images = Array.isArray(body.images) && body.images.length ? validateBillImages(body.images) : [];
       const text = (name, max = 240) => body[name] == null ? null : String(body[name]).trim().slice(0, max) || null;
-      const optionalNumber = (name) => body[name] === '' || body[name] == null ? null : Number(body[name]);
-      const chargeItems = Array.isArray(body.chargeItems) ? body.chargeItems.slice(0, 80).map((item) => ({ label: String(item?.label || '').trim().slice(0, 180), amountClp: Number(item?.amountClp), category: String(item?.category || 'other'), includedInEnergyRate: item?.includedInEnergyRate === true })) : [];
+      const optionalNumber = (name) => { const value = body[name] === '' || body[name] == null ? null : Number(body[name]); return value != null && Number.isFinite(value) && value >= 0 ? value : null; };
+      const chargeItems = Array.isArray(body.chargeItems) ? body.chargeItems.slice(0, 80).map((item) => ({ label: String(item?.label || '').trim().slice(0, 180), amountClp: Number(item?.amountClp), category: String(item?.category || 'other'), includedInEnergyRate: item?.includedInEnergyRate === true })).filter((item) => item.label && Number.isFinite(item.amountClp)) : [];
       const allowedChargeCategories = new Set(['energy','fixed','transport','public_service','tax','discount','debt','interest','adjustment','other']);
       const details = { issueDate: text('issueDate', 10), dueDate: text('dueDate', 10), customerNumber: text('customerNumber', 80), meterNumber: text('meterNumber', 80), tariffName: text('tariffName', 100), invoiceNumber: text('invoiceNumber', 100), serviceAddress: text('serviceAddress', 300), fixedChargeClp: optionalNumber('fixedChargeClp'), energyChargeClp: optionalNumber('energyChargeClp'), transportChargeClp: optionalNumber('transportChargeClp'), otherChargesClp: optionalNumber('otherChargesClp'), taxesClp: optionalNumber('taxesClp'), chargeItems };
-      if ([details.issueDate, details.dueDate].some((value) => value && !/^\d{4}-\d{2}-\d{2}$/.test(value))) return sendJson(res, 400, { error: 'La fecha de emisión o vencimiento no es válida.' });
-      if (Object.values(details).filter((value) => typeof value === 'number').some((value) => !Number.isFinite(value) || value < 0) || chargeItems.some((item) => !item.label || !Number.isFinite(item.amountClp) || !allowedChargeCategories.has(item.category))) return sendJson(res, 400, { error: 'Uno de los cargos adicionales no es válido.' });
+      if (details.issueDate && !/^\d{4}-\d{2}-\d{2}$/.test(details.issueDate)) details.issueDate = null;
+      if (details.dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(details.dueDate)) details.dueDate = null;
+      details.chargeItems = chargeItems.map((item) => allowedChargeCategories.has(item.category) ? item : { ...item, category: 'other' });
       const bill = await saveUtilityBill(sn, { periodStart, periodEnd, previousReading, currentReading, billedKwh, estimatedKwh, consumptionIsEstimated: body.consumptionIsEstimated === true, amountClp, ...details }, images, { extracted: body.aiExtraction && typeof body.aiExtraction === 'object' ? body.aiExtraction : {}, confidence: optionalNumber('aiConfidence'), model: text('aiModel', 80) });
       return sendJson(res, 200, { bill });
     }
