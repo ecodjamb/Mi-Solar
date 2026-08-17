@@ -35,6 +35,15 @@ function dateAdd(date, days) {
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
 }
 
+function nextMonthSameDay(date) {
+  const [year, month, day] = date.split('-').map(Number);
+  return new Date(Date.UTC(year, month, day)).toISOString().slice(0, 10);
+}
+
+function todayChile() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: SITE_TZ });
+}
+
 function zonedParts(date) {
   return Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
     timeZone: SITE_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
@@ -72,7 +81,9 @@ async function theoreticalGrid(deviceSn, periodStart, periodEnd) {
   const expectedHours = Math.max(1, (Date.parse(end) - Date.parse(start)) / 3_600_000);
   return {
     kwh: Number(gridKwh.toFixed(3)),
-    coveragePct: Number(Math.min(100, coveredHours / expectedHours * 100).toFixed(1))
+    coveragePct: Number(Math.min(100, coveredHours / expectedHours * 100).toFixed(1)),
+    coveredHours: Number(coveredHours.toFixed(3)),
+    expectedHours
   };
 }
 
@@ -125,7 +136,7 @@ function normalize(row, theoretical = null, documents = []) {
     source: row.source || 'manual',
     aiConfidence: row.ai_confidence == null ? null : Number(row.ai_confidence),
     documentCount: documents.length,
-    documents: documents.map((document) => ({ pageNumber: Number(document.page_number), originalName: document.original_name, mimeType: document.mime_type, bytes: Number(document.bytes || 0) })),
+    documents: documents.map((document) => ({ id: Number(document.id), pageNumber: Number(document.page_number), originalName: document.original_name, mimeType: document.mime_type, bytes: Number(document.bytes || 0) })),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -135,8 +146,57 @@ export async function listUtilityBills(deviceSn) {
   const siteId = await ensureSite(deviceSn);
   const rows = await rest(`utility_bills?site_id=eq.${siteId}&select=*&order=period_end.desc,created_at.desc`) || [];
   const ids = rows.map((row) => row.id);
-  const documents = ids.length ? await rest(`utility_bill_documents?bill_id=in.(${ids.join(',')})&select=bill_id,page_number,original_name,mime_type,bytes&order=page_number.asc`) || [] : [];
+  const documents = ids.length ? await rest(`utility_bill_documents?bill_id=in.(${ids.join(',')})&select=id,bill_id,page_number,original_name,mime_type,bytes&order=page_number.asc`) || [] : [];
   return Promise.all(rows.map(async (row) => normalize(row, await theoreticalGrid(deviceSn, row.period_start, row.period_end), documents.filter((document) => document.bill_id === row.id))));
+}
+
+export async function projectUtilityBill(deviceSn, bills = null, unitRateClp = 250) {
+  const list = bills || await listUtilityBills(deviceSn);
+  const latest = list[0];
+  if (!latest) return null;
+  const periodStart = dateAdd(latest.periodEnd, 1);
+  const periodEnd = nextMonthSameDay(periodStart);
+  const today = todayChile();
+  if (periodStart > today) return null;
+  const observedThrough = today < periodEnd ? today : periodEnd;
+  const observed = await theoreticalGrid(deviceSn, periodStart, observedThrough);
+  const totalHours = Math.max(1, (Date.parse(chileMidnightUtc(dateAdd(periodEnd, 1))) - Date.parse(chileMidnightUtc(periodStart))) / 3_600_000);
+  const projectedGridKwh = observed.coveredHours > 0 ? observed.kwh / observed.coveredHours * totalHours : 0;
+  return {
+    periodStart,
+    periodEnd,
+    observedThrough,
+    observedGridKwh: observed.kwh,
+    projectedGridKwh: Number(projectedGridKwh.toFixed(2)),
+    projectedAmountClp: Math.round(projectedGridKwh * unitRateClp),
+    unitRateClp,
+    archiveCoveragePct: observed.coveragePct,
+    coveredHours: observed.coveredHours,
+    calculatedAt: new Date().toISOString()
+  };
+}
+
+export async function readUtilityBillDocument(deviceSn, documentId) {
+  const siteId = await ensureSite(deviceSn);
+  const documents = await rest(`utility_bill_documents?id=eq.${Number(documentId)}&select=id,bill_id,storage_path,original_name,mime_type&limit=1`) || [];
+  const document = documents[0];
+  if (!document) throw Object.assign(new Error('La fotografía de la cuenta no existe.'), { status: 404 });
+  const bills = await rest(`utility_bills?id=eq.${document.bill_id}&site_id=eq.${siteId}&select=id&limit=1`) || [];
+  if (!bills[0]) throw Object.assign(new Error('La fotografía no pertenece a esta instalación.'), { status: 404 });
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_PUBLISHABLE_KEY;
+  const appKey = process.env.MISOLAR_DB_KEY;
+  if (!url || !key || !appKey) throw Object.assign(new Error('El almacenamiento privado no está configurado.'), { status: 503 });
+  const storagePath = String(document.storage_path).split('/').map(encodeURIComponent).join('/');
+  const response = await fetch(`${url}/storage/v1/object/utility-bill-pages/${storagePath}`, {
+    headers: { apikey: key, Authorization: `Bearer ${key}`, 'x-misolar-key': appKey }
+  });
+  if (!response.ok) throw Object.assign(new Error('No fue posible abrir la fotografía respaldada.'), { status: response.status === 404 ? 404 : 502 });
+  return {
+    buffer: Buffer.from(await response.arrayBuffer()),
+    mimeType: document.mime_type || response.headers.get('content-type') || 'image/jpeg',
+    originalName: document.original_name || `cuenta-${document.id}.jpg`
+  };
 }
 
 async function uploadDocument(siteId, billId, image, pageNumber) {

@@ -26,6 +26,7 @@ assert.equal(calculateEnergyRate(18_600, 100, 2_400), 210);
 assert.notEqual(calculateEnergyRate(18_600, 100), 999.99);
 assert.equal(calculateEnergyRate(null, 100), null);
 assert.equal(billPeriodDays('2026-07-23', '2026-08-21'), 30);
+assert.equal(billPeriodDays('2026-03-21', '2026-04-22'), 33);
 assert.deepEqual(estimateBillConsumption({ reportedKwh: null, estimatedKwh: null, amountClp: 50_000, theoreticalKwh: 180 }), { kwh: 200, status: 'estimated', method: 'amount-divided-by-250' });
 assert.deepEqual(estimateBillConsumption({ reportedKwh: null, estimatedKwh: null, amountClp: 0, theoreticalKwh: 180 }), { kwh: 180, status: 'estimated', method: 'misolar-archive' });
 assert.deepEqual(estimateBillConsumption({ reportedKwh: null, estimatedKwh: null, amountClp: 0, theoreticalKwh: 0 }), { kwh: 1, status: 'estimated', method: 'minimum-fallback' });

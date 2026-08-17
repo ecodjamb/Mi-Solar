@@ -15,7 +15,7 @@ import { runDueAutomations } from '../server/automationRunner.js';
 import { runNotificationMonitors } from '../server/notificationMonitor.js';
 import { automationSiteProfile } from '../server/siteProfiles.js';
 import { forecastForDate, listForecastRevisions, lockTomorrowForecasts } from '../server/solarProjection.js';
-import { listUtilityBills, saveUtilityBill } from '../server/utilityBills.js';
+import { listUtilityBills, projectUtilityBill, readUtilityBillDocument, saveUtilityBill } from '../server/utilityBills.js';
 import { extractUtilityBill, validateBillImages } from '../server/utilityBillAi.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
@@ -160,7 +160,7 @@ export default async function handler(req, res) {
   try {
     if (method === 'GET' && route === 'health') {
       const push = pushConfiguration();
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.21.1', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.21.2', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -571,6 +571,19 @@ export default async function handler(req, res) {
       return sendJson(res, 200, { list: stored.rows, total: stored.rows.length, source: 'misolar-archive', resolution: stored.resolution, configured: stored.configured });
     }
 
+    const utilityBillDocument = route.match(/^devices\/([^/]+)\/utility-bills\/documents\/(\d+)$/);
+    if (method === 'GET' && utilityBillDocument) {
+      requireSession(req);
+      const sn = decodeURIComponent(utilityBillDocument[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      const document = await readUtilityBillDocument(sn, utilityBillDocument[2]);
+      res.statusCode = 200;
+      res.setHeader('Content-Type', document.mimeType);
+      res.setHeader('Cache-Control', 'private, max-age=300');
+      res.setHeader('Content-Disposition', `inline; filename="${String(document.originalName).replace(/[^a-zA-Z0-9._-]/g, '_')}"`);
+      return res.end(document.buffer);
+    }
+
     const utilityBillExtract = route.match(/^devices\/([^/]+)\/utility-bills\/extract$/);
     if (method === 'POST' && utilityBillExtract) {
       requireSession(req);
@@ -585,7 +598,10 @@ export default async function handler(req, res) {
       requireSession(req);
       const sn = decodeURIComponent(utilityBills[1]);
       if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
-      if (method === 'GET') return sendJson(res, 200, { list: await listUtilityBills(sn) });
+      if (method === 'GET') {
+        const list = await listUtilityBills(sn);
+        return sendJson(res, 200, { list, projection: await projectUtilityBill(sn, list) });
+      }
       const body = parseBody(req);
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
       const fallbackStart = new Date(Date.parse(`${today}T12:00:00Z`) - 29 * 86_400_000).toISOString().slice(0, 10);
