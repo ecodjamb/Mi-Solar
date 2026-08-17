@@ -178,7 +178,7 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
       const permission = await Notification.requestPermission();
       if (permission !== 'granted') throw new Error(permission === 'denied' ? 'El permiso está bloqueado. Ve a Ajustes del iPhone → Notificaciones → Mi Solar y actívalo; luego vuelve a probar.' : 'El permiso no fue aceptado. Presiona nuevamente y selecciona Permitir.');
       setNotificationStage('Preparando el servicio…');
-      const registration = await navigator.serviceWorker.register('/sw.js?v=8.21.7', {scope:'/'});
+      const registration = await navigator.serviceWorker.register('/sw.js?v=8.21.8', {scope:'/'});
       await registration.update().catch(()=>undefined);
       const ready = await Promise.race([navigator.serviceWorker.ready,new Promise<never>((_,reject)=>window.setTimeout(()=>reject(new Error('El servicio de notificaciones no terminó de iniciar. Cierra y vuelve a abrir Mi Solar desde el icono.')),12000))]);
       const { publicKey } = await api<{ publicKey: string }>('push/public-key');

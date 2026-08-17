@@ -12,6 +12,7 @@ type RangeDays = 7 | 15 | 30 | 90;
 type AutomationSummary = { thresholdKwh: number };
 type StoredForecast = { date: string; forecastKwh: number; radiationKwhM2: number; locked: boolean; lockedAt: string | null };
 type ForecastRevision = { date: string; forecastKwh: number; radiationKwhM2: number; observedAt: string };
+type LiveForecast = { forecastKwh: number; radiationKwhM2: number; observedAt?: string };
 type StoredForecastResponse = { today: StoredForecast; tomorrow: StoredForecast; revisions?: Record<string, ForecastRevision[]>; lockTimeChile: string } | null;
 
 const RANGE_OPTIONS: Array<{ value: RangeDays; label: string }> = [
@@ -53,9 +54,9 @@ function radiationForDate(radiation: RadiationDay[], date: string) {
   return radiation.find((item) => item.date === date);
 }
 
-function ForecastRevisionList({ items = [], officialKwh }: { items?: ForecastRevision[]; officialKwh: number }) {
-  if (!items.length) return <p className="forecast-revisions-empty">Sin variaciones posteriores registradas todavía.</p>;
-  return <div className="forecast-revisions"><small>Seguimiento informativo · fuera del cálculo</small>{items.slice(-5).reverse().map((item) => {
+function ForecastRevisionList({ items = [], officialKwh, liveForecast }: { items?: ForecastRevision[]; officialKwh: number; liveForecast?: LiveForecast | null }) {
+  if (!items.length && !liveForecast) return <p className="forecast-revisions-empty">Sin variaciones posteriores registradas todavía.</p>;
+  return <div className="forecast-revisions"><small>Seguimiento informativo · fuera del cálculo</small>{liveForecast ? <span className="forecast-revision-live"><time>Ahora</time><b>{liveForecast.forecastKwh.toFixed(2)} kWh</b><em>Open‑Meteo en línea · radiación {liveForecast.radiationKwhM2.toFixed(2)} kWh/m²{liveForecast.observedAt ? ` · ${new Date(liveForecast.observedAt).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` : ''}</em></span> : null}{items.slice(-5).reverse().map((item) => {
     const delta = item.forecastKwh - officialKwh;
     const time = new Date(item.observedAt).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
     return <span key={`${item.observedAt}-${item.forecastKwh}`}><time>{time}</time><b>{item.forecastKwh.toFixed(2)} kWh</b><em>{delta === 0 ? 'sin cambio' : `${delta > 0 ? '+' : ''}${delta.toFixed(2)} kWh`} · radiación {item.radiationKwhM2.toFixed(2)}</em></span>;
@@ -84,6 +85,9 @@ export default function SolarForecastPage({ actual, hourlyActual, weather, model
     return stored ? { ...item, value: stored.forecastKwh } : item;
   }), [storedByDate, theoretical]);
   const current = displayedTheoretical.find((item) => item.date === todayKey);
+  const currentRadiation = radiationForDate(radiation, todayKey);
+  const currentLiveForecast = currentRadiation ? { forecastKwh: theoreticalDayKwh(currentRadiation.shortwaveKwhM2, model, true, todayKey), radiationKwhM2: currentRadiation.shortwaveKwhM2, observedAt: weather.updatedAt } : null;
+  const maximumDailyPotential = currentRadiation ? currentRadiation.shortwaveKwhM2 * model.installedKwp : null;
   const currentStored = storedForecast?.today?.date === todayKey ? storedForecast.today : null;
   const currentCutoff = currentStored?.lockedAt ? new Date(currentStored.lockedAt).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) : null;
   const currentSeason = seasonForDate(todayKey);
@@ -138,8 +142,8 @@ export default function SolarForecastPage({ actual, hourlyActual, weather, model
     <header className="page-heading"><div><small>Radiación y rendimiento · {siteLabel}</small><h1>Histórico y proyección solar</h1><p>El modelo se calibra con días completos respaldados en Mi Solar, la radiación meteorológica local y la estación del año. Aquí se muestra la generación solar bruta; {siteKey === 'puerto-montt' ? 'el aporte efectivo a la casa separa paneles, batería y generador de respaldo.' : 'el aporte solar efectivo a la casa y los ahorros se calculan aparte usando solamente red activa (statusGrid = 1).'}</p></div><div className="provider-chip">Fuente: {weather.provider || 'Sin conexión meteorológica'}</div></header>
 
     <section className="forecast-kpis">
-      <article className="panel stat forecast-today-primary"><small>Producción prevista para hoy</small><strong>{current ? `${current.value.toFixed(2)} kWh` : '—'}</strong><p>Estimación oficial usada en todos los cálculos.</p><em>{currentCutoff ? `🔒 Corte fijado el ${currentCutoff} h` : `Cálculo vigente · corte programado el día anterior a las ${storedForecast?.lockTimeChile || '21:35'} h`}</em>{currentStored?.locked?<ForecastRevisionList items={storedForecast?.revisions?.[todayKey]} officialKwh={currentStored.forecastKwh}/>:null}</article>
-      <article className="panel stat"><small>Potencia instalada</small><strong>{model.installedKwp.toFixed(2)} kWp</strong><p>Capacidad nominal total de los paneles instalados.</p></article>
+      <article className="panel stat forecast-today-primary"><small>Producción prevista para hoy</small><strong>{current ? `${current.value.toFixed(2)} kWh` : '—'}</strong><p>Estimación oficial usada en todos los cálculos.</p><em>{currentCutoff ? `🔒 Corte fijado el ${currentCutoff} h` : `Cálculo vigente · corte programado el día anterior a las ${storedForecast?.lockTimeChile || '21:35'} h`}</em><ForecastRevisionList items={storedForecast?.revisions?.[todayKey]} officialKwh={currentStored?.forecastKwh ?? current?.value ?? 0} liveForecast={currentLiveForecast}/></article>
+      <article className="panel stat"><small>Potencial máximo solar de hoy</small><strong>{maximumDailyPotential == null ? '—' : `${maximumDailyPotential.toFixed(2)} kWh`}</strong><p>Horas solares equivalentes previstas × potencia nominal: referencia ideal, sin sombras ni pérdidas históricas.</p></article>
       <article className="panel stat"><small>Factor histórico real</small><strong>{Math.round(model.factor * 100)}%</strong><p>Compara la energía realmente producida con la radiación disponible y la potencia instalada. Usa {model.sampleDays} días completos.</p></article>
       <article className="panel stat"><small>Ajuste por rendimiento de hoy</small><strong>{Math.round(model.liveCorrection * 100)}%</strong><p>Corrige solo la estimación de hoy según su producción observada, incluyendo nubosidad, orientación y sombras.</p></article>
       <article className="panel stat"><small>Error histórico mediano</small><strong>{model.sampleDays ? `${model.medianErrorPct.toFixed(1)}%` : '—'}</strong><p>Diferencia típica entre lo proyectado y lo realmente generado; mientras más bajo, más preciso es el modelo.</p></article>
