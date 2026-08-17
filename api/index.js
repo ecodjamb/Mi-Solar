@@ -16,6 +16,7 @@ import { runNotificationMonitors } from '../server/notificationMonitor.js';
 import { automationSiteProfile } from '../server/siteProfiles.js';
 import { forecastForDate, listForecastRevisions, lockTomorrowForecasts } from '../server/solarProjection.js';
 import { listUtilityBills, saveUtilityBill } from '../server/utilityBills.js';
+import { extractUtilityBill, validateBillImages } from '../server/utilityBillAi.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
   res.statusCode = statusCode;
@@ -159,7 +160,7 @@ export default async function handler(req, res) {
   try {
     if (method === 'GET' && route === 'health') {
       const push = pushConfiguration();
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.19.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.20.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -570,6 +571,15 @@ export default async function handler(req, res) {
       return sendJson(res, 200, { list: stored.rows, total: stored.rows.length, source: 'misolar-archive', resolution: stored.resolution, configured: stored.configured });
     }
 
+    const utilityBillExtract = route.match(/^devices\/([^/]+)\/utility-bills\/extract$/);
+    if (method === 'POST' && utilityBillExtract) {
+      requireSession(req);
+      const sn = decodeURIComponent(utilityBillExtract[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      const images = validateBillImages(parseBody(req).images);
+      return sendJson(res, 200, await extractUtilityBill(images));
+    }
+
     const utilityBills = route.match(/^devices\/([^/]+)\/utility-bills$/);
     if (utilityBills && (method === 'GET' || method === 'POST')) {
       requireSession(req);
@@ -579,12 +589,19 @@ export default async function handler(req, res) {
       const body = parseBody(req);
       const periodStart = String(body.periodStart || '');
       const periodEnd = String(body.periodEnd || '');
-      const previousReading = Number(body.previousReading);
-      const currentReading = Number(body.currentReading);
+      const previousReading = body.previousReading === '' || body.previousReading == null ? null : Number(body.previousReading);
+      const currentReading = body.currentReading === '' || body.currentReading == null ? null : Number(body.currentReading);
+      const billedKwh = body.billedKwh === '' || body.billedKwh == null ? (previousReading != null && currentReading != null ? currentReading - previousReading : NaN) : Number(body.billedKwh);
       const amountClp = Number(body.amountClp);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd) || periodEnd < periodStart) return sendJson(res, 400, { error: 'El período de la cuenta no es válido.' });
-      if (![previousReading, currentReading, amountClp].every(Number.isFinite) || previousReading < 0 || currentReading < previousReading || amountClp < 0) return sendJson(res, 400, { error: 'Las lecturas y el monto de la cuenta no son válidos.' });
-      const bill = await saveUtilityBill(sn, { periodStart, periodEnd, previousReading, currentReading, amountClp });
+      if (!Number.isFinite(billedKwh) || billedKwh <= 0 || !Number.isFinite(amountClp) || amountClp < 0 || (previousReading != null && (!Number.isFinite(previousReading) || previousReading < 0)) || (currentReading != null && (!Number.isFinite(currentReading) || currentReading < 0)) || (previousReading != null && currentReading != null && currentReading < previousReading)) return sendJson(res, 400, { error: 'El consumo, las lecturas o el monto de la cuenta no son válidos.' });
+      const images = Array.isArray(body.images) && body.images.length ? validateBillImages(body.images) : [];
+      const text = (name, max = 240) => body[name] == null ? null : String(body[name]).trim().slice(0, max) || null;
+      const optionalNumber = (name) => body[name] === '' || body[name] == null ? null : Number(body[name]);
+      const details = { issueDate: text('issueDate', 10), dueDate: text('dueDate', 10), customerNumber: text('customerNumber', 80), meterNumber: text('meterNumber', 80), tariffName: text('tariffName', 100), invoiceNumber: text('invoiceNumber', 100), serviceAddress: text('serviceAddress', 300), fixedChargeClp: optionalNumber('fixedChargeClp'), energyChargeClp: optionalNumber('energyChargeClp'), otherChargesClp: optionalNumber('otherChargesClp'), taxesClp: optionalNumber('taxesClp') };
+      if ([details.issueDate, details.dueDate].some((value) => value && !/^\d{4}-\d{2}-\d{2}$/.test(value))) return sendJson(res, 400, { error: 'La fecha de emisión o vencimiento no es válida.' });
+      if (Object.values(details).filter((value) => typeof value === 'number').some((value) => !Number.isFinite(value) || value < 0)) return sendJson(res, 400, { error: 'Uno de los cargos adicionales no es válido.' });
+      const bill = await saveUtilityBill(sn, { periodStart, periodEnd, previousReading, currentReading, billedKwh, amountClp, ...details }, images, { extracted: body.aiExtraction && typeof body.aiExtraction === 'object' ? body.aiExtraction : {}, confidence: optionalNumber('aiConfidence'), model: text('aiModel', 80) });
       return sendJson(res, 200, { bill });
     }
 

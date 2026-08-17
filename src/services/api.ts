@@ -8,7 +8,7 @@ function sleep(ms: number) {
 
 async function executeOnce<T>(path: string, options: RequestInit = {}): Promise<T> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 30000);
+  const timeout = window.setTimeout(() => controller.abort(), path.endsWith('/utility-bills/extract') ? 60_000 : 30_000);
   try {
     const response = await fetch(`/api/${path}`, {
       credentials: 'same-origin',

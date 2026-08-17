@@ -1,0 +1,95 @@
+const BILL_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    provider: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    documentType: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    periodStart: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    periodEnd: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    issueDate: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    dueDate: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    previousReading: { anyOf: [{ type: 'number' }, { type: 'null' }] },
+    currentReading: { anyOf: [{ type: 'number' }, { type: 'null' }] },
+    billedKwh: { anyOf: [{ type: 'number' }, { type: 'null' }] },
+    amountClp: { anyOf: [{ type: 'number' }, { type: 'null' }] },
+    customerNumber: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    meterNumber: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    tariffName: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    invoiceNumber: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    serviceAddress: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    fixedChargeClp: { anyOf: [{ type: 'number' }, { type: 'null' }] },
+    energyChargeClp: { anyOf: [{ type: 'number' }, { type: 'null' }] },
+    otherChargesClp: { anyOf: [{ type: 'number' }, { type: 'null' }] },
+    taxesClp: { anyOf: [{ type: 'number' }, { type: 'null' }] },
+    confidence: { type: 'number' },
+    warnings: { type: 'array', items: { type: 'string' } }
+  },
+  required: [
+    'provider', 'documentType', 'periodStart', 'periodEnd', 'issueDate', 'dueDate',
+    'previousReading', 'currentReading', 'billedKwh', 'amountClp', 'customerNumber',
+    'meterNumber', 'tariffName', 'invoiceNumber', 'serviceAddress', 'fixedChargeClp',
+    'energyChargeClp', 'otherChargesClp', 'taxesClp', 'confidence', 'warnings'
+  ]
+};
+
+function outputText(payload) {
+  if (typeof payload?.output_text === 'string') return payload.output_text;
+  for (const item of payload?.output || []) {
+    for (const content of item?.content || []) {
+      if (content?.type === 'output_text' && typeof content.text === 'string') return content.text;
+    }
+  }
+  return '';
+}
+
+function validImage(image) {
+  return image && typeof image.dataUrl === 'string' && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(image.dataUrl);
+}
+
+export function validateBillImages(images) {
+  if (!Array.isArray(images) || images.length < 1 || images.length > 4) throw Object.assign(new Error('Selecciona entre una y cuatro fotografías de la cuenta.'), { status: 400 });
+  let totalBytes = 0;
+  for (const image of images) {
+    if (!validImage(image)) throw Object.assign(new Error('Una de las fotografías no tiene un formato válido.'), { status: 400 });
+    const bytes = Math.floor((image.dataUrl.length - image.dataUrl.indexOf(',') - 1) * 0.75);
+    if (bytes > 1_200_000) throw Object.assign(new Error('Cada fotografía debe pesar menos de 1,2 MB después de optimizarla.'), { status: 413 });
+    totalBytes += bytes;
+  }
+  if (totalBytes > 2_800_000) throw Object.assign(new Error('Las fotografías superan el límite conjunto de 2,8 MB.'), { status: 413 });
+  return images;
+}
+
+export async function extractUtilityBill(images) {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) throw Object.assign(new Error('La lectura inteligente todavía no está configurada.'), { status: 503 });
+  validateBillImages(images);
+  const content = [{
+    type: 'input_text',
+    text: `Analiza todas las imágenes como páginas de una sola cuenta eléctrica chilena. Extrae únicamente información visible y consolida datos repetidos entre páginas. No inventes. Usa fechas ISO YYYY-MM-DD. Los montos deben ser números en pesos chilenos sin separadores. billedKwh es el consumo de energía facturado del período, no una lectura ni un precio. amountClp es el total final a pagar. Si un campo no se ve con certeza, devuelve null y explica el motivo en warnings. confidence debe estar entre 0 y 1.`
+  }, ...images.map((image) => ({ type: 'input_image', image_url: image.dataUrl, detail: 'high' }))];
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: process.env.OPENAI_BILL_MODEL || 'gpt-5.4-mini',
+      input: [{ role: 'user', content }],
+      store: false,
+      text: { format: { type: 'json_schema', name: 'chilean_electricity_bill', strict: true, schema: BILL_SCHEMA } },
+      max_output_tokens: 1800
+    })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = payload?.error?.message || `OpenAI HTTP ${response.status}`;
+    throw Object.assign(new Error(`No fue posible leer la cuenta: ${message}`), { status: response.status === 429 ? 429 : 502 });
+  }
+  const text = outputText(payload);
+  if (!text) throw Object.assign(new Error('La IA no devolvió datos legibles para esta cuenta.'), { status: 422 });
+  try {
+    const extracted = JSON.parse(text);
+    extracted.confidence = Math.max(0, Math.min(1, Number(extracted.confidence || 0)));
+    return { extracted, model: payload.model || process.env.OPENAI_BILL_MODEL || 'gpt-5.4-mini', responseId: payload.id || null };
+  } catch {
+    throw Object.assign(new Error('La IA respondió, pero el formato de los datos no fue válido.'), { status: 502 });
+  }
+}

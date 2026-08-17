@@ -5,8 +5,14 @@ import { calculateVrt, md5 } from '../server/tumcapp.js';
 import { canonicalQuery, signTuyaRequest } from '../server/tuya.js';
 import { buildSettingsCommands, parseInverterSettings, SETTINGS_PRESETS, settingCommandConfirmed, settingsConfirmed } from '../server/isolarSettings.js';
 import { automationDueNow, automationNotificationMessage } from '../server/automationRunner.js';
+import { validateBillImages } from '../server/utilityBillAi.js';
 
 assert.equal(md5('demo-password'), '4b4d9529148d8d9440d7e20c78287f69');
+const testBillImage = { name: 'pagina.jpg', dataUrl: 'data:image/jpeg;base64,YQ==' };
+assert.equal(validateBillImages([testBillImage]).length, 1);
+assert.throws(() => validateBillImages([]), /una y cuatro/);
+assert.throws(() => validateBillImages(Array(5).fill(testBillImage)), /una y cuatro/);
+assert.throws(() => validateBillImages([{ dataUrl: 'data:text/plain;base64,YQ==' }]), /formato válido/);
 
 // Synthetic, non-sensitive vectors generated from the algorithm extracted from i.Solar 2.4.0.
 assert.equal(
