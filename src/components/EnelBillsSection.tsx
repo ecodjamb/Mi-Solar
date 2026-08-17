@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BarChart3, CalendarRange, CheckCircle2, ChevronDown, CircleDollarSign, FileImage, FilePlus2, Gauge, Save, Sparkles, Trash2, Upload, X } from 'lucide-react';
+import { BarChart3, CalendarRange, CheckCircle2, ChevronDown, CircleDollarSign, FileImage, FilePlus2, Gauge, Pencil, Save, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import { api } from '../services/api';
 import { clp, formatSiteDate, kwh } from '../utils/energy';
 import EChart from './EChart';
@@ -34,6 +34,16 @@ function defaultDraft() {
   const periodEnd = formatSiteDate();
   return { periodStart: addDays(periodEnd, -30), periodEnd, previousReading: '', currentReading: '', billedKwh: '', estimatedKwh: '', amountClp: '', issueDate: '', dueDate: '', customerNumber: '', meterNumber: '', tariffName: '', invoiceNumber: '', serviceAddress: '', fixedChargeClp: '', energyChargeClp: '', transportChargeClp: '', otherChargesClp: '', taxesClp: '' };
 }
+type BillDraft = ReturnType<typeof defaultDraft>;
+function draftFromBill(bill: UtilityBill): BillDraft {
+  return {
+    periodStart: bill.periodStart, periodEnd: bill.periodEnd, previousReading: textValue(bill.previousReading), currentReading: textValue(bill.currentReading),
+    billedKwh: textValue(bill.billedKwh), estimatedKwh: '', amountClp: textValue(bill.amountClp), issueDate: textValue(bill.issueDate), dueDate: textValue(bill.dueDate),
+    customerNumber: textValue(bill.customerNumber), meterNumber: textValue(bill.meterNumber), tariffName: textValue(bill.tariffName), invoiceNumber: textValue(bill.invoiceNumber),
+    serviceAddress: textValue(bill.serviceAddress), fixedChargeClp: textValue(bill.fixedChargeClp), energyChargeClp: textValue(bill.energyChargeClp), transportChargeClp: textValue(bill.transportChargeClp),
+    otherChargesClp: textValue(bill.otherChargesClp), taxesClp: textValue(bill.taxesClp)
+  };
+}
 function dateLabel(value: string) { return new Date(`${value}T12:00:00`).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' }); }
 function monthLabel(value: string) { return new Date(`${value}T12:00:00`).toLocaleDateString('es-CL', { month: 'long', year: 'numeric' }); }
 function dataUrl(blob: Blob) { return new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(blob); }); }
@@ -63,6 +73,10 @@ export default function EnelBillsSection({ deviceSn, siteLabel }: { deviceSn: st
   const [extracting, setExtracting] = useState(false);
   const [message, setMessage] = useState('');
   const [chartFilter, setChartFilter] = useState('12m');
+  const [editingBill, setEditingBill] = useState<UtilityBill | null>(null);
+  const [editDraft, setEditDraft] = useState<BillDraft | null>(null);
+  const [editConsumptionStatus, setEditConsumptionStatus] = useState<'actual'|'estimated'>('actual');
+  const [editSaving, setEditSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const readingKwh = draft.previousReading !== '' && draft.currentReading !== '' ? Math.max(0, Number(draft.currentReading) - Number(draft.previousReading)) : 0;
   const actualKwh = Number(draft.billedKwh || 0) > 0 ? Number(draft.billedKwh) : readingKwh;
@@ -104,6 +118,8 @@ export default function EnelBillsSection({ deviceSn, siteLabel }: { deviceSn: st
       ]
     };
   }, [chartBills]);
+  const chartSpendClp = useMemo(() => chartBills.reduce((sum, bill) => sum + bill.amountClp, 0), [chartBills]);
+  const chartSpendLabel = /^\d{4}$/.test(chartFilter) ? `Gasto total en electricidad · ${chartFilter}` : chartFilter === '6m' ? 'Gasto total · últimos 6 meses' : 'Gasto total · últimos 12 meses';
 
   async function chooseFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -140,10 +156,30 @@ export default function EnelBillsSection({ deviceSn, siteLabel }: { deviceSn: st
     finally { setSaving(false); }
   }
 
+  function beginEdit(bill: UtilityBill) {
+    setEditingBill(bill); setEditDraft(draftFromBill(bill)); setEditConsumptionStatus(bill.isEstimated ? 'estimated' : 'actual'); setMessage(`Editando la cuenta de ${monthLabel(bill.periodEnd)}.`);
+  }
+
+  async function saveEdit() {
+    if (!editingBill || !editDraft) return;
+    setEditSaving(true); setMessage('Guardando la corrección y recalculando el período…');
+    try {
+      const numberOrNull = (value: string) => value === '' ? null : Number(value);
+      const result = await api<{ bill: UtilityBill }>(`devices/${deviceSn}/utility-bills/${editingBill.id}`, { method: 'PATCH', body: JSON.stringify({
+        ...editDraft, previousReading: numberOrNull(editDraft.previousReading), currentReading: numberOrNull(editDraft.currentReading), billedKwh: numberOrNull(editDraft.billedKwh),
+        consumptionStatus: editConsumptionStatus, amountClp: Number(editDraft.amountClp || 0), fixedChargeClp: numberOrNull(editDraft.fixedChargeClp),
+        energyChargeClp: numberOrNull(editDraft.energyChargeClp), transportChargeClp: numberOrNull(editDraft.transportChargeClp), otherChargesClp: numberOrNull(editDraft.otherChargesClp), taxesClp: numberOrNull(editDraft.taxesClp)
+      }) });
+      setBills((current) => [result.bill, ...current.filter((bill) => bill.id !== result.bill.id)].sort((a, b) => b.periodEnd.localeCompare(a.periodEnd)));
+      setEditingBill(null); setEditDraft(null); setMessage(`Cuenta de ${monthLabel(result.bill.periodEnd)} corregida y guardada permanentemente.`);
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'No fue posible guardar la corrección.'); }
+    finally { setEditSaving(false); }
+  }
+
   const setField = (name: keyof ReturnType<typeof defaultDraft>, value: string) => setDraft((current) => ({ ...current, [name]: value }));
   return <section className="enel-bills-section">
     <header className="enel-bills-heading"><div><small>Control real frente a Mi Solar · {siteLabel}</small><h2>Cuentas eléctricas Enel</h2><p>Guarda siempre la cuenta y su monto final. La tarifa energética usa energía más traslado; deudas, intereses, descuentos e impuestos quedan registrados fuera del cálculo.</p></div><button type="button" className="primary-action" onClick={() => setOpen((value) => !value)}>{open ? <X/> : <FilePlus2/>}{open ? 'Cerrar' : 'Agregar cuenta'}</button></header>
-    {bills.length ? <section className="panel bill-consumption-history"><header><div><small>Historial mensual respaldado</small><h3><BarChart3/> Consumo facturado por período</h3></div><p><i/> Real <i/> Estimado</p></header><div className="bill-chart-filters" role="group" aria-label="Período del gráfico de cuentas"><button type="button" className={chartFilter === '6m' ? 'active' : ''} onClick={() => setChartFilter('6m')}>Últimos 6 meses</button><button type="button" className={chartFilter === '12m' ? 'active' : ''} onClick={() => setChartFilter('12m')}>Últimos 12 meses</button>{billYears.map((year) => <button type="button" className={chartFilter === year ? 'active' : ''} onClick={() => setChartFilter(year)} key={year}>{year}</button>)}</div>{chartBills.length ? <EChart option={consumptionChart}/> : <div className="chart-loading">No hay cuentas guardadas en este período.</div>}</section> : null}
+    {bills.length ? <section className="panel bill-consumption-history"><header><div><small>Historial mensual respaldado</small><h3><BarChart3/> Consumo facturado por período</h3></div><p><i/> Real <i/> Estimado</p></header><div className="bill-chart-filters" role="group" aria-label="Período del gráfico de cuentas"><button type="button" className={chartFilter === '12m' ? 'active' : ''} onClick={() => setChartFilter('12m')}>12 meses</button>{billYears.map((year) => <button type="button" className={chartFilter === year ? 'active' : ''} onClick={() => setChartFilter(year)} key={year}>{year}</button>)}<button type="button" className={chartFilter === '6m' ? 'active' : ''} onClick={() => setChartFilter('6m')}>6 meses</button></div>{chartBills.length ? <><EChart option={consumptionChart}/><div className="annual-electricity-total"><span><small>{chartSpendLabel}</small><strong>{clp(chartSpendClp)}</strong></span><em>{chartBills.length} {chartBills.length === 1 ? 'cuenta incluida' : 'cuentas incluidas'}</em></div></> : <div className="chart-loading">No hay cuentas guardadas en este período.</div>}</section> : null}
     {projection ? <section className="panel utility-bill-projection"><header><div><small>Cuenta todavía no ingresada · estimación Mi Solar</small><h3>Proyección cuenta {monthLabel(projection.periodEnd)}</h3><p>{dateLabel(projection.periodStart)} → {dateLabel(projection.periodEnd)}</p></div><strong>{clp(projection.projectedAmountClp)}</strong></header><div><span><small>Red activa acumulada</small><b>{kwh(projection.observedGridKwh)}</b><em>hasta {dateLabel(projection.observedThrough)}</em></span><span><small>Consumo proyectado del período</small><b>{kwh(projection.projectedGridKwh)}</b><em>Estimado</em></span><span><small>Cuenta proyectada</small><b>{clp(projection.projectedAmountClp)}</b><em>{clp(projection.unitRateClp)} × kWh</em></span></div><footer>Calculado con la red efectivamente activa respaldada en Mi Solar · cobertura {projection.archiveCoveragePct.toFixed(1)}% · actualizado {new Date(projection.calculatedAt).toLocaleString('es-CL')}</footer></section> : null}
     {open ? <section className="panel enel-bill-form">
       <header><div><small>Nueva cuenta · ingreso manual o inteligente</small><h3>Resumen de la cuenta</h3></div><strong>{kwh(calculatedKwh)}</strong></header>
@@ -166,13 +202,23 @@ export default function EnelBillsSection({ deviceSn, siteLabel }: { deviceSn: st
       <div className="enel-calculated"><span><Gauge/><small>Consumo del período {actualKwh > 0 ? 'real' : 'estimado'}</small><strong>{kwh(calculatedKwh)}</strong></span><span><CircleDollarSign/><small>Valor calculado por kWh</small><strong>{calculatedRate == null ? 'No se pudo calcular' : `${clp(calculatedRate)} / kWh`}</strong></span></div>
       <button type="button" className="primary-action enel-save" disabled={saving} onClick={() => void save()}><Save/>{saving ? 'Guardando…' : 'Guardar siempre la cuenta'}</button>
     </section> : null}
+    {editingBill && editDraft ? <section className="panel enel-bill-form bill-edit-form">
+      <header><div><small>Corrección manual · {monthLabel(editingBill.periodEnd)}</small><h3>Editar datos de la cuenta</h3></div><button type="button" className="bill-edit-close" onClick={() => { setEditingBill(null); setEditDraft(null); }}><X/> Cancelar</button></header>
+      <p className="bill-edit-help">Corrige cualquier dato que la IA haya interpretado mal. Al guardar se recalculan los días, el promedio, la tarifa y el comparativo con Mi Solar.</p>
+      <div className="enel-form-grid bill-details-grid">
+        <label>Desde<input type="date" value={editDraft.periodStart} max={editDraft.periodEnd} onChange={(event) => setEditDraft({ ...editDraft, periodStart: event.target.value })}/></label><label>Hasta<input type="date" value={editDraft.periodEnd} min={editDraft.periodStart} onChange={(event) => setEditDraft({ ...editDraft, periodEnd: event.target.value })}/></label><label>Consumo del período<input type="number" min="0" step="0.01" value={editDraft.billedKwh} onChange={(event) => setEditDraft({ ...editDraft, billedKwh: event.target.value })}/></label><label>Tipo de consumo<select value={editConsumptionStatus} onChange={(event) => setEditConsumptionStatus(event.target.value === 'estimated' ? 'estimated' : 'actual')}><option value="actual">Real</option><option value="estimated">Estimado</option></select></label><label>Total a pagar<input type="number" min="0" step="1" value={editDraft.amountClp} onChange={(event) => setEditDraft({ ...editDraft, amountClp: event.target.value })}/></label>
+        <label>Lectura anterior<input type="number" min="0" step="0.01" value={editDraft.previousReading} onChange={(event) => setEditDraft({ ...editDraft, previousReading: event.target.value })}/></label><label>Lectura actual<input type="number" min="0" step="0.01" value={editDraft.currentReading} onChange={(event) => setEditDraft({ ...editDraft, currentReading: event.target.value })}/></label><label>Emisión<input type="date" value={editDraft.issueDate} onChange={(event) => setEditDraft({ ...editDraft, issueDate: event.target.value })}/></label><label>Vencimiento<input type="date" value={editDraft.dueDate} onChange={(event) => setEditDraft({ ...editDraft, dueDate: event.target.value })}/></label>
+        <label>Cargo de energía<input type="number" min="0" step="1" value={editDraft.energyChargeClp} onChange={(event) => setEditDraft({ ...editDraft, energyChargeClp: event.target.value })}/></label><label>Costo de traslado<input type="number" min="0" step="1" value={editDraft.transportChargeClp} onChange={(event) => setEditDraft({ ...editDraft, transportChargeClp: event.target.value })}/></label><label>Cargo fijo<input type="number" min="0" step="1" value={editDraft.fixedChargeClp} onChange={(event) => setEditDraft({ ...editDraft, fixedChargeClp: event.target.value })}/></label><label>Otros cargos o descuentos<input type="number" step="1" value={editDraft.otherChargesClp} onChange={(event) => setEditDraft({ ...editDraft, otherChargesClp: event.target.value })}/></label>
+        <label>Impuestos<input type="number" min="0" step="1" value={editDraft.taxesClp} onChange={(event) => setEditDraft({ ...editDraft, taxesClp: event.target.value })}/></label><label>N.º cliente<input value={editDraft.customerNumber} onChange={(event) => setEditDraft({ ...editDraft, customerNumber: event.target.value })}/></label><label>N.º medidor<input value={editDraft.meterNumber} onChange={(event) => setEditDraft({ ...editDraft, meterNumber: event.target.value })}/></label><label>Tarifa<input value={editDraft.tariffName} onChange={(event) => setEditDraft({ ...editDraft, tariffName: event.target.value })}/></label><label>N.º documento<input value={editDraft.invoiceNumber} onChange={(event) => setEditDraft({ ...editDraft, invoiceNumber: event.target.value })}/></label><label className="bill-address">Dirección de suministro<input value={editDraft.serviceAddress} onChange={(event) => setEditDraft({ ...editDraft, serviceAddress: event.target.value })}/></label>
+      </div><button type="button" className="primary-action enel-save" disabled={editSaving} onClick={() => void saveEdit()}><Save/>{editSaving ? 'Guardando corrección…' : 'Guardar cambios'}</button>
+    </section> : null}
     {message ? <p className="enel-bill-message" role="status">{message}</p> : null}
     {loading ? <div className="chart-loading">Consultando cuentas guardadas…</div> : bills.length ? <>
       <div className="enel-bill-list">{bills.map((bill, index) => {
         const variancePct = bill.theoreticalGridKwh > 0 ? bill.differenceKwh / bill.theoreticalGridKwh * 100 : 0;
         return <details className="panel enel-bill-card" key={bill.id}>
           <summary className="bill-period-summary"><div><small>{index === 0 ? 'Cuenta más reciente' : 'Cuenta guardada'} · {bill.source === 'photo-ai' ? '✨ IA' : 'Manual'}</small><h3>{monthLabel(bill.periodEnd)}</h3><p>{dateLabel(bill.periodStart)} → {dateLabel(bill.periodEnd)} · {bill.periodDays} días</p></div><div className="bill-period-kpis"><span><small>Consumo del período</small><strong>{bill.billedKwh > 0 ? kwh(bill.billedKwh) : 'Pendiente'}</strong><em className={bill.isEstimated ? 'estimated' : 'actual'}>{bill.isEstimated ? 'Estimado' : 'Real'}</em></span><span><small>Promedio diario</small><strong>{bill.averageDailyKwh == null ? 'Pendiente' : `${bill.averageDailyKwh.toLocaleString('es-CL', { maximumFractionDigits: 2 })} kWh/día`}</strong></span><span><small>Total a pagar</small><strong>{clp(bill.amountClp)}</strong></span><ChevronDown/></div></summary>
-          <div className="bill-detail-body"><div className="enel-bill-kpis"><span><small>Consumo Enel</small><b>{bill.billedKwh > 0 ? kwh(bill.billedKwh) : 'Pendiente'}</b></span><span><small>Cálculo Mi Solar</small><b>{kwh(bill.theoreticalGridKwh)}</b></span><span><small>Diferencia</small><b className={Math.abs(variancePct) <= 10 ? 'good' : 'warn'}>{bill.differenceKwh >= 0 ? '+' : ''}{bill.differenceKwh.toFixed(2)} kWh · {variancePct >= 0 ? '+' : ''}{variancePct.toFixed(1)}%</b></span><span><small>Valor energía + traslado</small><b>{bill.effectiveRateClp == null ? 'Pendiente' : `${clp(bill.effectiveRateClp)} / kWh`}</b></span></div>
+          <div className="bill-detail-body"><div className="bill-detail-actions"><button type="button" onClick={() => beginEdit(bill)}><Pencil/> Editar datos</button></div><div className="enel-bill-kpis"><span><small>Consumo Enel</small><b>{bill.billedKwh > 0 ? kwh(bill.billedKwh) : 'Pendiente'}</b></span><span><small>Cálculo Mi Solar</small><b>{kwh(bill.theoreticalGridKwh)}</b></span><span><small>Diferencia</small><b className={Math.abs(variancePct) <= 10 ? 'good' : 'warn'}>{bill.differenceKwh >= 0 ? '+' : ''}{bill.differenceKwh.toFixed(2)} kWh · {variancePct >= 0 ? '+' : ''}{variancePct.toFixed(1)}%</b></span><span><small>Valor energía + traslado</small><b>{bill.effectiveRateClp == null ? 'Pendiente' : `${clp(bill.effectiveRateClp)} / kWh`}</b></span></div>
           <div className="bill-saved-formula"><span>Base tarifaria: <b>{bill.rateBaseClp == null ? 'Pendiente' : clp(bill.rateBaseClp)}</b></span><small>{`${bill.energyChargeClp == null ? 'Energía pendiente' : `Energía ${clp(bill.energyChargeClp)}`} · ${bill.transportChargeClp == null ? 'Traslado pendiente' : `Traslado ${clp(bill.transportChargeClp)}`}`}</small></div>
           <dl className="bill-account-details"><div><dt>Emisión</dt><dd>{bill.issueDate ? dateLabel(bill.issueDate) : 'Pendiente'}</dd></div><div><dt>Vencimiento</dt><dd>{bill.dueDate ? dateLabel(bill.dueDate) : 'Pendiente'}</dd></div><div><dt>N.º cliente</dt><dd>{bill.customerNumber || 'Pendiente'}</dd></div><div><dt>N.º medidor</dt><dd>{bill.meterNumber || 'Pendiente'}</dd></div><div><dt>Tarifa</dt><dd>{bill.tariffName || 'Pendiente'}</dd></div><div><dt>N.º documento</dt><dd>{bill.invoiceNumber || 'Pendiente'}</dd></div><div><dt>Cargo fijo</dt><dd>{bill.fixedChargeClp == null ? 'Pendiente' : clp(bill.fixedChargeClp)}</dd></div><div><dt>Otros cargos</dt><dd>{bill.otherChargesClp == null ? 'Pendiente' : clp(bill.otherChargesClp)}</dd></div><div><dt>Impuestos</dt><dd>{bill.taxesClp == null ? 'Pendiente' : clp(bill.taxesClp)}</dd></div><div className="wide"><dt>Dirección</dt><dd>{bill.serviceAddress || 'Pendiente'}</dd></div></dl>
           {bill.source === 'photo-ai' && bill.documents?.length ? <section className="saved-bill-pages"><header><FileImage/><div><strong>Fotografías analizadas por IA</strong><small>Respaldo privado asociado a esta cuenta</small></div></header><div>{bill.documents.map((document) => <figure key={document.id}><a href={`/api/devices/${encodeURIComponent(deviceSn)}/utility-bills/documents/${document.id}`} target="_blank" rel="noreferrer"><img loading="lazy" src={`/api/devices/${encodeURIComponent(deviceSn)}/utility-bills/documents/${document.id}`} alt={`Página ${document.pageNumber} de la cuenta de ${monthLabel(bill.periodEnd)}`}/></a><figcaption>Página {document.pageNumber}{document.originalName ? ` · ${document.originalName}` : ''}</figcaption></figure>)}</div></section> : null}

@@ -287,3 +287,58 @@ export async function saveUtilityBill(deviceSn, bill, images = [], ai = null) {
   }
   return { ...normalize(saved, theoretical, documents), documentWarnings };
 }
+
+export async function updateUtilityBill(deviceSn, billId, bill) {
+  const siteId = await ensureSite(deviceSn);
+  const existingRows = await rest(`utility_bills?id=eq.${Number(billId)}&site_id=eq.${siteId}&select=*&limit=1`) || [];
+  const existing = existingRows[0];
+  if (!existing) throw Object.assign(new Error('La cuenta que intentas editar no existe.'), { statusCode: 404 });
+
+  const theoretical = await theoreticalGrid(deviceSn, bill.periodStart, bill.periodEnd);
+  const readingKwh = bill.previousReading != null && bill.currentReading != null
+    ? Math.max(0, Number(bill.currentReading) - Number(bill.previousReading))
+    : null;
+  const enteredKwh = Number(bill.billedKwh) > 0 ? Number(bill.billedKwh) : readingKwh && readingKwh > 0 ? readingKwh : null;
+  const consumption = estimateBillConsumption({
+    reportedKwh: bill.consumptionStatus === 'actual' ? enteredKwh : null,
+    estimatedKwh: bill.consumptionStatus === 'estimated' ? enteredKwh : null,
+    amountClp: bill.amountClp,
+    theoreticalKwh: theoretical.kwh
+  });
+  const actual = bill.consumptionStatus === 'actual';
+  const aiExtraction = existing.ai_extraction && typeof existing.ai_extraction === 'object' ? existing.ai_extraction : {};
+  const rows = await rest(`utility_bills?id=eq.${Number(billId)}&site_id=eq.${siteId}`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({
+      period_start: bill.periodStart,
+      period_end: bill.periodEnd,
+      previous_reading: bill.previousReading,
+      current_reading: bill.currentReading,
+      reported_kwh: actual ? consumption.kwh : null,
+      estimated_kwh: actual ? null : consumption.kwh,
+      consumption_status: actual ? 'actual' : 'estimated',
+      estimate_method: actual ? 'reported' : consumption.method,
+      amount_clp: bill.amountClp,
+      issue_date: bill.issueDate || null,
+      due_date: bill.dueDate || null,
+      customer_number: bill.customerNumber || null,
+      meter_number: bill.meterNumber || null,
+      tariff_name: bill.tariffName || null,
+      invoice_number: bill.invoiceNumber || null,
+      service_address: bill.serviceAddress || null,
+      fixed_charge_clp: bill.fixedChargeClp,
+      energy_charge_clp: bill.energyChargeClp,
+      transport_charge_clp: bill.transportChargeClp,
+      other_charges_clp: bill.otherChargesClp,
+      taxes_clp: bill.taxesClp,
+      rate_method: bill.energyChargeClp != null ? 'energy-transport' : Number(bill.amountClp) > 0 ? 'total-amount' : 'unavailable',
+      theoretical_grid_kwh: theoretical.kwh,
+      archive_coverage_pct: theoretical.coveragePct,
+      ai_extraction: { ...aiExtraction, periodStart: bill.periodStart, periodEnd: bill.periodEnd, manuallyCorrectedAt: new Date().toISOString() },
+      updated_at: new Date().toISOString()
+    })
+  });
+  const documents = await rest(`utility_bill_documents?bill_id=eq.${Number(billId)}&select=id,bill_id,page_number,original_name,mime_type,bytes&order=page_number.asc`) || [];
+  return normalize(rows?.[0] || existing, theoretical, documents);
+}

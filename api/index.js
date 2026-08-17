@@ -15,7 +15,7 @@ import { runDueAutomations } from '../server/automationRunner.js';
 import { runNotificationMonitors } from '../server/notificationMonitor.js';
 import { automationSiteProfile } from '../server/siteProfiles.js';
 import { forecastForDate, listForecastRevisions, lockTomorrowForecasts } from '../server/solarProjection.js';
-import { listUtilityBills, projectUtilityBill, readUtilityBillDocument, saveUtilityBill } from '../server/utilityBills.js';
+import { listUtilityBills, projectUtilityBill, readUtilityBillDocument, saveUtilityBill, updateUtilityBill } from '../server/utilityBills.js';
 import { extractUtilityBill, validateBillImages } from '../server/utilityBillAi.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
@@ -160,7 +160,7 @@ export default async function handler(req, res) {
   try {
     if (method === 'GET' && route === 'health') {
       const push = pushConfiguration();
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.21.2', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.21.3', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -591,6 +591,39 @@ export default async function handler(req, res) {
       if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
       const images = validateBillImages(parseBody(req).images);
       return sendJson(res, 200, await extractUtilityBill(images));
+    }
+
+    const utilityBill = route.match(/^devices\/([^/]+)\/utility-bills\/(\d+)$/);
+    if (method === 'PATCH' && utilityBill) {
+      requireSession(req);
+      const sn = decodeURIComponent(utilityBill[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      const body = parseBody(req);
+      const date = (name) => /^\d{4}-\d{2}-\d{2}$/.test(String(body[name] || '')) ? String(body[name]) : null;
+      const periodStart = date('periodStart');
+      const periodEnd = date('periodEnd');
+      if (!periodStart || !periodEnd || periodStart > periodEnd) return sendJson(res, 400, { error: 'Revisa las fechas: el inicio debe ser anterior o igual al término.' });
+      const nullableNumber = (name, allowNegative = false) => {
+        if (body[name] === '' || body[name] == null) return null;
+        const value = Number(body[name]);
+        return Number.isFinite(value) && (allowNegative || value >= 0) ? value : null;
+      };
+      const text = (name, max = 240) => body[name] == null ? null : String(body[name]).trim().slice(0, max) || null;
+      const previousReading = nullableNumber('previousReading');
+      const currentReading = nullableNumber('currentReading');
+      if ((previousReading == null) !== (currentReading == null) || (previousReading != null && currentReading < previousReading)) return sendJson(res, 400, { error: 'Las lecturas deben ingresarse juntas y la lectura actual no puede ser menor.' });
+      const amountClp = nullableNumber('amountClp');
+      if (amountClp == null) return sendJson(res, 400, { error: 'El monto total debe ser un número válido.' });
+      const billedKwh = nullableNumber('billedKwh');
+      const result = await updateUtilityBill(sn, utilityBill[2], {
+        periodStart, periodEnd, previousReading, currentReading, billedKwh,
+        consumptionStatus: body.consumptionStatus === 'estimated' ? 'estimated' : 'actual', amountClp,
+        issueDate: date('issueDate'), dueDate: date('dueDate'), customerNumber: text('customerNumber', 80), meterNumber: text('meterNumber', 80),
+        tariffName: text('tariffName', 100), invoiceNumber: text('invoiceNumber', 100), serviceAddress: text('serviceAddress', 300),
+        fixedChargeClp: nullableNumber('fixedChargeClp'), energyChargeClp: nullableNumber('energyChargeClp'), transportChargeClp: nullableNumber('transportChargeClp'),
+        otherChargesClp: nullableNumber('otherChargesClp', true), taxesClp: nullableNumber('taxesClp')
+      });
+      return sendJson(res, 200, { bill: result });
     }
 
     const utilityBills = route.match(/^devices\/([^/]+)\/utility-bills$/);
