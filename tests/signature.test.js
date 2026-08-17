@@ -7,7 +7,7 @@ import { buildSettingsCommands, parseInverterSettings, SETTINGS_PRESETS, setting
 import { automationDueNow, automationNotificationMessage } from '../server/automationRunner.js';
 import { validateBillImages } from '../server/utilityBillAi.js';
 import { canonicalAutomationConditions } from '../server/automationStore.js';
-import { calculateEnergyRate } from '../server/utilityBills.js';
+import { billPeriodDays, calculateEnergyRate } from '../server/utilityBills.js';
 import { archiveAggregateHours } from '../server/archive.js';
 
 assert.equal(md5('demo-password'), '4b4d9529148d8d9440d7e20c78287f69');
@@ -22,8 +22,10 @@ const postgresJsonbCondition = { preset: 'sunny', maxKwh: 30, id: 'rule-1', dayO
 assert.deepEqual(canonicalAutomationConditions([postgresJsonbCondition]), canonicalAutomationConditions([requestedCondition]));
 assert.deepEqual(canonicalAutomationConditions([{ ...requestedCondition, minKwh: '15', dayOffset: '-1', runAtLocal: '21:35:00' }]), [requestedCondition]);
 assert.equal(calculateEnergyRate(18_600, 100), 186);
+assert.equal(calculateEnergyRate(18_600, 100, 2_400), 210);
 assert.notEqual(calculateEnergyRate(18_600, 100), 999.99);
 assert.equal(calculateEnergyRate(null, 100), null);
+assert.equal(billPeriodDays('2026-07-23', '2026-08-21'), 30);
 assert.equal(archiveAggregateHours({ coverage_hours: 10.5 }, 'day'), 10.5);
 assert.equal(archiveAggregateHours({ coverage_hours: 0.75 }, 'hour'), 0.75);
 assert.equal(archiveAggregateHours({}, 'hour'), 1);
