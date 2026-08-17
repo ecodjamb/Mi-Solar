@@ -30,6 +30,20 @@ function defaultConditions(row) {
   ];
 }
 
+export function canonicalAutomationConditions(conditions) {
+  if (!Array.isArray(conditions)) return [];
+  return conditions.map((condition) => ({
+    id: String(condition?.id || ''),
+    enabled: condition?.enabled !== false,
+    kind: condition?.kind,
+    minKwh: Number(condition?.minKwh ?? 0),
+    maxKwh: Number(condition?.maxKwh),
+    preset: condition?.preset,
+    runAtLocal: String(condition?.runAtLocal || '').slice(0, 5),
+    dayOffset: Number(condition?.dayOffset)
+  }));
+}
+
 function normalize(row, extras = {}) {
   return {
     enabled: Boolean(row?.enabled),
@@ -38,7 +52,7 @@ function normalize(row, extras = {}) {
     runAtLocal: String(row?.run_at_local || '22:00').slice(0, 5),
     sunny: { redischarge: Number(row?.sunny_redischarge ?? 25), output: row?.sunny_output || 'SBU' },
     cloudy: { redischarge: Number(row?.cloudy_redischarge ?? 50), output: row?.cloudy_output || 'SOL' },
-    conditions: Array.isArray(row?.conditions) && row.conditions.length ? row.conditions : defaultConditions(row),
+    conditions: canonicalAutomationConditions(Array.isArray(row?.conditions) && row.conditions.length ? row.conditions : defaultConditions(row)),
     notificationPreferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, ...(row?.notification_preferences || {}) },
     updatedAt: row?.updated_at || null,
     credentialsConfigured: Boolean(extras.credentialsConfigured),
@@ -86,7 +100,7 @@ export async function updateAutomationRule(deviceSn, patch) {
     sunny_output: patch.sunny?.output ?? current.sunny_output,
     cloudy_redischarge: patch.cloudy?.redischarge ?? current.cloudy_redischarge,
     cloudy_output: patch.cloudy?.output ?? current.cloudy_output,
-    conditions: patch.conditions ?? current.conditions ?? defaultConditions(current),
+    conditions: canonicalAutomationConditions(patch.conditions ?? current.conditions ?? defaultConditions(current)),
     notification_preferences: patch.notificationPreferences ?? current.notification_preferences ?? DEFAULT_NOTIFICATION_PREFERENCES,
     updated_at: new Date().toISOString()
   };
@@ -99,7 +113,7 @@ export async function updateAutomationRule(deviceSn, patch) {
   const persistedRows = await rest(`automation_rules?site_id=eq.${siteId}&select=*&limit=1`);
   const persisted = persistedRows?.[0];
   if (!persisted) throw new Error('La base de datos no confirmó la configuración de automatización.');
-  if (patch.conditions && JSON.stringify(persisted.conditions) !== JSON.stringify(patch.conditions)) {
+  if (patch.conditions && JSON.stringify(canonicalAutomationConditions(persisted.conditions)) !== JSON.stringify(canonicalAutomationConditions(patch.conditions))) {
     throw new Error('La base de datos respondió, pero las condiciones guardadas no coinciden con los cambios solicitados.');
   }
   return { ...normalize(persisted, await extras(siteId)), configured: true, saveVerified: true, verifiedAt: new Date().toISOString() };

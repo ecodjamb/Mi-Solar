@@ -21,6 +21,20 @@ const BILL_SCHEMA = {
     energyChargeClp: { anyOf: [{ type: 'number' }, { type: 'null' }] },
     otherChargesClp: { anyOf: [{ type: 'number' }, { type: 'null' }] },
     taxesClp: { anyOf: [{ type: 'number' }, { type: 'null' }] },
+    chargeItems: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          label: { type: 'string' },
+          amountClp: { type: 'number' },
+          category: { enum: ['energy', 'fixed', 'transport', 'public_service', 'tax', 'discount', 'debt', 'interest', 'adjustment', 'other'] },
+          includedInEnergyRate: { type: 'boolean' }
+        },
+        required: ['label', 'amountClp', 'category', 'includedInEnergyRate']
+      }
+    },
     confidence: { type: 'number' },
     warnings: { type: 'array', items: { type: 'string' } }
   },
@@ -28,7 +42,7 @@ const BILL_SCHEMA = {
     'provider', 'documentType', 'periodStart', 'periodEnd', 'issueDate', 'dueDate',
     'previousReading', 'currentReading', 'billedKwh', 'amountClp', 'customerNumber',
     'meterNumber', 'tariffName', 'invoiceNumber', 'serviceAddress', 'fixedChargeClp',
-    'energyChargeClp', 'otherChargesClp', 'taxesClp', 'confidence', 'warnings'
+    'energyChargeClp', 'otherChargesClp', 'taxesClp', 'chargeItems', 'confidence', 'warnings'
   ]
 };
 
@@ -65,7 +79,11 @@ export async function extractUtilityBill(images) {
   validateBillImages(images);
   const content = [{
     type: 'input_text',
-    text: `Analiza todas las imágenes como páginas de una sola cuenta eléctrica chilena. Extrae únicamente información visible y consolida datos repetidos entre páginas. No inventes. Usa fechas ISO YYYY-MM-DD. Los montos deben ser números en pesos chilenos sin separadores. billedKwh es el consumo de energía facturado del período, no una lectura ni un precio. amountClp es el total final a pagar. Si un campo no se ve con certeza, devuelve null y explica el motivo en warnings. confidence debe estar entre 0 y 1.`
+    text: `Analiza todas las imágenes como páginas de una sola cuenta eléctrica chilena. Extrae únicamente información visible y consolida datos repetidos entre páginas. No inventes. Usa fechas ISO YYYY-MM-DD. Los montos deben ser números en pesos chilenos sin separadores. billedKwh es exclusivamente el consumo de energía facturado del período, no una lectura ni un precio. amountClp es el total final a pagar, aunque incluya deuda, intereses, repactaciones, ajustes o descuentos.
+
+energyChargeClp es una base analítica estricta: suma solamente el cargo variable de electricidad o energía efectivamente consumida durante el período (por ejemplo, una línea llamada "Electricidad consumida" expresada directamente por los kWh facturados). Excluye cargo fijo, administración, transporte/transmisión/distribución separado, servicio público, IVA/impuestos, intereses, deuda anterior, repactaciones, convenios, ajustes, redondeos, descuentos y cualquier cargo no correspondiente al consumo base de energía. No uses el total a pagar ni un subtotal general como energyChargeClp. Si no puedes identificar con certeza el cargo base de energía, devuelve null y adviértelo.
+
+En chargeItems registra cada cargo, descuento, impuesto, deuda, repactación, interés y ajuste visible con su texto original. Usa amountClp negativo para descuentos o abonos que aparezcan restando. includedInEnergyRate debe ser true únicamente para las líneas exactas cuya suma forma energyChargeClp; para todas las demás debe ser false. fixedChargeClp, otherChargesClp y taxesClp son resúmenes informativos y nunca forman parte de energyChargeClp. Si un campo no se ve con certeza, devuelve null y explica el motivo en warnings. confidence debe estar entre 0 y 1.`
   }, ...images.map((image) => ({ type: 'input_image', image_url: image.dataUrl, detail: 'high' }))];
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',

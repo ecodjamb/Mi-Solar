@@ -160,7 +160,7 @@ export default async function handler(req, res) {
   try {
     if (method === 'GET' && route === 'health') {
       const push = pushConfiguration();
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.20.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.20.1', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -598,9 +598,11 @@ export default async function handler(req, res) {
       const images = Array.isArray(body.images) && body.images.length ? validateBillImages(body.images) : [];
       const text = (name, max = 240) => body[name] == null ? null : String(body[name]).trim().slice(0, max) || null;
       const optionalNumber = (name) => body[name] === '' || body[name] == null ? null : Number(body[name]);
-      const details = { issueDate: text('issueDate', 10), dueDate: text('dueDate', 10), customerNumber: text('customerNumber', 80), meterNumber: text('meterNumber', 80), tariffName: text('tariffName', 100), invoiceNumber: text('invoiceNumber', 100), serviceAddress: text('serviceAddress', 300), fixedChargeClp: optionalNumber('fixedChargeClp'), energyChargeClp: optionalNumber('energyChargeClp'), otherChargesClp: optionalNumber('otherChargesClp'), taxesClp: optionalNumber('taxesClp') };
+      const chargeItems = Array.isArray(body.chargeItems) ? body.chargeItems.slice(0, 80).map((item) => ({ label: String(item?.label || '').trim().slice(0, 180), amountClp: Number(item?.amountClp), category: String(item?.category || 'other'), includedInEnergyRate: item?.includedInEnergyRate === true })) : [];
+      const allowedChargeCategories = new Set(['energy','fixed','transport','public_service','tax','discount','debt','interest','adjustment','other']);
+      const details = { issueDate: text('issueDate', 10), dueDate: text('dueDate', 10), customerNumber: text('customerNumber', 80), meterNumber: text('meterNumber', 80), tariffName: text('tariffName', 100), invoiceNumber: text('invoiceNumber', 100), serviceAddress: text('serviceAddress', 300), fixedChargeClp: optionalNumber('fixedChargeClp'), energyChargeClp: optionalNumber('energyChargeClp'), otherChargesClp: optionalNumber('otherChargesClp'), taxesClp: optionalNumber('taxesClp'), chargeItems };
       if ([details.issueDate, details.dueDate].some((value) => value && !/^\d{4}-\d{2}-\d{2}$/.test(value))) return sendJson(res, 400, { error: 'La fecha de emisión o vencimiento no es válida.' });
-      if (Object.values(details).filter((value) => typeof value === 'number').some((value) => !Number.isFinite(value) || value < 0)) return sendJson(res, 400, { error: 'Uno de los cargos adicionales no es válido.' });
+      if (Object.values(details).filter((value) => typeof value === 'number').some((value) => !Number.isFinite(value) || value < 0) || chargeItems.some((item) => !item.label || !Number.isFinite(item.amountClp) || !allowedChargeCategories.has(item.category))) return sendJson(res, 400, { error: 'Uno de los cargos adicionales no es válido.' });
       const bill = await saveUtilityBill(sn, { periodStart, periodEnd, previousReading, currentReading, billedKwh, amountClp, ...details }, images, { extracted: body.aiExtraction && typeof body.aiExtraction === 'object' ? body.aiExtraction : {}, confidence: optionalNumber('aiConfidence'), model: text('aiModel', 80) });
       return sendJson(res, 200, { bill });
     }

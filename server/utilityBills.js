@@ -3,6 +3,14 @@ import { createHash } from 'node:crypto';
 
 const SITE_TZ = 'America/Santiago';
 
+export function calculateEnergyRate(energyChargeClp, billedKwh) {
+  const energy = energyChargeClp == null ? NaN : Number(energyChargeClp);
+  const consumption = Number(billedKwh);
+  return Number.isFinite(energy) && energy >= 0 && Number.isFinite(consumption) && consumption > 0
+    ? Number((energy / consumption).toFixed(2))
+    : null;
+}
+
 function dateAdd(date, days) {
   const [year, month, day] = date.split('-').map(Number);
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
@@ -53,6 +61,7 @@ async function theoreticalGrid(deviceSn, periodStart, periodEnd) {
 function normalize(row, theoretical = null, documents = []) {
   const billedKwh = Number(row.reported_kwh ?? row.billed_kwh ?? 0);
   const amountClp = Number(row.amount_clp || 0);
+  const energyChargeClp = row.energy_charge_clp == null ? null : Number(row.energy_charge_clp);
   const theoreticalGridKwh = theoretical?.kwh ?? Number(row.theoretical_grid_kwh || 0);
   return {
     id: row.id,
@@ -62,7 +71,7 @@ function normalize(row, theoretical = null, documents = []) {
     currentReading: row.current_reading == null ? null : Number(row.current_reading),
     billedKwh,
     amountClp,
-    effectiveRateClp: billedKwh > 0 ? Number((amountClp / billedKwh).toFixed(2)) : 0,
+    effectiveRateClp: calculateEnergyRate(energyChargeClp, billedKwh),
     theoreticalGridKwh,
     archiveCoveragePct: theoretical?.coveragePct ?? Number(row.archive_coverage_pct || 0),
     differenceKwh: Number((billedKwh - theoreticalGridKwh).toFixed(3)),
@@ -74,9 +83,10 @@ function normalize(row, theoretical = null, documents = []) {
     invoiceNumber: row.invoice_number,
     serviceAddress: row.service_address,
     fixedChargeClp: row.fixed_charge_clp == null ? null : Number(row.fixed_charge_clp),
-    energyChargeClp: row.energy_charge_clp == null ? null : Number(row.energy_charge_clp),
+    energyChargeClp,
     otherChargesClp: row.other_charges_clp == null ? null : Number(row.other_charges_clp),
     taxesClp: row.taxes_clp == null ? null : Number(row.taxes_clp),
+    chargeItems: Array.isArray(row.charge_items) ? row.charge_items : [],
     source: row.source || 'manual',
     aiConfidence: row.ai_confidence == null ? null : Number(row.ai_confidence),
     documentCount: documents.length,
@@ -139,6 +149,7 @@ export async function saveUtilityBill(deviceSn, bill, images = [], ai = null) {
       energy_charge_clp: bill.energyChargeClp,
       other_charges_clp: bill.otherChargesClp,
       taxes_clp: bill.taxesClp,
+      charge_items: bill.chargeItems || [],
       source: images.length ? 'photo-ai' : 'manual',
       ai_extraction: ai?.extracted || {},
       ai_confidence: ai?.confidence ?? null,

@@ -6,6 +6,8 @@ import { canonicalQuery, signTuyaRequest } from '../server/tuya.js';
 import { buildSettingsCommands, parseInverterSettings, SETTINGS_PRESETS, settingCommandConfirmed, settingsConfirmed } from '../server/isolarSettings.js';
 import { automationDueNow, automationNotificationMessage } from '../server/automationRunner.js';
 import { validateBillImages } from '../server/utilityBillAi.js';
+import { canonicalAutomationConditions } from '../server/automationStore.js';
+import { calculateEnergyRate } from '../server/utilityBills.js';
 
 assert.equal(md5('demo-password'), '4b4d9529148d8d9440d7e20c78287f69');
 const testBillImage = { name: 'pagina.jpg', dataUrl: 'data:image/jpeg;base64,YQ==' };
@@ -13,6 +15,14 @@ assert.equal(validateBillImages([testBillImage]).length, 1);
 assert.throws(() => validateBillImages([]), /una y cuatro/);
 assert.throws(() => validateBillImages(Array(5).fill(testBillImage)), /una y cuatro/);
 assert.throws(() => validateBillImages([{ dataUrl: 'data:text/plain;base64,YQ==' }]), /formato válido/);
+
+const requestedCondition = { id: 'rule-1', enabled: true, kind: 'between', minKwh: 15, maxKwh: 30, preset: 'sunny', runAtLocal: '21:35', dayOffset: -1 };
+const postgresJsonbCondition = { preset: 'sunny', maxKwh: 30, id: 'rule-1', dayOffset: -1, minKwh: 15, kind: 'between', enabled: true, runAtLocal: '21:35' };
+assert.deepEqual(canonicalAutomationConditions([postgresJsonbCondition]), canonicalAutomationConditions([requestedCondition]));
+assert.deepEqual(canonicalAutomationConditions([{ ...requestedCondition, minKwh: '15', dayOffset: '-1', runAtLocal: '21:35:00' }]), [requestedCondition]);
+assert.equal(calculateEnergyRate(18_600, 100), 186);
+assert.notEqual(calculateEnergyRate(18_600, 100), 999.99);
+assert.equal(calculateEnergyRate(null, 100), null);
 
 // Synthetic, non-sensitive vectors generated from the algorithm extracted from i.Solar 2.4.0.
 assert.equal(
