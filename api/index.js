@@ -484,6 +484,41 @@ export default async function handler(req, res) {
       }
     }
 
+    const live = route.match(/^devices\/([^/]+)\/live$/);
+    if (method === 'GET' && live) {
+      const session = requireSession(req);
+      const sn = decodeURIComponent(live[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+
+      // Una sola respuesta mantiene consistente el token rotativo de Tumcapp y
+      // entrega primero la telemetría que alimenta el flujo instantáneo.
+      const realtimeResult = await tumRequest('realData/getRealByDeviceSn', {
+        params: { deviceSn: sn }, token: session.token, vrtKey: session.vrtKey
+      });
+      session.token = realtimeResult.token;
+      const realtimeData = realtimeResult.payload.data || {};
+      let summaryData = {};
+      let partial = false;
+      try {
+        const summaryResult = await tumRequest('deviceData/index/getData', {
+          params: { deviceSn: sn }, token: session.token, vrtKey: session.vrtKey
+        });
+        session.token = summaryResult.token;
+        summaryData = summaryResult.payload.data || {};
+      } catch (summaryError) {
+        partial = true;
+        console.error('Live summary:', summaryError);
+      }
+      try { await archiveRows(sn, [realtimeData], { bucketMinutes: 5 }); } catch (archiveError) { console.error('Archive live:', archiveError); }
+      return sendJson(res, 200, {
+        realtime: realtimeData,
+        summary: summaryData,
+        partial,
+        receivedAt: new Date().toISOString(),
+        source: 'tumcapp-live'
+      }, { 'Set-Cookie': sessionCookie(session) });
+    }
+
     const realtime = route.match(/^devices\/([^/]+)\/realtime$/);
     if (method === 'GET' && realtime) {
       const session = requireSession(req);

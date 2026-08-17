@@ -135,7 +135,7 @@ function Node({ className, icon: Icon, title, value, status, accumulated, detail
   </article>;
 }
 
-export default function SimpleEnergyFlow({ data, history, today, gridLabel='Red activa',pvCountOverride,historical=false,dateLabel }: { data: Realtime; history: HistoryRow[]; today: DailyEnergy; gridLabel?:string;pvCountOverride?:1|2;historical?:boolean;dateLabel?:string }) {
+export default function SimpleEnergyFlow({ data, history, today, gridLabel='Red activa',pvCountOverride,historical=false,dateLabel,liveStatus='Esperando datos' }: { data: Realtime; history: HistoryRow[]; today: DailyEnergy; gridLabel?:string;pvCountOverride?:1|2;historical?:boolean;dateLabel?:string;liveStatus?:string }) {
   const p1 = pvPower(data, 1), p2 = pvPower(data, 2), solar = p1 + p2;
   const load = loadPower(data), rawGrid = gridPower(data), gridState=gridUsage(data), grid = effectiveGridPower(data);
   const charge = batteryChargePower(data), discharge = batteryDischargePower(data), soc = batterySoc(data);
@@ -207,7 +207,7 @@ export default function SimpleEnergyFlow({ data, history, today, gridLabel='Red 
   ];
 
   return <section className="panel simple-flow-panel">
-    <header className="section-head"><div><small>{historical?'Flujo histórico':'Flujo instantáneo'}</small><h2>{historical?dateLabel:'Tu sistema ahora'}</h2></div><span className="status-dot">{historical?'Sin animación':Object.keys(data).length?'En línea':'Esperando datos'}</span></header>
+    <header className="section-head"><div><small>{historical?'Flujo histórico':'Flujo instantáneo'}</small><h2>{historical?dateLabel:'Tu sistema ahora'}</h2></div><span className={`status-dot ${liveStatus==='En línea'?'is-fresh':'is-stale'}`}>{historical?'Sin animación':liveStatus}</span></header>
     <div className="simple-energy-flow">
       <Node className="simple-solar" icon={PanelsTopLeft} title={pvCount === 2 ? 'Paneles · PV1 + PV2' : 'Paneles'} value={watts(solar)} status={solarStatus} accumulated={`Hoy: ${kwh(today.solar)} · PV1 ${kwh(today.pv1)}${pvCount === 2 ? ` · PV2 ${kwh(today.pv2)}` : ''}`} details={solarDetails}/>
       <Node className="simple-battery" icon={Battery} title={`Batería · ${soc.toFixed(0)}%`} value={watts(Math.max(charge, discharge))} status={batteryStatus} accumulated={`Hoy: cargada ${kwh(today.charge)} · entregada ${kwh(today.discharge)}`} details={batteryDetails}/>

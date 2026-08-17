@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Battery, CircleDollarSign, House, RadioTower, RefreshCw, Sun } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
@@ -27,7 +27,7 @@ import ProgrammingPage from './components/ProgrammingPage';
 import IntegrationsPage from './components/IntegrationsPage';
 import DailyConsumptionChart from './components/DailyConsumptionChart';
 import EquipmentPage from './components/EquipmentPage';
-import { api } from './services/api';
+import { api, apiLive } from './services/api';
 import { fetchWeather, type WeatherData } from './services/weather';
 import { accumulatedTheoreticalToday, calibrateSolarModel, expectedPowerNow, theoreticalDayKwh } from './utils/solarForecast';
 import type { DailyEnergy, Device, HistoryRow, PageKey, Realtime } from './types';
@@ -49,6 +49,7 @@ const emptyEnergy:DailyEnergy={date:'',solar:0,pv1:0,pv2:0,load:0,grid:0,gridImp
 type StoredSolarForecast={date:string;forecastKwh:number;radiationKwhM2:number;locked:boolean;lockedAt:string|null};
 type ForecastRevision={date:string;forecastKwh:number;radiationKwhM2:number;observedAt:string};
 type SolarForecastResponse={today:StoredSolarForecast;tomorrow:StoredSolarForecast;revisions:Record<string,ForecastRevision[]>;lockTimeChile:string};
+type LiveResponse={realtime:Realtime;summary:Realtime;partial?:boolean;receivedAt?:string;source?:string};
 const sumDays=(days:DailyEnergy[])=>days.reduce((a,d)=>({...a,solar:a.solar+d.solar,pv1:a.pv1+d.pv1,pv2:a.pv2+d.pv2,load:a.load+d.load,grid:a.grid+d.grid,gridImport:a.gridImport+d.gridImport,gridExport:a.gridExport+d.gridExport,gridToLoad:a.gridToLoad+d.gridToLoad,charge:a.charge+d.charge,discharge:a.discharge+d.discharge,solarToLoad:a.solarToLoad+d.solarToLoad,batteryToLoad:a.batteryToLoad+d.batteryToLoad,solarToBattery:a.solarToBattery+d.solarToBattery,samples:a.samples+d.samples}),{...emptyEnergy});
 
 function addDays(date:string,days:number){const [y,m,d]=date.split('-').map(Number);return new Date(Date.UTC(y,m-1,d+days)).toISOString().slice(0,10)}
@@ -95,6 +96,8 @@ export default function App(){
   const [peerSolar,setPeerSolar]=useState<{deviceSn:string;siteLabel:string;power:number;updatedAt:Date|null}|null>(null);
   const [projectionHistory,setProjectionHistory]=useState<DailyEnergy[]>([]);
   const [storedForecast,setStoredForecast]=useState<SolarForecastResponse|null>(null);
+  const selectedRef=useRef('');
+  const liveRequestsRef=useRef(new Map<string,Promise<void>>());
   const markUpdated=(key:string)=>setLastSectionUpdate(prev=>({...prev,[key]:new Date()}));
 
   const siteDate=formatSiteDate();
@@ -138,25 +141,43 @@ export default function App(){
   const liveForecastTomorrow=tomorrowRadiation&&tomorrowRadiation>0?theoreticalDayKwh(tomorrowRadiation,solarModel,false,tomorrowDate):null;
   const forecastToday=storedForecast?.today?.date===siteDate&&storedForecast.today.locked?storedForecast.today.forecastKwh:liveForecastToday;
   const forecastTomorrow=storedForecast?.tomorrow?.date===tomorrowDate?storedForecast.tomorrow.forecastKwh:liveForecastTomorrow;
+  const realtimeSampleAt=parseApiTime(realtime.currentTime??realtime.createTime??realtime.collectTime??realtime.dataTime??realtime.time);
+  const queryAgeMs=lastFetch?Date.now()-lastFetch.getTime():Infinity;
+  const sampleAgeMs=realtimeSampleAt?Date.now()-realtimeSampleAt.getTime():null;
+  const liveFresh=Object.keys(realtime).length>0&&queryAgeMs<=75_000&&(sampleAgeMs===null||sampleAgeMs<=5*60_000);
+  const liveStatus=isHistoricalDay?'Sin animación':loading?'Sincronizando…':liveFresh?'En línea':Object.keys(realtime).length?'Dato atrasado':'Esperando datos';
 
   async function fetchHistoryRange(sn:string,start:string,end:string,maxPages=18){
     return api<{list:HistoryRow[];total:number;truncated?:boolean;pages?:number}>(`devices/${sn}/history?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&maxPages=${maxPages}`);
   }
 
-  async function refreshRealtime(sn=selected){
-    if(!sn)return;
-    setLoading(true);
-    const realtimeResult=await Promise.allSettled([
-      api<{data:Realtime}>(`devices/${sn}/realtime`),
-      api<{data:Realtime}>(`devices/${sn}/summary`)
-    ]);
-    const rtOk=realtimeResult[0].status==='fulfilled';
-    const summaryOk=realtimeResult[1].status==='fulfilled';
-    if(realtimeResult[0].status==='fulfilled'){const value=realtimeResult[0].value.data||{};setRealtime(value);writeSiteCache(sn,{realtime:value});}
-    if(realtimeResult[1].status==='fulfilled'){const value=realtimeResult[1].value.data||{};setSummary(value);writeSiteCache(sn,{summary:value});}
-    if(rtOk||summaryOk){setLastFetch(new Date());markUpdated('realtime');setSyncMessage(rtOk&&summaryOk?'':'Actualización parcial: se conservaron los últimos datos disponibles.');}
-    else setSyncMessage('No se pudo actualizar ahora. La app mantiene los últimos valores y reintentará en 30 segundos.');
-    setLoading(false);
+  function refreshRealtime(sn=selectedRef.current||selected){
+    if(!sn)return Promise.resolve();
+    const pending=liveRequestsRef.current.get(sn);
+    if(pending)return pending;
+    const request=(async()=>{
+      if(selectedRef.current===sn)setLoading(true);
+      try{
+        const result=await apiLive<LiveResponse>(`devices/${sn}/live`);
+        const value=result.realtime||{};
+        const summaryValue=result.summary||{};
+        writeSiteCache(sn,{realtime:value,summary:summaryValue});
+        if(selectedRef.current!==sn)return;
+        setRealtime(value);
+        setSummary(summaryValue);
+        const receivedAt=result.receivedAt&&Number.isFinite(Date.parse(result.receivedAt))?new Date(result.receivedAt):new Date();
+        setLastFetch(receivedAt);
+        markUpdated('realtime');
+        setSyncMessage(result.partial?'Datos instantáneos actualizados; el resumen del equipo se completará en el próximo ciclo.':'');
+      }catch{
+        if(selectedRef.current===sn)setSyncMessage('No se pudo actualizar ahora. La app conserva el último dato identificado como anterior y reintentará en 30 segundos.');
+      }finally{
+        liveRequestsRef.current.delete(sn);
+        if(selectedRef.current===sn)setLoading(false);
+      }
+    })();
+    liveRequestsRef.current.set(sn,request);
+    return request;
   }
 
   async function refreshDayHistory(sn=selected){
@@ -165,6 +186,21 @@ export default function App(){
     const rows:HistoryRow[]=[];
     const warnings:string[]=[];
     try{
+      const archiveRange=siteRangeUtc(siteDate,addDays(siteDate,1));
+      try{
+        const archived=await api<{list:HistoryRow[]}>(`devices/${sn}/archive?start=${encodeURIComponent(archiveRange.start)}&end=${encodeURIComponent(archiveRange.end)}`);
+        if(archived.list?.length){
+          const archivedRows=filterRowsForSiteDate(archived.list,siteDate);
+          setRawDayRows(archivedRows);
+          writeSiteCache(sn,{dayRows:archivedRows});
+          markUpdated('day');
+          const lastRow=archivedRows[archivedRows.length-1];
+          const last=lastRow?parseApiTime(lastRow.currentTime??lastRow.createTime??lastRow.collectTime??lastRow.dataTime??lastRow.time):null;
+          const lastLabel=last?last.toLocaleTimeString('es-CL',{timeZone:'America/Santiago',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}):'sin muestras';
+          setHistoryMessage(`Día cargado desde el respaldo permanente · última muestra ${lastLabel}.`);
+          return;
+        }
+      }catch{ /* Si el respaldo aún no tiene el día, se consulta el origen. */ }
       for(let i=0;i<chunks.length;i+=1){
         const chunk=chunks[i];
         setHistoryProgress(`Actualizando el día hasta ahora: tramo ${i+1} de ${chunks.length}`);
@@ -236,12 +272,14 @@ export default function App(){
   }
 
   function switchDevice(sn:string){
+    selectedRef.current=sn;
     setSelected(sn);
     const cached=readSiteCache(sn);
-    setRealtime(cached?.realtime||{});setSummary(cached?.summary||{});
+    const cachedRealtimeFresh=Boolean(cached?.realtimeSavedAt&&Date.now()-cached.realtimeSavedAt<=2*60_000);
+    setRealtime(cachedRealtimeFresh?cached?.realtime||{}:{});setSummary(cachedRealtimeFresh?cached?.summary||{}:{});
     setRawDayRows(cached?.dayRows||[]);setRawWeekRows(cached?.weekRows||[]);setRawMonthRows(cached?.monthRows||[]);
-    setSyncMessage(cached?'Mostrando el último dato válido mientras se actualiza la instalación.':'');
-    setHistoryMessage('');setHistoryProgress('');setWeather({});setLastFetch(cached?.savedAt?new Date(cached.savedAt):null);
+    setSyncMessage(cachedRealtimeFresh?'Verificando el último dato con el inversor…':'Sincronizando datos actuales con el inversor…');
+    setHistoryMessage('');setHistoryProgress('');setWeather({});setLastFetch(cachedRealtimeFresh&&cached?.realtimeSavedAt?new Date(cached.realtimeSavedAt):null);
     setTimelineIndex(null);
     setProjectionHistory([]);
     setHomeDate(formatSiteDate());setHistoricalDayRows([]);
@@ -251,7 +289,7 @@ export default function App(){
   async function refreshAll(sn=selected){
     if(!sn)return;
     setSyncMessage('');
-    // Secuencial para proteger la sesión Tumcapp y evitar ráfagas de solicitudes.
+    // La lectura viva se atiende primero; el histórico queda en segundo plano.
     await refreshRealtime(sn);
     await refreshDayHistory(sn);
     await refreshWeekHistory(sn);
@@ -287,12 +325,19 @@ export default function App(){
       ['scroll',registerActivity,{passive:true}]
     ];
     events.forEach(([name,handler,options])=>window.addEventListener(name,handler,options));
-    const onVisibility=()=>{if(document.visibilityState==='visible'){registerActivity();void api<{authenticated:boolean}>('session?validate=1').then(value=>{if(!value.authenticated)setAuth(false)}).catch(()=>setAuth(false))}};
+    const refreshOnResume=()=>{const sn=selectedRef.current;if(sn)void refreshRealtime(sn)};
+    const onVisibility=()=>{if(document.visibilityState==='visible'){registerActivity();void apiLive<{authenticated:boolean}>('session?validate=1').then(value=>{if(!value.authenticated)setAuth(false);else refreshOnResume()}).catch(()=>setAuth(false))}};
+    const onOnline=()=>refreshOnResume();
+    const onPageShow=()=>refreshOnResume();
     document.addEventListener('visibilitychange',onVisibility);
+    window.addEventListener('online',onOnline);
+    window.addEventListener('pageshow',onPageShow);
     const idleTimer=window.setInterval(checkIdle,60_000);
     return()=>{
       events.forEach(([name,handler,options])=>window.removeEventListener(name,handler,options));
       document.removeEventListener('visibilitychange',onVisibility);
+      window.removeEventListener('online',onOnline);
+      window.removeEventListener('pageshow',onPageShow);
       window.clearInterval(idleTimer);
     };
   },[auth]);
@@ -350,7 +395,7 @@ export default function App(){
     <Sidebar page={page} setPage={setPage} site={device?.nickName||'Mi instalación'} onLogout={async()=>{await api('logout',{method:'POST'});setAuth(false)}}/>
     <main className="content">
       <header className="topbar">
-        <div><select value={selected} onChange={e=>switchDevice(e.target.value)}>{devices.map(d=><option key={d.deviceSn} value={d.deviceSn}>{d.nickName||d.deviceSn}</option>)}</select><span className="online">● En línea</span></div>
+        <div><select value={selected} onChange={e=>switchDevice(e.target.value)}>{devices.map(d=><option key={d.deviceSn} value={d.deviceSn}>{d.nickName||d.deviceSn}</option>)}</select><span className={`online ${liveFresh?'is-fresh':'is-stale'}`}>● {liveStatus}</span></div>
         <div className="time-box"><strong>{clock}</strong><small>Hora de Chile</small><small>Último dato: {formatDate(realtime.currentTime||realtime.createTime)}</small><small>Consulta: {lastFetch?lastFetch.toLocaleTimeString('es-CL',{timeZone:'America/Santiago',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}):'—'} · v{APP_VERSION}</small></div>
         <FunModeToggle value={funMode} onChange={v=>{setFunMode(v);localStorage.setItem('funMode',v?'on':'off')}}/>
         <button className="refresh-button" onClick={()=>refreshAll()}><RefreshCw className={loading?'spin':''}/><span>Actualizar</span></button>
@@ -367,7 +412,7 @@ export default function App(){
           {peerSolar?.updatedAt&&<small>ahora</small>}
         </aside>}
         <HomeDateNavigator value={homeDate} max={siteDate} loading={historicalDayLoading} onChange={date=>{setHomeDate(date);setTimelineIndex(null)}}/>
-        <SimpleEnergyFlow data={displayedData} history={homeRows} today={homeEnergy} gridLabel={gridSourceLabel} pvCountOverride={pvCount} historical={isHistoricalDay} dateLabel={new Date(`${homeDate}T12:00`).toLocaleDateString('es-CL',{dateStyle:'long'})}/>
+        <SimpleEnergyFlow data={displayedData} history={homeRows} today={homeEnergy} gridLabel={gridSourceLabel} pvCountOverride={pvCount} historical={isHistoricalDay} dateLabel={new Date(`${homeDate}T12:00`).toLocaleDateString('es-CL',{dateStyle:'long'})} liveStatus={liveStatus}/>
         <PvAccumulatedBar energy={homeEnergy} title={isHistoricalDay ? `PV1 y PV2 · ${new Date(`${homeDate}T12:00`).toLocaleDateString('es-CL',{dateStyle:'long'})}` : 'PV1 y PV2 · hoy'} compact/>
         <EnergyTimeline rows={homeRows} index={timelineIndex} onChange={setTimelineIndex} historical={isHistoricalDay}/>
         <section className="kpi-grid kpi-grid-six">
