@@ -8,6 +8,7 @@ import { automationDueNow, automationNotificationMessage } from '../server/autom
 import { validateBillImages } from '../server/utilityBillAi.js';
 import { canonicalAutomationConditions } from '../server/automationStore.js';
 import { calculateEnergyRate } from '../server/utilityBills.js';
+import { archiveAggregateHours } from '../server/archive.js';
 
 assert.equal(md5('demo-password'), '4b4d9529148d8d9440d7e20c78287f69');
 const testBillImage = { name: 'pagina.jpg', dataUrl: 'data:image/jpeg;base64,YQ==' };
@@ -23,6 +24,10 @@ assert.deepEqual(canonicalAutomationConditions([{ ...requestedCondition, minKwh:
 assert.equal(calculateEnergyRate(18_600, 100), 186);
 assert.notEqual(calculateEnergyRate(18_600, 100), 999.99);
 assert.equal(calculateEnergyRate(null, 100), null);
+assert.equal(archiveAggregateHours({ coverage_hours: 10.5 }, 'day'), 10.5);
+assert.equal(archiveAggregateHours({ coverage_hours: 0.75 }, 'hour'), 0.75);
+assert.equal(archiveAggregateHours({}, 'hour'), 1);
+assert.equal(archiveAggregateHours({}, 'day'), 0);
 
 // Synthetic, non-sensitive vectors generated from the algorithm extracted from i.Solar 2.4.0.
 assert.equal(

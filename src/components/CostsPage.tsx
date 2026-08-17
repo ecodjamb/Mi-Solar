@@ -40,7 +40,7 @@ export default function CostsPage({deviceSn,siteLabel,gridLabel='Red activa',tod
     const utc=siteRangeUtc(bounds.start,bounds.end);
     setLoading(true);setMessage('Consultando el respaldo permanente de Mi Solar…');
     api<{list:HistoryRow[]}>(`devices/${deviceSn}/archive-series?start=${encodeURIComponent(utc.start)}&end=${encodeURIComponent(utc.end)}&resolution=hour`)
-      .then(result=>{if(!active)return;const energy=dailyEnergy(result.list||[]);setSelectedEnergy(result.list?.length?energy:period===currentPeriod?currentMonth:empty);setMessage(result.list?.length?`${result.list.length.toLocaleString('es-CL')} horas consolidadas verificadas en el respaldo permanente.`:period===currentPeriod?'Datos recientes disponibles; el respaldo se completará automáticamente.':'No existen muestras guardadas para este mes.')})
+      .then(result=>{if(!active)return;const energy=dailyEnergy(result.list||[]);setSelectedEnergy(result.list?.length?energy:period===currentPeriod?currentMonth:empty);setMessage(result.list?.length?`${result.list.length.toLocaleString('es-CL')} horas con cobertura real verificadas en el respaldo permanente.`:period===currentPeriod?'Datos recientes disponibles; el respaldo se completará automáticamente.':'No existen muestras guardadas para este mes.')})
       .catch(error=>{if(active){setSelectedEnergy(period===currentPeriod?currentMonth:empty);setMessage(error instanceof Error?error.message:'No fue posible consultar el mes.')}})
       .finally(()=>{if(active)setLoading(false)});
     return()=>{active=false};

@@ -138,13 +138,13 @@ export async function forecastForDate(deviceSn, targetDate, nowDate = new Date()
   const start = addDays(today, -65);
   const [radiationDays, actualRows] = await Promise.all([
     radiation(profile),
-    rest(`energy_daily?site_id=eq.${siteRows[0].id}&bucket_at=gte.${start}T00:00:00Z&bucket_at=lt.${today}T00:00:00Z&select=bucket_at,solar_w,samples&order=bucket_at.asc&limit=100`)
+    rest(`energy_daily?site_id=eq.${siteRows[0].id}&bucket_at=gte.${start}T00:00:00Z&bucket_at=lt.${today}T00:00:00Z&select=bucket_at,solar_w,samples,coverage_hours&order=bucket_at.asc&limit=100`)
   ]);
   const byDate = new Map(radiationDays.map((item) => [item.date, item.radiation]));
   const rawSamples = (actualRows || []).map((row) => {
     const date = String(row.bucket_at).slice(0, 10);
     const radiationValue = byDate.get(date) || 0;
-    const actual = Number(row.solar_w || 0) * 24 / 1000;
+    const actual = Number(row.solar_w || 0) * Number(row.coverage_hours || 0) / 1000;
     return { date, radiation: radiationValue, actual, samples: Number(row.samples || 0), ratio: actual / (profile.installedKwp * (radiationValue || 1)) };
   }).filter((item) => item.samples >= 120 && item.actual > 0.35 && item.radiation > 0.5 && item.ratio > 0.12 && item.ratio < 1.35);
   const center = median(rawSamples.map((item) => item.ratio));

@@ -80,7 +80,7 @@ export async function readArchiveSeries(deviceSn,startIso,endIso,resolution='hou
   const sites=await rest(`solar_sites?device_sn=eq.${encodeURIComponent(deviceSn)}&select=id&limit=1`);
   if(!sites?.[0]?.id)return {rows:[],configured:true};
   const view=resolution==='day'?'energy_daily':'energy_hourly';
-  const rows=await rest(`${view}?site_id=eq.${sites[0].id}&bucket_at=gte.${encodeURIComponent(startIso)}&bucket_at=lt.${encodeURIComponent(endIso)}&select=bucket_at,solar_w,pv1_w,pv2_w,load_w,grid_w,grid_active,battery_charge_w,battery_discharge_w,battery_soc,samples&order=bucket_at.asc&limit=10000`);
+  const rows=await rest(`${view}?site_id=eq.${sites[0].id}&bucket_at=gte.${encodeURIComponent(startIso)}&bucket_at=lt.${encodeURIComponent(endIso)}&select=bucket_at,solar_w,pv1_w,pv2_w,load_w,grid_w,grid_active,battery_charge_w,battery_discharge_w,battery_soc,samples,coverage_hours&order=bucket_at.asc&limit=10000`);
   return {rows:(rows||[]).map(row=>({
     currentTime:row.bucket_at,
     pvInputPower1:Number(row.pv1_w||0),
@@ -92,6 +92,12 @@ export async function readArchiveSeries(deviceSn,startIso,endIso,resolution='hou
     batteryDischargingPower:Number(row.battery_discharge_w||0),
     batteryCapacity:row.battery_soc==null?undefined:Number(row.battery_soc),
     aggregateSamples:Number(row.samples||0),
-    aggregateHours:resolution==='day'?24:1
+    aggregateHours:archiveAggregateHours(row,resolution)
   })),configured:true,resolution};
+}
+
+export function archiveAggregateHours(row,resolution='hour'){
+  const coverage=Number(row?.coverage_hours);
+  if(Number.isFinite(coverage)&&coverage>=0)return coverage;
+  return resolution==='day'?0:1;
 }
