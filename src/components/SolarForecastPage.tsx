@@ -63,9 +63,10 @@ function ForecastRevisionList({ items = [], officialKwh, liveForecast }: { items
   })}</div>;
 }
 
-export default function SolarForecastPage({ actual, hourlyActual, weather, model, deviceSn, siteLabel = 'El Arrayán', siteKey = 'arrayan', storedForecast }: {
+export default function SolarForecastPage({ actual, hourlyActual, liveData, weather, model, deviceSn, siteLabel = 'El Arrayán', siteKey = 'arrayan', storedForecast }: {
   actual: DailyEnergy[];
   hourlyActual: HistoryRow[];
+  liveData?: HistoryRow;
   weather: WeatherData;
   model: SolarModel;
   deviceSn: string;
@@ -149,7 +150,7 @@ export default function SolarForecastPage({ actual, hourlyActual, weather, model
       <article className="panel stat"><small>Error histórico mediano</small><strong>{model.sampleDays ? `${model.medianErrorPct.toFixed(1)}%` : '—'}</strong><p>Diferencia típica entre lo proyectado y lo realmente generado; mientras más bajo, más preciso es el modelo.</p></article>
     </section>
 
-    <HourlySolarForecastChart weather={weather} rows={hourlyActual} date={todayKey} forecastKwh={current?.value || 0}/>
+    <HourlySolarForecastChart weather={weather} rows={hourlyActual} liveRow={liveData} date={todayKey} forecastKwh={current?.value || 0}/>
 
     <section className="panel forecast-chart"><header className="forecast-chart-heading"><div><small>Pasado real y modelo meteorológico estacional</small><h2>Producción diaria: real vs. radiación</h2><p>La proyección pondera con mayor fuerza los días históricos de la misma época del año y mantiene el ajuste horario por sombra.</p></div><span>El cuadro de detalle permanece visible mientras el cursor siga sobre la barra.</span></header>
       <nav className="period-selector radiation-period-selector" aria-label="Período histórico visible">{RANGE_OPTIONS.map((period) => <button type="button" className={rangeDays === period.value ? 'active' : ''} aria-pressed={rangeDays === period.value} onClick={() => setRangeDays(period.value)} key={period.value}>{period.label}</button>)}</nav>
