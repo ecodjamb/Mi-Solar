@@ -15,7 +15,7 @@ import { runDueAutomations } from '../server/automationRunner.js';
 import { runNotificationMonitors } from '../server/notificationMonitor.js';
 import { automationSiteProfile } from '../server/siteProfiles.js';
 import { forecastForDate, listForecastRevisions, lockTomorrowForecasts } from '../server/solarProjection.js';
-import { listUtilityBills, projectUtilityBill, readUtilityBillDocument, saveUtilityBill, updateUtilityBill } from '../server/utilityBills.js';
+import { deleteUtilityBill, listUtilityBills, projectUtilityBill, readUtilityBillDocument, saveUtilityBill, updateUtilityBill } from '../server/utilityBills.js';
 import { extractUtilityBill, validateBillImages } from '../server/utilityBillAi.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
@@ -160,7 +160,7 @@ export default async function handler(req, res) {
   try {
     if (method === 'GET' && route === 'health') {
       const push = pushConfiguration();
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.21.4', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.21.5', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -594,10 +594,11 @@ export default async function handler(req, res) {
     }
 
     const utilityBill = route.match(/^devices\/([^/]+)\/utility-bills\/(\d+)$/);
-    if (method === 'PATCH' && utilityBill) {
+    if ((method === 'PATCH' || method === 'DELETE') && utilityBill) {
       requireSession(req);
       const sn = decodeURIComponent(utilityBill[1]);
       if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (method === 'DELETE') return sendJson(res, 200, { deleted: await deleteUtilityBill(sn, utilityBill[2]) });
       const body = parseBody(req);
       const date = (name) => /^\d{4}-\d{2}-\d{2}$/.test(String(body[name] || '')) ? String(body[name]) : null;
       const periodStart = date('periodStart');

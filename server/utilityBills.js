@@ -53,6 +53,13 @@ function todayChile() {
   return new Date().toLocaleDateString('en-CA', { timeZone: SITE_TZ });
 }
 
+function billingMonthBounds(periodEnd) {
+  const [year, month] = String(periodEnd).split('-').map(Number);
+  const start = `${year}-${String(month).padStart(2, '0')}-01`;
+  const end = new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10);
+  return { start, end };
+}
+
 function zonedParts(date) {
   return Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
     timeZone: SITE_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
@@ -255,6 +262,39 @@ async function uploadDocument(siteId, billId, image, pageNumber) {
   return { storagePath, hash, mimeType: match[1], bytes: buffer.length, originalName: String(image.name || `pagina-${pageNumber}.${extension}`).slice(0, 180) };
 }
 
+async function removeStoredDocuments(paths) {
+  if (!paths.length) return;
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_PUBLISHABLE_KEY;
+  const appKey = process.env.MISOLAR_DB_KEY;
+  if (!url || !key || !appKey) throw new Error('El almacenamiento privado no está configurado.');
+  const response = await fetch(`${url}/storage/v1/object/utility-bill-pages`, {
+    method: 'DELETE',
+    headers: { apikey: key, Authorization: `Bearer ${key}`, 'x-misolar-key': appKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prefixes: paths })
+  });
+  if (!response.ok && response.status !== 404) throw new Error(`No fue posible borrar las fotografías de la cuenta: ${(await response.text()).slice(0, 140)}`);
+}
+
+export async function deleteUtilityBill(deviceSn, billId) {
+  const siteId = await ensureSite(deviceSn);
+  const rows = await rest(`utility_bills?id=eq.${Number(billId)}&site_id=eq.${siteId}&select=id,period_start,period_end&limit=1`) || [];
+  const bill = rows[0];
+  if (!bill) throw Object.assign(new Error('La cuenta que intentas borrar no existe.'), { status: 404 });
+  const documents = await rest(`utility_bill_documents?bill_id=eq.${bill.id}&select=storage_path`) || [];
+  await removeStoredDocuments(documents.map((document) => document.storage_path).filter(Boolean));
+  await rest(`utility_bills?id=eq.${bill.id}&site_id=eq.${siteId}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+  return { id: Number(bill.id), periodStart: bill.period_start, periodEnd: bill.period_end };
+}
+
+async function removeOlderBillsForMonth(deviceSn, siteId, savedId, periodEnd) {
+  const bounds = billingMonthBounds(periodEnd);
+  const duplicates = await rest(`utility_bills?site_id=eq.${siteId}&id=neq.${Number(savedId)}&period_end=gte.${bounds.start}&period_end=lt.${bounds.end}&select=id&order=created_at.desc`) || [];
+  const removed = [];
+  for (const duplicate of duplicates) removed.push(await deleteUtilityBill(deviceSn, duplicate.id));
+  return removed;
+}
+
 export async function saveUtilityBill(deviceSn, bill, images = [], ai = null) {
   const siteId = await ensureSite(deviceSn);
   const theoretical = await theoreticalGrid(deviceSn, bill.periodStart, bill.periodEnd);
@@ -320,6 +360,12 @@ export async function saveUtilityBill(deviceSn, bill, images = [], ai = null) {
     } catch (error) {
       documentWarnings.push(`La cuenta quedó guardada, pero la página ${index + 1} quedó pendiente: ${error instanceof Error ? error.message : 'error de almacenamiento'}.`);
     }
+  }
+  try {
+    const replaced = await removeOlderBillsForMonth(deviceSn, siteId, saved.id, bill.periodEnd);
+    if (replaced.length) documentWarnings.push(`${replaced.length} cuenta anterior del mismo mes fue reemplazada por esta carga.`);
+  } catch (error) {
+    documentWarnings.push(`La cuenta nueva quedó guardada, pero no fue posible retirar una versión anterior: ${error instanceof Error ? error.message : 'error desconocido'}.`);
   }
   return { ...normalize(saved, theoretical, documents), documentWarnings };
 }
