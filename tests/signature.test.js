@@ -7,7 +7,7 @@ import { buildSettingsCommands, parseInverterSettings, SETTINGS_PRESETS, setting
 import { automationDueNow, automationNotificationMessage } from '../server/automationRunner.js';
 import { validateBillImages } from '../server/utilityBillAi.js';
 import { canonicalAutomationConditions } from '../server/automationStore.js';
-import { billPeriodDays, calculateEnergyRate, estimateBillConsumption } from '../server/utilityBills.js';
+import { billPeriodDays, calculateEnergyRate, estimateBillConsumption, projectRemainingGrid } from '../server/utilityBills.js';
 import { archiveAggregateHours } from '../server/archive.js';
 
 assert.equal(md5('demo-password'), '4b4d9529148d8d9440d7e20c78287f69');
@@ -28,6 +28,7 @@ assert.equal(calculateEnergyRate(null, 100), null);
 assert.equal(billPeriodDays('2026-07-23', '2026-08-21'), 30);
 assert.equal(billPeriodDays('2026-03-21', '2026-04-22'), 33);
 assert.equal(billPeriodDays('2026-01-22', '2026-02-20'), 30);
+assert.deepEqual(projectRemainingGrid({ observedGridKwh: 806.08, averageDailyLoadKwh: 43, remainingDays: 6, projectedSolarKwh: 60 }), { futureLoadKwh: 258, projectedSolarKwh: 60, futureGridKwh: 198, projectedGridKwh: 1004.08 });
 assert.deepEqual(estimateBillConsumption({ reportedKwh: null, estimatedKwh: null, amountClp: 50_000, theoreticalKwh: 180 }), { kwh: 200, status: 'estimated', method: 'amount-divided-by-250' });
 assert.deepEqual(estimateBillConsumption({ reportedKwh: null, estimatedKwh: null, amountClp: 0, theoreticalKwh: 180 }), { kwh: 180, status: 'estimated', method: 'misolar-archive' });
 assert.deepEqual(estimateBillConsumption({ reportedKwh: null, estimatedKwh: null, amountClp: 0, theoreticalKwh: 0 }), { kwh: 1, status: 'estimated', method: 'minimum-fallback' });

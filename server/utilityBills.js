@@ -1,5 +1,6 @@
 import { ensureSite, rest } from './archive.js';
 import { createHash } from 'node:crypto';
+import { forecastRange } from './solarProjection.js';
 
 const SITE_TZ = 'America/Santiago';
 
@@ -28,6 +29,14 @@ export function estimateBillConsumption({ reportedKwh, estimatedKwh, amountClp, 
   const theoretical = Number(theoreticalKwh);
   if (Number.isFinite(theoretical) && theoretical > 0) return { kwh: theoretical, status: 'estimated', method: 'misolar-archive' };
   return { kwh: 1, status: 'estimated', method: 'minimum-fallback' };
+}
+
+export function projectRemainingGrid({ observedGridKwh, averageDailyLoadKwh, remainingDays, projectedSolarKwh }) {
+  const observed = Math.max(0, Number(observedGridKwh) || 0);
+  const futureLoad = Math.max(0, Number(averageDailyLoadKwh) || 0) * Math.max(0, Number(remainingDays) || 0);
+  const solar = Math.min(futureLoad, Math.max(0, Number(projectedSolarKwh) || 0));
+  const futureGrid = Math.max(0, futureLoad - solar);
+  return { futureLoadKwh: Number(futureLoad.toFixed(2)), projectedSolarKwh: Number(solar.toFixed(2)), futureGridKwh: Number(futureGrid.toFixed(2)), projectedGridKwh: Number((observed + futureGrid).toFixed(2)) };
 }
 
 function dateAdd(date, days) {
@@ -67,8 +76,10 @@ async function theoreticalGrid(deviceSn, periodStart, periodEnd) {
   const siteId = await ensureSite(deviceSn);
   const start = chileMidnightUtc(periodStart);
   const end = chileMidnightUtc(dateAdd(periodEnd, 1));
-  const rows = await rest(`energy_hourly?site_id=eq.${siteId}&bucket_at=gte.${encodeURIComponent(start)}&bucket_at=lt.${encodeURIComponent(end)}&select=load_w,grid_w,grid_active,battery_discharge_w,samples,coverage_hours&order=bucket_at.asc&limit=10000`) || [];
+  const rows = await rest(`energy_hourly?site_id=eq.${siteId}&bucket_at=gte.${encodeURIComponent(start)}&bucket_at=lt.${encodeURIComponent(end)}&select=bucket_at,load_w,solar_w,grid_w,grid_active,battery_discharge_w,samples,coverage_hours&order=bucket_at.asc&limit=10000`) || [];
   let gridKwh = 0;
+  let loadKwh = 0;
+  let solarKwh = 0;
   let coveredHours = 0;
   for (const row of rows) {
     const coverage = Math.max(0, Math.min(1, Number(row.coverage_hours || 0)));
@@ -76,14 +87,20 @@ async function theoreticalGrid(deviceSn, periodStart, periodEnd) {
     const battery = Math.min(load, Math.max(0, Number(row.battery_discharge_w || 0)));
     const grid = row.grid_active ? Math.max(0, Number(row.grid_w || 0)) : 0;
     gridKwh += Math.min(Math.max(0, load - battery), grid) * coverage / 1000;
+    loadKwh += load * coverage / 1000;
+    solarKwh += Math.max(0, Number(row.solar_w || 0)) * coverage / 1000;
     coveredHours += coverage;
   }
   const expectedHours = Math.max(1, (Date.parse(end) - Date.parse(start)) / 3_600_000);
   return {
     kwh: Number(gridKwh.toFixed(3)),
+    loadKwh: Number(loadKwh.toFixed(3)),
+    solarKwh: Number(solarKwh.toFixed(3)),
     coveragePct: Number(Math.min(100, coveredHours / expectedHours * 100).toFixed(1)),
     coveredHours: Number(coveredHours.toFixed(3)),
-    expectedHours
+    expectedHours,
+    lastSampleAt: rows.at(-1)?.bucket_at || null,
+    lastCoverageHours: Number(Math.max(0, Math.min(1, Number(rows.at(-1)?.coverage_hours || 0))).toFixed(3))
   };
 }
 
@@ -159,19 +176,38 @@ export async function projectUtilityBill(deviceSn, bills = null, unitRateClp = 2
   const today = todayChile();
   if (periodStart > today) return null;
   const observedThrough = today < periodEnd ? today : periodEnd;
-  const observed = await theoreticalGrid(deviceSn, periodStart, observedThrough);
-  const totalHours = Math.max(1, (Date.parse(chileMidnightUtc(dateAdd(periodEnd, 1))) - Date.parse(chileMidnightUtc(periodStart))) / 3_600_000);
-  const projectedGridKwh = observed.coveredHours > 0 ? observed.kwh / observed.coveredHours * totalHours : 0;
+  const [observed, observedToday] = await Promise.all([theoreticalGrid(deviceSn, periodStart, observedThrough), theoreticalGrid(deviceSn, observedThrough, observedThrough)]);
+  const periodStartMs = Date.parse(chileMidnightUtc(periodStart));
+  const periodEndMs = Date.parse(chileMidnightUtc(dateAdd(periodEnd, 1)));
+  const totalHours = Math.max(1, (periodEndMs - periodStartMs) / 3_600_000);
+  const lastSampleMs = observed.lastSampleAt ? Date.parse(observed.lastSampleAt) : periodStartMs;
+  const elapsedHours = Math.max(0, Math.min(totalHours, (lastSampleMs - periodStartMs) / 3_600_000 + observed.lastCoverageHours));
+  const remainingDays = Math.max(0, (totalHours - elapsedHours) / 24);
+  const averageDailyLoadKwh = observed.coveredHours > 0 ? observed.loadKwh / observed.coveredHours * 24 : 0;
+  let futureForecasts = [];
+  try { futureForecasts = await forecastRange(deviceSn, observedThrough, periodEnd); } catch { futureForecasts = []; }
+  const availableForecastKwh = futureForecasts.reduce((sum, item) => sum + Math.max(0, Number(item.forecastKwh || 0) - (item.date === observedThrough ? observedToday.solarKwh : 0)), 0);
+  const uncoveredDays = Math.max(0, Math.ceil(remainingDays) - futureForecasts.length);
+  const averageForecastKwh = futureForecasts.length ? futureForecasts.reduce((sum, item) => sum + Number(item.forecastKwh || 0), 0) / futureForecasts.length : (observed.coveredHours > 0 ? observed.solarKwh / observed.coveredHours * 24 : 0);
+  const projection = projectRemainingGrid({ observedGridKwh: observed.kwh, averageDailyLoadKwh, remainingDays, projectedSolarKwh: availableForecastKwh + averageForecastKwh * uncoveredDays });
   return {
     periodStart,
     periodEnd,
     observedThrough,
     observedGridKwh: observed.kwh,
-    projectedGridKwh: Number(projectedGridKwh.toFixed(2)),
-    projectedAmountClp: Math.round(projectedGridKwh * unitRateClp),
+    observedLoadKwh: observed.loadKwh,
+    averageDailyLoadKwh: Number(averageDailyLoadKwh.toFixed(2)),
+    remainingDays: Number(remainingDays.toFixed(2)),
+    projectedFutureLoadKwh: projection.futureLoadKwh,
+    projectedFutureSolarKwh: projection.projectedSolarKwh,
+    projectedFutureGridKwh: projection.futureGridKwh,
+    forecastDays: futureForecasts.length,
+    projectedGridKwh: projection.projectedGridKwh,
+    projectedAmountClp: Math.round(projection.projectedGridKwh * unitRateClp),
     unitRateClp,
     archiveCoveragePct: observed.coveragePct,
     coveredHours: observed.coveredHours,
+    lastDataAt: observed.lastSampleAt,
     calculatedAt: new Date().toISOString()
   };
 }

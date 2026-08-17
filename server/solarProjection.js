@@ -58,13 +58,13 @@ function regression(samples, installedKwp, targetDate) {
   return { slope, intercept, rSquared: total > 0.01 ? Math.max(0, Math.min(1, 1 - residual / total)) : 0 };
 }
 
-async function radiation(profile) {
+async function radiation(profile, forecastDays = 3) {
   const url = new URL('https://api.open-meteo.com/v1/forecast');
   url.searchParams.set('latitude', String(profile.latitude));
   url.searchParams.set('longitude', String(profile.longitude));
   url.searchParams.set('daily', 'shortwave_radiation_sum,weather_code');
   url.searchParams.set('past_days', '60');
-  url.searchParams.set('forecast_days', '3');
+  url.searchParams.set('forecast_days', String(Math.max(3, Math.min(16, forecastDays))));
   url.searchParams.set('timezone', 'America/Santiago');
   const response = await fetch(url, { headers: { Accept: 'application/json' } });
   if (!response.ok) throw new Error(`Open-Meteo HTTP ${response.status}`);
@@ -74,6 +74,53 @@ async function radiation(profile) {
     radiation: Number(payload.daily?.shortwave_radiation_sum?.[index] || 0) / 3.6,
     weatherCode: Number(payload.daily?.weather_code?.[index] || 0)
   }));
+}
+
+async function forecastContext(profile, siteId, today, forecastDays = 16) {
+  const start = addDays(today, -65);
+  const [radiationDays, actualRows] = await Promise.all([
+    radiation(profile, forecastDays),
+    rest(`energy_daily?site_id=eq.${siteId}&bucket_at=gte.${start}T00:00:00Z&bucket_at=lt.${today}T00:00:00Z&select=bucket_at,solar_w,samples,coverage_hours&order=bucket_at.asc&limit=100`)
+  ]);
+  const byDate = new Map(radiationDays.map((item) => [item.date, item.radiation]));
+  const rawSamples = (actualRows || []).map((row) => {
+    const date = String(row.bucket_at).slice(0, 10);
+    const radiationValue = byDate.get(date) || 0;
+    const actual = Number(row.solar_w || 0) * Number(row.coverage_hours || 0) / 1000;
+    return { date, radiation: radiationValue, actual, samples: Number(row.samples || 0), ratio: actual / (profile.installedKwp * (radiationValue || 1)) };
+  }).filter((item) => item.samples >= 120 && item.actual > 0.35 && item.radiation > 0.5 && item.ratio > 0.12 && item.ratio < 1.35);
+  const center = median(rawSamples.map((item) => item.ratio));
+  const mad = median(rawSamples.map((item) => Math.abs(item.ratio - center)));
+  const filtered = rawSamples.filter((item) => Math.abs(item.ratio - center) <= Math.max(0.1, mad * 3));
+  return { profile, today, byDate, samples: filtered.length >= 3 ? filtered : rawSamples };
+}
+
+function forecastFromContext(context, targetDate) {
+  const { profile, today, byDate, samples } = context;
+  const globalCoefficients = regression(samples, profile.installedKwp, today);
+  const localCoefficients = regression(samples, profile.installedKwp, targetDate);
+  const confidence = Math.min(0.82, 0.48 + samples.length / 55);
+  const coefficients = samples.length < 5 ? globalCoefficients : {
+    slope: globalCoefficients.slope * (1 - confidence) + localCoefficients.slope * confidence,
+    intercept: globalCoefficients.intercept * (1 - confidence) + localCoefficients.intercept * confidence,
+    rSquared: localCoefficients.rSquared
+  };
+  const targetRadiation = byDate.get(targetDate);
+  if (!(targetRadiation > 0)) return null;
+  const upper = Math.max(SEASON_UPPER[profile.key][season(targetDate)], targetRadiation * profile.installedKwp * 1.05);
+  const forecastKwh = Math.max(0, Math.min(upper, coefficients.slope * targetRadiation + coefficients.intercept));
+  return {
+    date: targetDate,
+    forecastKwh: Number(forecastKwh.toFixed(2)),
+    radiationKwhM2: Number(targetRadiation.toFixed(2)),
+    sampleDays: samples.length,
+    slope: Number(coefficients.slope.toFixed(3)),
+    intercept: Number(coefficients.intercept.toFixed(3)),
+    rSquared: Number(coefficients.rSquared.toFixed(3)),
+    site: profile,
+    locked: false,
+    lockedAt: null
+  };
 }
 
 const SEASON_UPPER = {
@@ -135,52 +182,36 @@ export async function forecastForDate(deviceSn, targetDate, nowDate = new Date()
     if (existingLock) return { ...existingLock, site: profile };
   }
   const today = chileDate(nowDate);
-  const start = addDays(today, -65);
-  const [radiationDays, actualRows] = await Promise.all([
-    radiation(profile),
-    rest(`energy_daily?site_id=eq.${siteRows[0].id}&bucket_at=gte.${start}T00:00:00Z&bucket_at=lt.${today}T00:00:00Z&select=bucket_at,solar_w,samples,coverage_hours&order=bucket_at.asc&limit=100`)
-  ]);
-  const byDate = new Map(radiationDays.map((item) => [item.date, item.radiation]));
-  const rawSamples = (actualRows || []).map((row) => {
-    const date = String(row.bucket_at).slice(0, 10);
-    const radiationValue = byDate.get(date) || 0;
-    const actual = Number(row.solar_w || 0) * Number(row.coverage_hours || 0) / 1000;
-    return { date, radiation: radiationValue, actual, samples: Number(row.samples || 0), ratio: actual / (profile.installedKwp * (radiationValue || 1)) };
-  }).filter((item) => item.samples >= 120 && item.actual > 0.35 && item.radiation > 0.5 && item.ratio > 0.12 && item.ratio < 1.35);
-  const center = median(rawSamples.map((item) => item.ratio));
-  const mad = median(rawSamples.map((item) => Math.abs(item.ratio - center)));
-  const filtered = rawSamples.filter((item) => Math.abs(item.ratio - center) <= Math.max(0.1, mad * 3));
-  const samples = filtered.length >= 3 ? filtered : rawSamples;
   if (!targetDate) targetDate = addDays(today, 1);
-  if (targetDate < today || targetDate > addDays(today, 2)) throw new Error('La fecha de proyección automática no es válida.');
-  const globalCoefficients = regression(samples, profile.installedKwp, today);
-  const localCoefficients = regression(samples, profile.installedKwp, targetDate);
-  const confidence = Math.min(0.82, 0.48 + samples.length / 55);
-  const coefficients = samples.length < 5 ? globalCoefficients : {
-    slope: globalCoefficients.slope * (1 - confidence) + localCoefficients.slope * confidence,
-    intercept: globalCoefficients.intercept * (1 - confidence) + localCoefficients.intercept * confidence,
-    rSquared: localCoefficients.rSquared
-  };
-  const targetRadiation = byDate.get(targetDate);
-  if (!(targetRadiation > 0)) throw new Error('Open-Meteo todavía no entregó la radiación de mañana.');
-  const upper = Math.max(SEASON_UPPER[profile.key][season(targetDate)], targetRadiation * profile.installedKwp * 1.05);
-  const forecastKwh = Math.max(0, Math.min(upper, coefficients.slope * targetRadiation + coefficients.intercept));
-  const result = {
-    date: targetDate,
-    forecastKwh: Number(forecastKwh.toFixed(2)),
-    radiationKwhM2: Number(targetRadiation.toFixed(2)),
-    sampleDays: samples.length,
-    slope: Number(coefficients.slope.toFixed(3)),
-    intercept: Number(coefficients.intercept.toFixed(3)),
-    rSquared: Number(coefficients.rSquared.toFixed(3)),
-    site: profile,
-    locked: false,
-    lockedAt: null
-  };
+  if (targetDate < today || targetDate > addDays(today, 15)) throw new Error('La fecha de proyección automática no es válida.');
+  const result = forecastFromContext(await forecastContext(profile, siteId, today, 16), targetDate);
+  if (!result) throw new Error('Open-Meteo todavía no entregó la radiación solicitada.');
   const shouldLock = !options.ignoreLock && targetDate === addDays(today, 1) && forecastLockDue(nowDate);
   if (!shouldLock) return result;
   const locked = await saveForecastLock(siteId, result);
   return locked ? { ...locked, site: profile } : result;
+}
+
+export async function forecastRange(deviceSn, startDate, endDate, nowDate = new Date()) {
+  const profile = automationSiteProfile(deviceSn);
+  const siteRows = await rest(`solar_sites?device_sn=eq.${encodeURIComponent(deviceSn)}&select=id&limit=1`);
+  if (!siteRows?.[0]?.id) return [];
+  const today = chileDate(nowDate);
+  const lastForecastDate = addDays(today, 15);
+  const effectiveStart = startDate < today ? today : startDate;
+  const effectiveEnd = endDate > lastForecastDate ? lastForecastDate : endDate;
+  if (effectiveStart > effectiveEnd) return [];
+  const dates = [];
+  for (let date = effectiveStart; date <= effectiveEnd; date = addDays(date, 1)) dates.push(date);
+  const [context, locks] = await Promise.all([
+    forecastContext(profile, siteRows[0].id, today, 16),
+    rest(`solar_forecast_locks?site_id=eq.${siteRows[0].id}&forecast_date=gte.${effectiveStart}&forecast_date=lte.${effectiveEnd}&select=*&order=forecast_date.asc`) || []
+  ]);
+  const lockByDate = new Map(locks.map((row) => [row.forecast_date, {
+    date: row.forecast_date, forecastKwh: Number(row.forecast_kwh), radiationKwhM2: Number(row.radiation_kwh_m2), sampleDays: Number(row.sample_days || 0),
+    slope: Number(row.slope || 0), intercept: Number(row.intercept || 0), rSquared: Number(row.r_squared || 0), site: profile, locked: true, lockedAt: row.locked_at
+  }]));
+  return dates.map((date) => lockByDate.get(date) || forecastFromContext(context, date)).filter(Boolean);
 }
 
 async function siteIdForDevice(deviceSn) {
