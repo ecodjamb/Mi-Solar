@@ -1,13 +1,13 @@
 {
   "name": "mi-solar-v8-vercel",
-  "version": "8.24.5",
+  "version": "8.25.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node tests/signature.test.js && node tests/notification-monitor.test.js && node tests/solar-projection-lock.test.js && node tests/water-bill-ai.test.js",
+    "test": "node tests/signature.test.js && node tests/notification-monitor.test.js && node tests/solar-projection-lock.test.js && node tests/water-bill-ai.test.js && node tests/utility-reading-reminder.test.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

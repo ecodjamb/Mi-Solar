@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BarChart3, CalendarRange, CheckCircle2, ChevronDown, CircleDollarSign, FileImage, FilePlus2, Gauge, Pencil, Save, Sparkles, Trash2, Upload, X } from 'lucide-react';
+import { BarChart3, Bell, CalendarClock, CalendarRange, CheckCircle2, ChevronDown, CircleDollarSign, FileImage, FilePlus2, Gauge, Pencil, Save, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import { api } from '../services/api';
 import { clp, formatSiteDate, kwh } from '../utils/energy';
 import EChart from './EChart';
@@ -17,6 +17,9 @@ type UtilityBill = {
   documents?: BillDocument[];
 };
 type UtilityBillProjection = { periodStart: string; periodEnd: string; observedThrough: string; observedGridKwh: number; observedLoadKwh: number; averageDailyLoadKwh: number; remainingDays: number; projectedFutureLoadKwh: number; projectedFutureSolarKwh: number; projectedFutureGridKwh: number; forecastDays: number; projectedGridKwh: number; projectedAmountClp: number; unitRateClp: number; archiveCoveragePct: number; coveredHours: number; lastDataAt: string | null; calculatedAt: string };
+type UtilityReminderSettings = { enabled: boolean; notifyDayBefore: boolean; notifySameDay: boolean; notificationTimeLocal: string; updatedAt: string | null };
+type UtilityReminderSchedule = { nextReadingDate: string; daysRemaining: number; isOverdue: boolean; nextNotification: { kind: 'day-before'|'same-day'; date: string; label: string; timeLocal: string } | null };
+type UtilityReminder = { settings: UtilityReminderSettings; schedule: UtilityReminderSchedule | null };
 type BillImage = { name: string; dataUrl: string; mimeType: string; bytes: number };
 type ChargeItem = { label: string; amountClp: number; category: 'energy'|'fixed'|'transport'|'public_service'|'tax'|'discount'|'debt'|'interest'|'adjustment'|'other'; includedInEnergyRate: boolean };
 type ExtractedBill = {
@@ -64,6 +67,9 @@ function textValue(value: string | number | null | undefined) { return value == 
 export default function EnelBillsSection({ deviceSn, siteLabel }: { deviceSn: string; siteLabel: string }) {
   const [bills, setBills] = useState<UtilityBill[]>([]);
   const [projection, setProjection] = useState<UtilityBillProjection | null>(null);
+  const [reminder, setReminder] = useState<UtilityReminder | null>(null);
+  const [reminderDraft, setReminderDraft] = useState<UtilityReminderSettings | null>(null);
+  const [reminderSaving, setReminderSaving] = useState(false);
   const [draft, setDraft] = useState(defaultDraft);
   const [images, setImages] = useState<BillImage[]>([]);
   const [aiExtraction, setAiExtraction] = useState<ExtractedBill | null>(null);
@@ -93,7 +99,7 @@ export default function EnelBillsSection({ deviceSn, siteLabel }: { deviceSn: st
 
   useEffect(() => {
     let active = true; setLoading(true); setLoadError('');
-    api<{ list: UtilityBill[]; projection: UtilityBillProjection | null }>(`devices/${deviceSn}/utility-bills`).then((result) => { if (active) { setBills(result.list || []); setProjection(result.projection || null); } }).catch((error) => { if (active) { const text = error instanceof Error ? error.message : 'No fue posible cargar las cuentas.'; setLoadError(text); setMessage(text); } }).finally(() => active && setLoading(false));
+    api<{ list: UtilityBill[]; projection: UtilityBillProjection | null; reminder: UtilityReminder }>(`devices/${deviceSn}/utility-bills`).then((result) => { if (active) { setBills(result.list || []); setProjection(result.projection || null); setReminder(result.reminder || null); setReminderDraft(result.reminder?.settings || null); } }).catch((error) => { if (active) { const text = error instanceof Error ? error.message : 'No fue posible cargar las cuentas.'; setLoadError(text); setMessage(text); } }).finally(() => active && setLoading(false));
     return () => { active = false; };
   }, [deviceSn]);
   useEffect(() => {
@@ -166,7 +172,9 @@ export default function EnelBillsSection({ deviceSn, siteLabel }: { deviceSn: st
     try {
       const result = await api<{ bill: UtilityBill }>(`devices/${deviceSn}/utility-bills`, { method: 'POST', body: JSON.stringify({ ...draft, previousReading: draft.previousReading === '' ? null : Number(draft.previousReading), currentReading: draft.currentReading === '' ? null : Number(draft.currentReading), billedKwh: actualKwh > 0 ? actualKwh : null, estimatedKwh: Number(draft.estimatedKwh || 0) > 0 ? Number(draft.estimatedKwh) : null, consumptionIsEstimated: aiExtraction?.consumptionIsEstimated === true, amountClp: Number(draft.amountClp || 0), fixedChargeClp: draft.fixedChargeClp === '' ? null : Number(draft.fixedChargeClp), energyChargeClp: draft.energyChargeClp === '' ? null : Number(draft.energyChargeClp), transportChargeClp: draft.transportChargeClp === '' ? null : Number(draft.transportChargeClp), otherChargesClp: draft.otherChargesClp === '' ? null : Number(draft.otherChargesClp), taxesClp: draft.taxesClp === '' ? null : Number(draft.taxesClp), chargeItems: aiExtraction?.chargeItems || [], images, aiExtraction, aiConfidence: aiExtraction?.confidence ?? null, aiModel }) });
       const savedMonth = result.bill.periodEnd.slice(0, 7);
+      const savedReminder = (result as { reminder?: UtilityReminder }).reminder;
       setBills((current) => [result.bill, ...current.filter((bill) => bill.id !== result.bill.id && bill.periodEnd.slice(0, 7) !== savedMonth)].sort((a, b) => b.periodEnd.localeCompare(a.periodEnd)));
+      if (savedReminder) { setReminder(savedReminder); setReminderDraft(savedReminder.settings); }
       if (projection && result.bill.periodEnd >= projection.periodEnd) setProjection(null);
       setDraft(defaultDraft()); setImages([]); setAiExtraction(null); setAiModel(''); setOpen(false); setMessage(result.bill.documentWarnings?.length ? `Cuenta y monto guardados. ${result.bill.documentWarnings.join(' ')}` : 'Cuenta, documentos y datos analíticos guardados correctamente.');
     } catch (error) { setMessage(error instanceof Error ? error.message : 'No fue posible guardar la cuenta.'); }
@@ -188,6 +196,8 @@ export default function EnelBillsSection({ deviceSn, siteLabel }: { deviceSn: st
         energyChargeClp: numberOrNull(editDraft.energyChargeClp), transportChargeClp: numberOrNull(editDraft.transportChargeClp), otherChargesClp: numberOrNull(editDraft.otherChargesClp), taxesClp: numberOrNull(editDraft.taxesClp)
       }) });
       setBills((current) => [result.bill, ...current.filter((bill) => bill.id !== result.bill.id)].sort((a, b) => b.periodEnd.localeCompare(a.periodEnd)));
+      const savedReminder = (result as { reminder?: UtilityReminder }).reminder;
+      if (savedReminder) { setReminder(savedReminder); setReminderDraft(savedReminder.settings); }
       setEditingBill(null); setEditDraft(null); setMessage(`Cuenta de ${monthLabel(result.bill.periodEnd)} corregida y guardada permanentemente.`);
     } catch (error) { setMessage(error instanceof Error ? error.message : 'No fue posible guardar la corrección.'); }
     finally { setEditSaving(false); }
@@ -198,17 +208,33 @@ export default function EnelBillsSection({ deviceSn, siteLabel }: { deviceSn: st
     setDeleting(true); setMessage('');
     try {
       await api(`devices/${deviceSn}/utility-bills/${deleteCandidate.id}`, { method: 'DELETE' });
-      const result = await api<{ list: UtilityBill[]; projection: UtilityBillProjection | null }>(`devices/${deviceSn}/utility-bills`);
-      setBills(result.list || []); setProjection(result.projection || null);
+      const result = await api<{ list: UtilityBill[]; projection: UtilityBillProjection | null; reminder: UtilityReminder }>(`devices/${deviceSn}/utility-bills`);
+      setBills(result.list || []); setProjection(result.projection || null); setReminder(result.reminder || null); setReminderDraft(result.reminder?.settings || null);
       setMessage(`Cuenta de ${monthLabel(deleteCandidate.periodEnd)} eliminada junto con sus fotografías y datos guardados.`);
       setDeleteCandidate(null);
     } catch (error) { setMessage(error instanceof Error ? error.message : 'No fue posible eliminar la cuenta.'); }
     finally { setDeleting(false); }
   }
 
+  async function saveReminder() {
+    if (!reminderDraft) return;
+    if (reminderDraft.enabled && !reminderDraft.notifyDayBefore && !reminderDraft.notifySameDay) {
+      setMessage('Selecciona al menos un aviso: día anterior o mismo día.');
+      return;
+    }
+    setReminderSaving(true); setMessage('Guardando la configuración de avisos…');
+    try {
+      const result = await api<{ reminder: UtilityReminder }>(`devices/${deviceSn}/utility-reading-reminder`, { method: 'PATCH', body: JSON.stringify(reminderDraft) });
+      setReminder(result.reminder); setReminderDraft(result.reminder.settings);
+      setMessage(result.reminder.settings.enabled ? 'Avisos de lectura activados y guardados.' : 'Avisos de lectura desactivados y guardados.');
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'No fue posible guardar los avisos.'); }
+    finally { setReminderSaving(false); }
+  }
+
   const setField = (name: keyof ReturnType<typeof defaultDraft>, value: string) => setDraft((current) => ({ ...current, [name]: value }));
   return <section className="enel-bills-section">
     <header className="enel-bills-heading"><div><small>Control real frente a Mi Solar · {siteLabel}</small><h2>Cuentas eléctricas Enel</h2><p>Guarda siempre la cuenta y su monto final. La tarifa energética usa energía más traslado; deudas, intereses, descuentos e impuestos quedan registrados fuera del cálculo.</p></div><button type="button" className="primary-action" onClick={() => setOpen((value) => !value)}>{open ? <X/> : <FilePlus2/>}{open ? 'Cerrar' : 'Agregar cuenta'}</button></header>
+    {reminder?.schedule ? <section className="panel utility-reading-countdown"><CalendarClock/><div><small>Próxima lectura estimada</small><h3>{dateLabel(reminder.schedule.nextReadingDate)}</h3><p>{reminder.schedule.isOverdue ? 'La fecha estimada ya pasó; ingresa la cuenta cuando esté disponible.' : reminder.schedule.daysRemaining === 0 ? 'Corresponde ingresar la lectura hoy.' : reminder.schedule.daysRemaining === 1 ? 'Falta 1 día para ingresar la próxima lectura.' : `Faltan ${reminder.schedule.daysRemaining} días para ingresar la próxima lectura.`}</p></div><strong>{reminder.schedule.isOverdue ? 'Pendiente' : reminder.schedule.daysRemaining}<small>{reminder.schedule.isOverdue ? 'de ingreso' : reminder.schedule.daysRemaining === 1 ? 'día' : 'días'}</small></strong></section> : null}
     {bills.length ? <section className="panel bill-consumption-history"><header><div><small>Historial mensual respaldado</small><h3><BarChart3/> Consumo facturado por período</h3></div><p><i/> Real <i/> Estimado</p></header><div className="bill-chart-filters" role="group" aria-label="Período del gráfico de cuentas"><button type="button" className={chartFilter === '12m' ? 'active' : ''} onClick={() => setChartFilter('12m')}>12 meses</button>{billYears.map((year) => <button type="button" className={chartFilter === year ? 'active' : ''} onClick={() => setChartFilter(year)} key={year}>{year}</button>)}<button type="button" className={chartFilter === '6m' ? 'active' : ''} onClick={() => setChartFilter('6m')}>6 meses</button></div>{chartBills.length ? <><EChart option={consumptionChart}/><div className="annual-electricity-total"><span><small>{chartSpendLabel}</small><strong>{clp(chartSpendClp)}</strong></span><em>{chartBills.length} {chartBills.length === 1 ? 'cuenta incluida' : 'cuentas incluidas'}</em></div></> : <div className="chart-loading">No hay cuentas guardadas en este período.</div>}</section> : null}
     {projection ? <section className="panel utility-bill-projection"><header><div><small>Cuenta todavía no ingresada · estimación Mi Solar</small><h3>Proyección cuenta {monthLabel(projection.periodEnd)}</h3><p>{dateLabel(projection.periodStart)} → {dateLabel(projection.periodEnd)}</p></div><strong>{clp(projection.projectedAmountClp)}</strong></header><div><span><small>Red ya consumida</small><b>{kwh(projection.observedGridKwh)}</b><em>Desde {dateLabel(projection.periodStart)} hasta la última muestra</em></span><span><small>Consumo total promedio diario</small><b>{kwh(projection.averageDailyLoadKwh)}</b><em>Calculado sobre {projection.coveredHours.toFixed(1)} h respaldadas</em></span><span><small>Demanda restante estimada</small><b>{kwh(projection.projectedFutureLoadKwh)}</b><em>{projection.remainingDays.toFixed(1)} días equivalentes por completar</em></span><span><small>Solar previsto para los días restantes</small><b>{kwh(projection.projectedFutureSolarKwh)}</b><em>{projection.forecastDays} días meteorológicos disponibles</em></span><span><small>Red futura estimada</small><b>{kwh(projection.projectedFutureGridKwh)}</b><em>Demanda restante menos producción solar prevista</em></span><span><small>Red total proyectada</small><b>{kwh(projection.projectedGridKwh)}</b><em>{clp(projection.unitRateClp)} por kWh · cuenta {clp(projection.projectedAmountClp)}</em></span></div><p className="utility-projection-formula"><b>Cálculo:</b> red ya consumida + (consumo promedio diario × días restantes − producción solar prevista).</p><footer>Último dato energético: {projection.lastDataAt ? new Date(projection.lastDataAt).toLocaleString('es-CL', { timeZone: 'America/Santiago', dateStyle: 'long', timeStyle: 'medium' }) : 'sin muestras'} · cálculo actualizado {new Date(projection.calculatedAt).toLocaleString('es-CL', { timeZone: 'America/Santiago' })} · cobertura {projection.archiveCoveragePct.toFixed(1)}%</footer></section> : null}
     {open ? <section className="panel enel-bill-form">
@@ -256,6 +282,19 @@ export default function EnelBillsSection({ deviceSn, siteLabel }: { deviceSn: st
         </details>;
       })}</div>
     </> : <section className="panel enel-empty"><FileImage/><div><strong>Aún no hay cuentas guardadas</strong><p>Sube las fotografías de la primera cuenta para comenzar el comparativo mensual.</p></div></section>}
+    {reminderDraft ? <details className="panel utility-reading-notifications">
+      <summary><Bell/><span><b>Notificaciones</b><small>{reminderDraft.enabled ? 'Avisos de lectura activos' : 'Avisos de lectura desactivados'}</small></span><ChevronDown/></summary>
+      <section>
+        <header><div><small>Avisos automáticos en el celular</small><h3>Ingreso de próxima lectura</h3><p>Mi Solar puede avisarte el día anterior y el mismo día del cierre estimado.</p></div><label className="switch"><input type="checkbox" checked={reminderDraft.enabled} onChange={(event)=>setReminderDraft((current)=>current?{...current,enabled:event.target.checked}:current)}/><i/></label></header>
+        <div className="utility-reminder-options">
+          <label><input type="checkbox" checked={reminderDraft.notifyDayBefore} onChange={(event)=>setReminderDraft((current)=>current?{...current,notifyDayBefore:event.target.checked}:current)}/><span><b>Día anterior</b><small>Aviso preventivo para preparar la lectura</small></span></label>
+          <label><input type="checkbox" checked={reminderDraft.notifySameDay} onChange={(event)=>setReminderDraft((current)=>current?{...current,notifySameDay:event.target.checked}:current)}/><span><b>Mismo día</b><small>Aviso cuando corresponde ingresarla</small></span></label>
+          <label className="utility-reminder-time"><span>Hora local de Chile</span><input type="time" value={reminderDraft.notificationTimeLocal} onChange={(event)=>setReminderDraft((current)=>current?{...current,notificationTimeLocal:event.target.value}:current)}/></label>
+        </div>
+        <div className="utility-next-notification"><Bell/><span><small>Próxima notificación</small><b>{!reminderDraft.enabled ? 'Se calculará al activar los avisos' : reminder?.schedule?.nextNotification ? `${dateLabel(reminder.schedule.nextNotification.date)} · ${reminder.schedule.nextNotification.timeLocal} h · ${reminder.schedule.nextNotification.label}` : 'No quedan avisos pendientes para este período'}</b></span></div>
+        <button type="button" className="primary-action" disabled={reminderSaving} onClick={()=>void saveReminder()}><Save/>{reminderSaving?'Guardando…':'Guardar notificaciones'}</button>
+      </section>
+    </details> : null}
     {viewingDocument ? <div className="bill-document-viewer" role="dialog" aria-modal="true" aria-label={`Página ${viewingDocument.pageNumber} de la cuenta`} onClick={(event) => { if (event.target === event.currentTarget) setViewingDocument(null); }}><header><div><strong>Página {viewingDocument.pageNumber}</strong><small>{viewingDocument.originalName || 'Cuenta Enel respaldada'}</small></div><button type="button" onClick={() => setViewingDocument(null)}><X/> Cerrar y volver</button></header><img src={`/api/devices/${encodeURIComponent(deviceSn)}/utility-bills/documents/${viewingDocument.id}`} alt={`Página ${viewingDocument.pageNumber} de la cuenta`}/></div> : null}
     {deleteCandidate ? <div className="bill-delete-confirm" role="dialog" aria-modal="true" aria-labelledby="bill-delete-title"><section><Trash2/><div><small>Eliminación permanente</small><h3 id="bill-delete-title">¿Borrar la cuenta de {monthLabel(deleteCandidate.periodEnd)}?</h3><p>Se eliminarán la cuenta, sus datos extraídos y todas sus fotografías de la base de datos. Esta acción no se puede deshacer.</p></div><footer><button type="button" onClick={() => setDeleteCandidate(null)} disabled={deleting}>Cancelar</button><button type="button" className="danger" onClick={() => void removeBill()} disabled={deleting}>{deleting ? 'Eliminando…' : 'Sí, borrar definitivamente'}</button></footer></section></div> : null}
   </section>;

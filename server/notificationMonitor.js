@@ -5,6 +5,7 @@ import { listNotificationSites, readAutomationCredentials, readNotificationState
 import { sendSiteNotification } from './pushNotifications.js';
 import { automationSiteProfile } from './siteProfiles.js';
 import { listDueWaterReminders } from './waterCosts.js';
+import { listDueUtilityBillReminders } from './utilityBills.js';
 
 const PV1_KEYS = ['pvInputPower1', 'pvPower1', 'powerPv1', 'solarPower1', 'pv1Power', 'pvPowerInput1'];
 const PV2_KEYS = ['pvInputPower2', 'pvPower2', 'powerPv2', 'solarPower2', 'pv2Power', 'pvPowerInput2'];
@@ -222,13 +223,14 @@ async function monitorSite(site) {
 
 export async function runNotificationMonitors() {
   const sites = await listNotificationSites();
-  const [settled, waterDue] = await Promise.all([
+  const [settled, waterDue, utilityDue] = await Promise.all([
     Promise.all(sites.map((site) => monitorSite(site).catch((error) => ({
       deviceSn: site.deviceSn,
       status: 'failed',
       error: error instanceof Error ? error.message : String(error)
     })))),
-    listDueWaterReminders().catch(() => [])
+    listDueWaterReminders().catch(() => []),
+    listDueUtilityBillReminders().catch(() => [])
   ]);
   const waterReminders = [];
   for (const reminder of waterDue) {
@@ -249,5 +251,27 @@ export async function runNotificationMonitors() {
     await saveNotificationState(reminder.siteId, eventKey, 'sent', reminder, new Date().toISOString());
     waterReminders.push({ ...reminder, status: 'sent', pushed });
   }
-  return { checkedAt: new Date().toISOString(), sites: sites.length, results: settled, waterReminders };
+  const utilityBillReminders = [];
+  for (const reminder of utilityDue) {
+    const eventKey = `utility-reading-${reminder.nextReadingDate}-${reminder.kind}`;
+    const previous = await readNotificationState(reminder.siteId, eventKey);
+    if (previous?.state === 'sent') {
+      utilityBillReminders.push({ ...reminder, status: 'already-sent' });
+      continue;
+    }
+    const sameDay = reminder.kind === 'same-day';
+    const pushed = await sendSiteNotification(
+      reminder.siteId,
+      'utility_reading_reminder',
+      sameDay ? '⚡ Hoy corresponde ingresar la lectura' : '⚡ Mañana corresponde ingresar la lectura',
+      sameDay
+        ? 'Hoy termina el período estimado de Enel. Ingresa la lectura o sube la cuenta cuando esté disponible.'
+        : 'Mañana termina el período estimado de Enel. Ten preparada la lectura para mantener la proyección al día.',
+      { url: '/?page=costs', nextReadingDate: reminder.nextReadingDate, kind: reminder.kind },
+      eventKey
+    );
+    await saveNotificationState(reminder.siteId, eventKey, 'sent', reminder, new Date().toISOString());
+    utilityBillReminders.push({ ...reminder, status: 'sent', pushed });
+  }
+  return { checkedAt: new Date().toISOString(), sites: sites.length, results: settled, waterReminders, utilityBillReminders };
 }

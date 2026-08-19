@@ -15,7 +15,7 @@ import { runDueAutomations } from '../server/automationRunner.js';
 import { runNotificationMonitors } from '../server/notificationMonitor.js';
 import { automationSiteProfile } from '../server/siteProfiles.js';
 import { forecastForDate, listForecastRevisions, lockTomorrowForecasts } from '../server/solarProjection.js';
-import { deleteUtilityBill, listUtilityBills, projectUtilityBill, readUtilityBillDocument, saveUtilityBill, updateUtilityBill } from '../server/utilityBills.js';
+import { deleteUtilityBill, listUtilityBills, projectUtilityBill, readUtilityBillDocument, saveUtilityBill, updateUtilityBill, utilityBillReminder, updateUtilityBillReminder } from '../server/utilityBills.js';
 import { extractUtilityBill, validateBillImages } from '../server/utilityBillAi.js';
 import {
   closeWaterPeriod, deleteWaterBill, openWaterPeriod, readWaterBillDocument, readWaterReadingPhoto,
@@ -672,7 +672,7 @@ export default async function handler(req, res) {
         fixedChargeClp: nullableNumber('fixedChargeClp'), energyChargeClp: nullableNumber('energyChargeClp'), transportChargeClp: nullableNumber('transportChargeClp'),
         otherChargesClp: nullableNumber('otherChargesClp', true), taxesClp: nullableNumber('taxesClp')
       });
-      return sendJson(res, 200, { bill: result });
+      return sendJson(res, 200, { bill: result, reminder: await utilityBillReminder(sn) });
     }
 
     const utilityBills = route.match(/^devices\/([^/]+)\/utility-bills$/);
@@ -682,7 +682,8 @@ export default async function handler(req, res) {
       if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
       if (method === 'GET') {
         const list = await listUtilityBills(sn);
-        return sendJson(res, 200, { list, projection: await projectUtilityBill(sn, list) });
+        const [projection, reminder] = await Promise.all([projectUtilityBill(sn, list), utilityBillReminder(sn)]);
+        return sendJson(res, 200, { list, projection, reminder });
       }
       const body = parseBody(req);
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
@@ -712,7 +713,15 @@ export default async function handler(req, res) {
       if (details.dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(details.dueDate)) details.dueDate = null;
       details.chargeItems = chargeItems.map((item) => allowedChargeCategories.has(item.category) ? item : { ...item, category: 'other' });
       const bill = await saveUtilityBill(sn, { periodStart, periodEnd, previousReading, currentReading, billedKwh, estimatedKwh, consumptionIsEstimated: body.consumptionIsEstimated === true, amountClp, ...details }, images, { extracted: body.aiExtraction && typeof body.aiExtraction === 'object' ? body.aiExtraction : {}, confidence: optionalNumber('aiConfidence'), model: text('aiModel', 80) });
-      return sendJson(res, 200, { bill });
+      return sendJson(res, 200, { bill, reminder: await utilityBillReminder(sn) });
+    }
+
+    const utilityReminder = route.match(/^devices\/([^/]+)\/utility-reading-reminder$/);
+    if (method === 'PATCH' && utilityReminder) {
+      requireSession(req);
+      const sn = decodeURIComponent(utilityReminder[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      return sendJson(res, 200, { reminder: await updateUtilityBillReminder(sn, parseBody(req)) });
     }
 
     const waterBillDocument = route.match(/^devices\/([^/]+)\/water-bills\/documents\/(\d+)$/);

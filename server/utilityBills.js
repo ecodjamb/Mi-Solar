@@ -49,8 +49,57 @@ function nextMonthSameDay(date) {
   return new Date(Date.UTC(year, month, day)).toISOString().slice(0, 10);
 }
 
-function todayChile() {
-  return new Date().toLocaleDateString('en-CA', { timeZone: SITE_TZ });
+function todayChile(now = new Date()) {
+  return now.toLocaleDateString('en-CA', { timeZone: SITE_TZ });
+}
+
+function chileTime(now = new Date()) {
+  return now.toLocaleTimeString('en-GB', { timeZone: SITE_TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+}
+
+function dateDifferenceDays(start, end) {
+  const delta = Date.parse(`${end}T12:00:00Z`) - Date.parse(`${start}T12:00:00Z`);
+  return Number.isFinite(delta) ? Math.round(delta / 86_400_000) : 0;
+}
+
+function nextReadingDateFromPeriodEnd(periodEnd) {
+  const periodStart = dateAdd(periodEnd, 1);
+  return nextMonthSameDay(periodStart);
+}
+
+function normalizeReminderSettings(row) {
+  return {
+    enabled: row?.enabled === true,
+    notifyDayBefore: row?.notify_day_before !== false,
+    notifySameDay: row?.notify_same_day !== false,
+    notificationTimeLocal: String(row?.notification_time_local || '09:00:00').slice(0, 5),
+    updatedAt: row?.updated_at || null
+  };
+}
+
+async function reminderSettingsForSite(siteId) {
+  const rows = await rest(`utility_bill_reminder_settings?site_id=eq.${siteId}&select=*&limit=1`) || [];
+  if (rows[0]) return rows[0];
+  const created = await rest('utility_bill_reminder_settings', {
+    method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ site_id: siteId })
+  });
+  return created?.[0] || { site_id: siteId, enabled: false, notify_day_before: true, notify_same_day: true, notification_time_local: '09:00:00' };
+}
+
+export function calculateUtilityReminderSchedule(settings, nextReadingDate, now = new Date()) {
+  const today = todayChile(now);
+  const time = settings.notificationTimeLocal || '09:00';
+  const candidates = [];
+  if (settings.notifyDayBefore) candidates.push({ kind: 'day-before', date: dateAdd(nextReadingDate, -1), label: 'Día anterior' });
+  if (settings.notifySameDay) candidates.push({ kind: 'same-day', date: nextReadingDate, label: 'Mismo día' });
+  const pending = candidates.filter((item) => item.date > today || (item.date === today && chileTime(now) < time));
+  const next = pending.sort((a, b) => a.date.localeCompare(b.date))[0] || null;
+  return {
+    nextReadingDate,
+    daysRemaining: Math.max(0, dateDifferenceDays(today, nextReadingDate)),
+    isOverdue: nextReadingDate < today,
+    nextNotification: settings.enabled && next ? { ...next, timeLocal: time } : null
+  };
 }
 
 function billingMonthBounds(periodEnd) {
@@ -172,6 +221,56 @@ export async function listUtilityBills(deviceSn) {
   const ids = rows.map((row) => row.id);
   const documents = ids.length ? await rest(`utility_bill_documents?bill_id=in.(${ids.join(',')})&select=id,bill_id,page_number,original_name,mime_type,bytes&order=page_number.asc`) || [] : [];
   return rows.map((row) => normalize(row, null, documents.filter((document) => document.bill_id === row.id)));
+}
+
+export async function utilityBillReminder(deviceSn, now = new Date()) {
+  const siteId = await ensureSite(deviceSn);
+  const [settingsRow, latestRows] = await Promise.all([
+    reminderSettingsForSite(siteId),
+    rest(`utility_bills?site_id=eq.${siteId}&select=period_end&order=period_end.desc,created_at.desc&limit=1`)
+  ]);
+  const settings = normalizeReminderSettings(settingsRow);
+  const latestPeriodEnd = latestRows?.[0]?.period_end || null;
+  if (!latestPeriodEnd) return { settings, schedule: null };
+  return { settings, schedule: calculateUtilityReminderSchedule(settings, nextReadingDateFromPeriodEnd(latestPeriodEnd), now) };
+}
+
+export async function updateUtilityBillReminder(deviceSn, patch) {
+  const siteId = await ensureSite(deviceSn);
+  const current = await reminderSettingsForSite(siteId);
+  const requestedTime = String(patch.notificationTimeLocal || '');
+  const body = {
+    site_id: siteId,
+    enabled: patch.enabled ?? current.enabled ?? false,
+    notify_day_before: patch.notifyDayBefore ?? current.notify_day_before ?? true,
+    notify_same_day: patch.notifySameDay ?? current.notify_same_day ?? true,
+    notification_time_local: /^\d{2}:\d{2}$/.test(requestedTime) ? `${requestedTime}:00` : current.notification_time_local || '09:00:00',
+    updated_at: new Date().toISOString()
+  };
+  if (!body.notify_day_before && !body.notify_same_day) body.enabled = false;
+  const rows = await rest('utility_bill_reminder_settings?on_conflict=site_id', {
+    method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify(body)
+  });
+  const settings = normalizeReminderSettings(rows?.[0] || body);
+  const latestRows = await rest(`utility_bills?site_id=eq.${siteId}&select=period_end&order=period_end.desc,created_at.desc&limit=1`) || [];
+  const schedule = latestRows[0] ? calculateUtilityReminderSchedule(settings, nextReadingDateFromPeriodEnd(latestRows[0].period_end)) : null;
+  return { settings, schedule };
+}
+
+export async function listDueUtilityBillReminders(now = new Date()) {
+  const today = todayChile(now);
+  const localTime = chileTime(now);
+  const settingsRows = await rest('utility_bill_reminder_settings?enabled=eq.true&select=site_id,notify_day_before,notify_same_day,notification_time_local') || [];
+  const due = [];
+  for (const setting of settingsRows) {
+    if (localTime < String(setting.notification_time_local || '09:00').slice(0, 5)) continue;
+    const latestRows = await rest(`utility_bills?site_id=eq.${setting.site_id}&select=period_end&order=period_end.desc,created_at.desc&limit=1`) || [];
+    if (!latestRows[0]) continue;
+    const nextReadingDate = nextReadingDateFromPeriodEnd(latestRows[0].period_end);
+    if (setting.notify_day_before !== false && today === dateAdd(nextReadingDate, -1)) due.push({ siteId: Number(setting.site_id), nextReadingDate, kind: 'day-before' });
+    if (setting.notify_same_day !== false && today === nextReadingDate) due.push({ siteId: Number(setting.site_id), nextReadingDate, kind: 'same-day' });
+  }
+  return due;
 }
 
 export async function projectUtilityBill(deviceSn, bills = null, unitRateClp = 250) {
