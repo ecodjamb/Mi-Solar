@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { reconcileWaterBill } from '../server/waterBillAi.js';
-import { calculateWaterProjection, classifyWaterConsumption, normalizeWaterReadingM3 } from '../server/waterCosts.js';
+import { calculateWaterProjection, classifyWaterConsumption, deleteWaterReading, normalizeWaterReadingM3 } from '../server/waterCosts.js';
 
 const bill = reconcileWaterBill({
   periodStart: '2026-08-07', periodEnd: '2026-08-11', amountClp: 784570,
@@ -75,4 +75,5 @@ assert.equal(currentPeriodProjection.projectedAmountClp, 103859);
 assert.equal(normalizeWaterReadingM3('7893,125'), 7893.125);
 assert.equal(normalizeWaterReadingM3(7893.1254), 7893.125);
 assert.ok(Number.isNaN(normalizeWaterReadingM3('lectura')));
+await assert.rejects(() => deleteWaterReading('96342509120972', 'no-valida'), /no es válida/);
 console.log('water bill AI reconciliation tests: ok');

@@ -268,7 +268,7 @@
   order: 2;
 }
 .water-reading-history article {
-  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-columns: 42px minmax(0, 1fr) 34px;
   align-items: center;
 }
 .water-reading-photo-icon,
@@ -292,6 +292,27 @@
   grid-column: 2;
   grid-row: 1;
   min-width: 0;
+}
+.water-reading-history article > button.water-reading-delete {
+  grid-column: 3;
+  grid-row: 1;
+  align-self: start;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-color: rgba(229, 99, 112, 0.32);
+  background: rgba(111, 33, 46, 0.2);
+  color: #ff9daa;
+}
+.water-reading-history article > button.water-reading-delete svg {
+  width: 15px;
+  height: 15px;
+}
+.water-reading-history article > button.water-reading-delete:disabled {
+  cursor: wait;
+  opacity: 0.45;
 }
 .water-reading-history article > button.water-reading-photo-icon {
   grid-column: 1;
@@ -360,6 +381,11 @@
 .water-reading-difference small {
   color: #a8c9d1;
   font-size: 10px;
+}
+.water-reading-difference em {
+  color: #718d95;
+  font-size: 9px;
+  font-style: normal;
 }
 .water-reading-difference.negative strong,
 .water-reading-difference.negative small {

@@ -434,6 +434,20 @@ export async function saveWaterReading(deviceSn, reading, image = null, ai = nul
   return normalizeReading(rows?.[0]);
 }
 
+export async function deleteWaterReading(deviceSn, readingId) {
+  const id = Number(readingId);
+  if (!Number.isInteger(id) || id <= 0) throw Object.assign(new Error('La lectura indicada no es válida.'), { status: 400 });
+  const siteId = await ensureSite(deviceSn);
+  const rows = await rest(`water_meter_readings?id=eq.${id}&site_id=eq.${siteId}&select=id,storage_path&limit=1`) || [];
+  if (!rows[0]) throw Object.assign(new Error('La lectura no existe o pertenece a otra instalación.'), { status: 404 });
+  if (rows[0].storage_path) await removeStored([rows[0].storage_path]);
+  const deleted = await rest(`water_meter_readings?id=eq.${id}&site_id=eq.${siteId}`, {
+    method: 'DELETE', headers: { Prefer: 'return=representation' }
+  });
+  if (!deleted?.[0]) throw new Error('La base de datos no confirmó la eliminación de la lectura.');
+  return { id };
+}
+
 export function normalizeWaterReadingM3(value) {
   const parsed = typeof value === 'string' ? Number(value.trim().replace(',', '.')) : Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? Number(parsed.toFixed(3)) : NaN;

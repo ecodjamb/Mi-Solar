@@ -17,7 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { api } from "../services/api";
-import { clp, formatSiteDate } from "../utils/energy";
+import { clp, formatSiteDate, siteDayBoundsUtc } from "../utils/energy";
 import EChart from "./EChart";
 
 type WaterImage = {
@@ -282,6 +282,20 @@ function m3(value: number | null | undefined, digits = 0) {
 function litersFromM3(value: number) {
   return `${Math.round(value * 1000).toLocaleString("es-CL")} L`;
 }
+function waterRateLabel(value: number | null) {
+  return value == null
+    ? "Tasa no disponible"
+    : `${value.toLocaleString("es-CL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} L/h`;
+}
+function elapsedTimeLabel(totalMinutes: number) {
+  const minutes = Math.max(0, Math.round(totalMinutes));
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const remainder = minutes % 60;
+  return [days ? `${days} d` : "", hours ? `${hours} h` : "", `${remainder} min`]
+    .filter(Boolean)
+    .join(" ");
+}
 function parseReadingInput(value: string) {
   const compact = value.trim().replace(/\s/g, "");
   if (!/^\d+(?:[,.]\d{0,3})?$/.test(compact)) return null;
@@ -392,6 +406,7 @@ export default function WaterCostsPage({
   );
   const [readingModel, setReadingModel] = useState("");
   const [readingBusy, setReadingBusy] = useState(false);
+  const [deletingReadingId, setDeletingReadingId] = useState<number | null>(null);
   const [closeValue, setCloseValue] = useState("");
   const [openDraft, setOpenDraft] = useState({
     periodStart: formatSiteDate(),
@@ -984,6 +999,32 @@ export default function WaterCostsPage({
     }
   }
 
+  async function removeReading(reading: WaterReading) {
+    if (
+      !window.confirm(
+        `¿Eliminar definitivamente la lectura de ${m3(reading.readingM3, 3)} del ${dateTimeLabel(reading.readingAt)}${reading.hasPhoto ? " y su fotografía" : ""}?`,
+      )
+    )
+      return;
+    setDeletingReadingId(reading.id);
+    setError("");
+    try {
+      await api(`devices/${deviceSn}/water-meter/readings/${reading.id}`, {
+        method: "DELETE",
+      });
+      setMessage("Lectura eliminada. Los diferenciales y la proyección fueron recalculados.");
+      await reload();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "No fue posible eliminar la lectura.",
+      );
+    } finally {
+      setDeletingReadingId(null);
+    }
+  }
+
   if (loading)
     return (
       <section className="water-costs-page">
@@ -1414,9 +1455,21 @@ export default function WaterCostsPage({
                     const previousReadingM3 =
                       readings[index + 1]?.readingM3 ??
                       period.openingReadingM3;
+                    const previousReadingAt = readings[index + 1]?.readingAt;
                     const differenceM3 = Number(
                       (reading.readingM3 - previousReadingM3).toFixed(3),
                     );
+                    const previousTime = previousReadingAt
+                      ? Date.parse(previousReadingAt)
+                      : siteDayBoundsUtc(period.periodStart).start.getTime();
+                    const elapsedMinutes = Math.max(
+                      0,
+                      (Date.parse(reading.readingAt) - previousTime) / 60_000,
+                    );
+                    const litersPerHour =
+                      differenceM3 >= 0 && elapsedMinutes > 0
+                        ? (differenceM3 * 1000 * 60) / elapsedMinutes
+                        : null;
                     return (
                       <article key={reading.id}>
                       {reading.hasPhoto ? (
@@ -1464,6 +1517,11 @@ export default function WaterCostsPage({
                             {differenceM3 > 0 ? "+" : ""}
                             {litersFromM3(differenceM3)}
                           </small>
+                          <small>{waterRateLabel(litersPerHour)}</small>
+                          <em>
+                            en {elapsedTimeLabel(elapsedMinutes)}
+                            {!previousReadingAt ? " · desde el inicio del período" : ""}
+                          </em>
                         </span>
                         {reading.notes &&
                         reading.notes !== "Lectura rápida desde fotografía" ? (
@@ -1472,6 +1530,16 @@ export default function WaterCostsPage({
                           </em>
                         ) : null}
                       </div>
+                      <button
+                        className="water-reading-delete"
+                        type="button"
+                        disabled={deletingReadingId === reading.id}
+                        onClick={() => void removeReading(reading)}
+                        aria-label={`Eliminar lectura ${m3(reading.readingM3, 3)}`}
+                        title="Eliminar lectura"
+                      >
+                        <Trash2 />
+                      </button>
                       </article>
                     );
                   })}

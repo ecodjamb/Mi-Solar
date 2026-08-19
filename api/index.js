@@ -18,7 +18,7 @@ import { forecastForDate, listForecastRevisions, lockTomorrowForecasts } from '.
 import { deleteUtilityBill, listUtilityBills, projectUtilityBill, readUtilityBillDocument, saveUtilityBill, saveUtilityMeterReading, updateUtilityBill, utilityBillReminder, utilityMeterTracking, updateUtilityBillReminder } from '../server/utilityBills.js';
 import { extractUtilityBill, validateBillImages } from '../server/utilityBillAi.js';
 import {
-  closeWaterPeriod, deleteWaterBill, openWaterPeriod, readWaterBillDocument, readWaterReadingPhoto,
+  closeWaterPeriod, deleteWaterBill, deleteWaterReading, openWaterPeriod, readWaterBillDocument, readWaterReadingPhoto,
   saveWaterBill, saveWaterReading, updateWaterSettings, waterDashboard
 } from '../server/waterCosts.js';
 import { extractWaterBill, extractWaterMeterReading, validateWaterImages } from '../server/waterBillAi.js';
@@ -173,7 +173,7 @@ export default async function handler(req, res) {
       } catch (cause) {
         archiveError = cause instanceof Error ? cause.message : 'No fue posible comprobar el archivo permanente.';
       }
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.26.2', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.26.3', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -828,6 +828,14 @@ export default async function handler(req, res) {
       const image = body.image ? validateWaterImages([body.image], 1)[0] : null;
       const reading = await saveWaterReading(sn, { periodId: body.periodId, readingAt: body.readingAt, readingM3, notes: body.notes, source: image ? 'photo-ai' : 'manual' }, image, { extracted: body.aiExtraction && typeof body.aiExtraction === 'object' ? body.aiExtraction : {}, confidence: Number(body.aiConfidence), model: body.aiModel });
       return sendJson(res, 200, { reading });
+    }
+
+    const waterReadingRecord = route.match(/^devices\/([^/]+)\/water-meter\/readings\/(\d+)$/);
+    if (method === 'DELETE' && waterReadingRecord) {
+      requireSession(req);
+      const sn = decodeURIComponent(waterReadingRecord[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      return sendJson(res, 200, { deleted: await deleteWaterReading(sn, waterReadingRecord[2]) });
     }
 
     const waterPeriodOpen = route.match(/^devices\/([^/]+)\/water-periods\/open$/);
