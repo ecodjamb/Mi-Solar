@@ -1,3 +1,8 @@
+# Mi Solar v8.24.5
+
+- Agua: el icono de fotografía y el icono de ingreso manual comparten una primera columna fija y quedan exactamente alineados en celular y web.
+- Agua: se corrige una regla móvil anterior que desplazaba el botón de fotografía hacia la segunda columna.
+
 # Mi Solar v8.24.4
 
 - Agua: las lecturas manuales aceptan coma o punto decimal y se formatean como `7893,125 m³`.

@@ -268,11 +268,16 @@
   order: 2;
 }
 .water-reading-history article {
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
 }
 .water-reading-photo-icon,
 .water-reading-history article > span.manual {
   position: relative;
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
+  justify-self: center;
   display: grid;
   place-items: center;
   width: 38px;
@@ -283,7 +288,14 @@
   background: rgba(22, 126, 164, 0.18);
   color: #57cff6;
 }
+.water-reading-history article > div {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+}
 .water-reading-history article > button.water-reading-photo-icon {
+  grid-column: 1;
+  grid-row: 1;
   cursor: pointer;
   padding: 0;
   border: 1px solid rgba(74, 194, 235, 0.42);
