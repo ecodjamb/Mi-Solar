@@ -116,6 +116,8 @@ type WaterProjection = {
 type WaterSettings = {
   reminderEnabled: boolean;
   reminderDaysBefore: number;
+  notifyDayBefore: boolean;
+  notifySameDay: boolean;
   reminderTimeLocal: string;
   closingDayHint: number | null;
   updatedAt: string | null;
@@ -126,6 +128,7 @@ type WaterDashboard = {
   readings: WaterReading[];
   projection: WaterProjection | null;
   settings: WaterSettings;
+  reminderSchedule: { nextReadingDate: string; daysRemaining: number; nextNotification: { date: string; timeLocal: string; label: string } | null } | null;
   today: string;
 };
 type WaterBillExtract = {
@@ -922,6 +925,7 @@ export default function WaterCostsPage({
         current ? { ...current, settings: result.settings } : current,
       );
       setMessage("Recordatorio de lectura guardado.");
+      await reload();
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -1519,9 +1523,7 @@ export default function WaterCostsPage({
             <div>
               <small>Notificación automática</small>
               <h2>Recordatorio para subir la lectura</h2>
-              <p>
-                Mi Solar enviará un aviso al celular antes del cierre estimado.
-              </p>
+              <p>Mi Solar puede avisarte el día anterior y el mismo día del cierre de este período.</p>
             </div>
             <label className="switch">
               <input
@@ -1539,28 +1541,8 @@ export default function WaterCostsPage({
             </label>
           </header>
           <div>
-            <label>
-              Avisar con anticipación
-              <select
-                value={settingsDraft.reminderDaysBefore}
-                onChange={(event) =>
-                  setSettingsDraft((current) =>
-                    current
-                      ? {
-                          ...current,
-                          reminderDaysBefore: Number(event.target.value),
-                        }
-                      : current,
-                  )
-                }
-              >
-                {[0, 1, 2, 3, 5, 7].map((days) => (
-                  <option value={days} key={days}>
-                    {days === 0 ? "El mismo día" : `${days} días antes`}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <label><input type="checkbox" checked={settingsDraft.notifyDayBefore} onChange={(event)=>setSettingsDraft((current)=>current?{...current,notifyDayBefore:event.target.checked}:current)}/> Avisar el día anterior</label>
+            <label><input type="checkbox" checked={settingsDraft.notifySameDay} onChange={(event)=>setSettingsDraft((current)=>current?{...current,notifySameDay:event.target.checked}:current)}/> Avisar el mismo día</label>
             <label>
               Hora local de Chile
               <input
@@ -1621,6 +1603,7 @@ export default function WaterCostsPage({
               <Bell /> Probar
             </button>
           </div>
+          <div className="water-next-reminder"><CalendarClock/><span><small>Fecha de lectura y cierre: {dashboard?.period ? dateLabel(dashboard.period.expectedCloseDate) : 'por calcular'}</small><b>{!settingsDraft.reminderEnabled ? 'Activa los avisos para programar la próxima notificación' : dashboard?.reminderSchedule?.nextNotification ? `Próxima notificación: ${dateLabel(dashboard.reminderSchedule.nextNotification.date)} · ${dashboard.reminderSchedule.nextNotification.timeLocal} h · ${dashboard.reminderSchedule.nextNotification.label}` : 'No quedan avisos pendientes para este período'}</b></span></div>
           </section>
         </details>
       ) : null}

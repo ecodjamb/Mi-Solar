@@ -15,7 +15,7 @@ import { runDueAutomations } from '../server/automationRunner.js';
 import { runNotificationMonitors } from '../server/notificationMonitor.js';
 import { automationSiteProfile } from '../server/siteProfiles.js';
 import { forecastForDate, listForecastRevisions, lockTomorrowForecasts } from '../server/solarProjection.js';
-import { deleteUtilityBill, listUtilityBills, projectUtilityBill, readUtilityBillDocument, saveUtilityBill, updateUtilityBill, utilityBillReminder, updateUtilityBillReminder } from '../server/utilityBills.js';
+import { deleteUtilityBill, listUtilityBills, projectUtilityBill, readUtilityBillDocument, saveUtilityBill, saveUtilityMeterReading, updateUtilityBill, utilityBillReminder, utilityMeterTracking, updateUtilityBillReminder } from '../server/utilityBills.js';
 import { extractUtilityBill, validateBillImages } from '../server/utilityBillAi.js';
 import {
   closeWaterPeriod, deleteWaterBill, openWaterPeriod, readWaterBillDocument, readWaterReadingPhoto,
@@ -173,7 +173,7 @@ export default async function handler(req, res) {
       } catch (cause) {
         archiveError = cause instanceof Error ? cause.message : 'No fue posible comprobar el archivo permanente.';
       }
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.25.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.26.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -682,8 +682,8 @@ export default async function handler(req, res) {
       if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
       if (method === 'GET') {
         const list = await listUtilityBills(sn);
-        const [projection, reminder] = await Promise.all([projectUtilityBill(sn, list), utilityBillReminder(sn)]);
-        return sendJson(res, 200, { list, projection, reminder });
+        const [projection, reminder, meterTracking] = await Promise.all([projectUtilityBill(sn, list), utilityBillReminder(sn), utilityMeterTracking(sn, list)]);
+        return sendJson(res, 200, { list, projection, reminder, meterTracking });
       }
       const body = parseBody(req);
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
@@ -714,6 +714,15 @@ export default async function handler(req, res) {
       details.chargeItems = chargeItems.map((item) => allowedChargeCategories.has(item.category) ? item : { ...item, category: 'other' });
       const bill = await saveUtilityBill(sn, { periodStart, periodEnd, previousReading, currentReading, billedKwh, estimatedKwh, consumptionIsEstimated: body.consumptionIsEstimated === true, amountClp, ...details }, images, { extracted: body.aiExtraction && typeof body.aiExtraction === 'object' ? body.aiExtraction : {}, confidence: optionalNumber('aiConfidence'), model: text('aiModel', 80) });
       return sendJson(res, 200, { bill, reminder: await utilityBillReminder(sn) });
+    }
+
+    const utilityMeterReadings = route.match(/^devices\/([^/]+)\/utility-meter-readings$/);
+    if (method === 'POST' && utilityMeterReadings) {
+      requireSession(req);
+      const sn = decodeURIComponent(utilityMeterReadings[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      const body = parseBody(req);
+      return sendJson(res, 201, await saveUtilityMeterReading(sn, { readingKwh: body.readingKwh, readingAt: body.readingAt, notes: body.notes }));
     }
 
     const utilityReminder = route.match(/^devices\/([^/]+)\/utility-reading-reminder$/);

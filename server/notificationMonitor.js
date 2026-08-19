@@ -234,7 +234,7 @@ export async function runNotificationMonitors() {
   ]);
   const waterReminders = [];
   for (const reminder of waterDue) {
-    const eventKey = `water-reading-${reminder.periodId}`;
+    const eventKey = `water-reading-${reminder.periodId}-${reminder.kind}`;
     const previous = await readNotificationState(reminder.siteId, eventKey);
     if (previous?.state === 'sent') {
       waterReminders.push({ ...reminder, status: 'already-sent' });
@@ -243,9 +243,9 @@ export async function runNotificationMonitors() {
     const pushed = await sendSiteNotification(
       reminder.siteId,
       'water_reading_reminder',
-      '💧 Es momento de registrar el medidor',
-      `La próxima lectura de Aguas Andinas está prevista para el ${new Date(`${reminder.expectedCloseDate}T12:00:00`).toLocaleDateString('es-CL', { dateStyle: 'long' })}. Sube una foto o ingresa la lectura en Mi Solar.`,
-      { url: '/?page=water', expectedCloseDate: reminder.expectedCloseDate },
+      reminder.kind === 'same-day' ? '💧 Ingresa hoy la lectura de agua' : '💧 Mañana corresponde la lectura de agua',
+      `${reminder.kind === 'same-day' ? 'Hoy' : 'Mañana'} ${new Date(`${reminder.expectedCloseDate}T12:00:00`).toLocaleDateString('es-CL', { dateStyle: 'long' })} corresponde la lectura de Aguas Andinas. Sube una foto o ingresa el número en Mi Solar.`,
+      { url: '/?page=water', expectedCloseDate: reminder.expectedCloseDate, kind: reminder.kind },
       eventKey
     );
     await saveNotificationState(reminder.siteId, eventKey, 'sent', reminder, new Date().toISOString());

@@ -77,6 +77,26 @@ export function validateBillImages(images) {
   return images;
 }
 
+export function reconcileUtilityBill(extracted) {
+  const next = { ...extracted, warnings: Array.isArray(extracted.warnings) ? [...extracted.warnings] : [] };
+  const previous = Number(next.previousReading);
+  const current = Number(next.currentReading);
+  if (next.previousReading != null && next.currentReading != null && Number.isFinite(previous) && Number.isFinite(current)) {
+    if (current < previous) {
+      next.previousReading = null;
+      next.currentReading = null;
+      next.warnings.push('Las lecturas detectadas eran incoherentes y se descartaron para revisión manual.');
+    } else {
+      const difference = Number((current - previous).toFixed(3));
+      if (next.billedKwh == null && next.consumptionIsEstimated !== true) next.billedKwh = difference;
+      else if (next.billedKwh != null && Math.abs(Number(next.billedKwh) - difference) > Math.max(1, difference * 0.01)) {
+        next.warnings.push(`La diferencia de lecturas es ${difference} kWh y no coincide con el consumo facturado detectado.`);
+      }
+    }
+  }
+  return next;
+}
+
 export async function extractUtilityBill(images) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw Object.assign(new Error('La lectura inteligente todavía no está configurada.'), { status: 503 });
@@ -84,6 +104,8 @@ export async function extractUtilityBill(images) {
   const content = [{
     type: 'input_text',
     text: `Analiza todas las imágenes como páginas de una sola cuenta eléctrica chilena. Extrae únicamente información visible y consolida datos repetidos entre páginas. No inventes. Usa fechas ISO YYYY-MM-DD. periodStart y periodEnd deben salir del "período de lectura", "monto del período" o equivalente, nunca de la fecha de emisión o vencimiento. Revisa visualmente ambas fechas una segunda vez y comprueba que el intervalo final sea coherente (habitualmente entre 20 y 45 días); si no lo es, vuelve a leer la imagen y deja una advertencia. Los valores de periodStart/periodEnd y el texto de warnings deben coincidir entre sí. Los montos deben ser números en pesos chilenos sin separadores. billedKwh es exclusivamente el consumo de energía facturado del período, no una lectura ni un precio. amountClp es el total final a pagar, aunque incluya deuda, intereses, repactaciones, ajustes o descuentos.
+
+Para previousReading y currentReading busca específicamente la sección "Mi consumo en el mes actual" y la tabla "Lecturas (kWh)": previousReading corresponde a la fila "Anterior" y currentReading a la fila "Actual". No confundas estos valores con el número de medidor, número de cliente, consumo del período ni fechas. Interpreta formato chileno: el punto separa miles y la coma separa decimales; por ejemplo 44.846,000 significa 44846.000 kWh. Comprueba que currentReading - previousReading coincida aproximadamente con el consumo visible bajo las lecturas; si no coincide, vuelve a leer y advierte. Si una lectura no se ve, devuelve null; jamás la inventes.
 
 energyChargeClp es exclusivamente el cargo variable de electricidad o energía efectivamente consumida durante el período (por ejemplo, "Electricidad consumida"). transportChargeClp es la suma de transporte, transmisión o distribución de esa energía. Estos dos valores forman la base analítica del valor por kWh. Excluye cargo fijo, administración, servicio público, IVA/impuestos, intereses, deuda anterior, repactaciones, convenios, ajustes, redondeos y descuentos. No uses el total a pagar ni un subtotal general. Si no puedes identificar con certeza alguno, devuelve null y adviértelo.
 
@@ -110,7 +132,7 @@ En chargeItems registra cada cargo, descuento, impuesto, deuda, repactación, in
   const text = outputText(payload);
   if (!text) throw Object.assign(new Error('La IA no devolvió datos legibles para esta cuenta.'), { status: 422 });
   try {
-    const extracted = JSON.parse(text);
+    const extracted = reconcileUtilityBill(JSON.parse(text));
     extracted.confidence = Math.max(0, Math.min(1, Number(extracted.confidence || 0)));
     return { extracted, model: payload.model || process.env.OPENAI_BILL_MODEL || 'gpt-5.4-mini', responseId: payload.id || null };
   } catch {

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { ensureSite as ensureSolarSite, rest } from './archive.js';
+import { calculateUtilityReminderSchedule } from './utilityBills.js';
 
 const TZ = 'America/Santiago';
 const BUCKET = 'water-cost-documents';
@@ -156,6 +157,7 @@ function normalizeReading(row) {
 function normalizeSettings(row) {
   return {
     reminderEnabled: row?.reminder_enabled !== false, reminderDaysBefore: Number(row?.reminder_days_before ?? 2),
+    notifyDayBefore: row?.notify_day_before !== false, notifySameDay: row?.notify_same_day !== false,
     reminderTimeLocal: String(row?.reminder_time_local || '09:00:00').slice(0, 5), closingDayHint: row?.closing_day_hint == null ? null : Number(row.closing_day_hint), updatedAt: row?.updated_at || null
   };
 }
@@ -320,6 +322,8 @@ export async function updateWaterSettings(deviceSn, patch) {
   const body = {
     site_id: siteId, reminder_enabled: patch.reminderEnabled ?? current.reminder_enabled ?? true,
     reminder_days_before: Math.max(0, Math.min(14, Number(patch.reminderDaysBefore ?? current.reminder_days_before ?? 2))),
+    notify_day_before: patch.notifyDayBefore ?? current.notify_day_before ?? true,
+    notify_same_day: patch.notifySameDay ?? current.notify_same_day ?? true,
     reminder_time_local: /^\d{2}:\d{2}$/.test(String(patch.reminderTimeLocal || '')) ? `${patch.reminderTimeLocal}:00` : current.reminder_time_local || '09:00:00',
     closing_day_hint: patch.closingDayHint == null || patch.closingDayHint === '' ? null : Math.max(1, Math.min(31, Number(patch.closingDayHint))), updated_at: new Date().toISOString()
   };
@@ -468,21 +472,23 @@ export async function waterDashboard(deviceSn) {
   const period = await ensureOpenWaterPeriod(deviceSn);
   const rows = period ? await rest(`water_meter_readings?site_id=eq.${siteId}&period_id=eq.${period.id}&select=*&order=reading_at.desc&limit=300`) || [] : [];
   const readings = rows.map(normalizeReading);
-  return { bills, period, readings, projection: calculateWaterProjection(period, readings, bills), settings: normalizeSettings(settingsRow), today: todayChile() };
+  const settings = normalizeSettings(settingsRow);
+  const reminderSchedule = period ? calculateUtilityReminderSchedule({ enabled: settings.reminderEnabled, notifyDayBefore: settings.notifyDayBefore, notifySameDay: settings.notifySameDay, notificationTimeLocal: settings.reminderTimeLocal }, period.expectedCloseDate) : null;
+  return { bills, period, readings, projection: calculateWaterProjection(period, readings, bills), settings, reminderSchedule, today: todayChile() };
 }
 
 export async function listDueWaterReminders(now = new Date()) {
   const chileDate = todayChile(now);
   const chileTime = now.toLocaleTimeString('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-  const rows = await rest('water_settings?reminder_enabled=eq.true&select=site_id,reminder_days_before,reminder_time_local') || [];
+  const rows = await rest('water_settings?reminder_enabled=eq.true&select=site_id,notify_day_before,notify_same_day,reminder_time_local') || [];
   const due = [];
   for (const setting of rows) {
     if (chileTime < String(setting.reminder_time_local || '09:00').slice(0, 5)) continue;
     const periods = await rest(`water_meter_periods?site_id=eq.${setting.site_id}&status=eq.open&select=id,expected_close_date&limit=1`) || [];
     const period = periods[0];
     if (!period) continue;
-    const reminderDate = dateAdd(period.expected_close_date, -Number(setting.reminder_days_before || 0));
-    if (chileDate >= reminderDate && chileDate <= period.expected_close_date) due.push({ siteId: Number(setting.site_id), periodId: Number(period.id), expectedCloseDate: period.expected_close_date, reminderDate });
+    if (setting.notify_day_before !== false && chileDate === dateAdd(period.expected_close_date, -1)) due.push({ siteId: Number(setting.site_id), periodId: Number(period.id), expectedCloseDate: period.expected_close_date, kind: 'day-before' });
+    if (setting.notify_same_day !== false && chileDate === period.expected_close_date) due.push({ siteId: Number(setting.site_id), periodId: Number(period.id), expectedCloseDate: period.expected_close_date, kind: 'same-day' });
   }
   return due;
 }

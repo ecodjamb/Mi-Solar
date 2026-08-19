@@ -223,6 +223,64 @@ export async function listUtilityBills(deviceSn) {
   return rows.map((row) => normalize(row, null, documents.filter((document) => document.bill_id === row.id)));
 }
 
+function normalizeUtilityMeterReading(row) {
+  return {
+    id: Number(row.id), periodStart: row.period_start, periodEnd: row.period_end,
+    openingReadingKwh: Number(row.opening_reading_kwh), readingAt: row.reading_at,
+    readingKwh: Number(row.reading_kwh), notes: row.notes || null, source: row.source || 'manual'
+  };
+}
+
+export function calculateUtilityMeterProjection({ periodStart, periodEnd, openingReadingKwh, readings = [], unitRateClp = 250 }) {
+  const ordered = [...readings].sort((a, b) => String(b.readingAt).localeCompare(String(a.readingAt)));
+  const latest = ordered[0] || null;
+  const latestDate = latest ? new Date(latest.readingAt).toLocaleDateString('en-CA', { timeZone: SITE_TZ }) : periodStart;
+  const elapsedDays = Math.max(0, dateDifferenceDays(periodStart, latestDate));
+  const totalDays = Math.max(1, dateDifferenceDays(periodStart, periodEnd));
+  const consumedKwh = latest ? Math.max(0, Number(latest.readingKwh) - Number(openingReadingKwh)) : 0;
+  const averageDailyKwh = elapsedDays > 0 ? consumedKwh / elapsedDays : 0;
+  const projectedKwh = Math.max(consumedKwh, averageDailyKwh * totalDays);
+  return {
+    periodStart, periodEnd, openingReadingKwh: Number(openingReadingKwh), latestReadingKwh: latest?.readingKwh ?? null,
+    latestReadingAt: latest?.readingAt || null, consumedKwh: Number(consumedKwh.toFixed(3)), elapsedDays, totalDays,
+    averageDailyKwh: Number(averageDailyKwh.toFixed(3)), projectedKwh: Number(projectedKwh.toFixed(2)),
+    projectedAmountClp: Math.round(projectedKwh * unitRateClp), unitRateClp
+  };
+}
+
+export async function utilityMeterTracking(deviceSn, bills = null) {
+  const siteId = await ensureSite(deviceSn);
+  const list = bills || await listUtilityBills(deviceSn);
+  const latestBill = list[0];
+  if (!latestBill?.currentReading || !latestBill.periodEnd) return null;
+  const periodStart = dateAdd(latestBill.periodEnd, 1);
+  const periodEnd = nextMonthSameDay(periodStart);
+  const rows = await rest(`utility_meter_readings?site_id=eq.${siteId}&period_start=eq.${periodStart}&period_end=eq.${periodEnd}&select=*&order=reading_at.desc&limit=300`) || [];
+  const readings = rows.map(normalizeUtilityMeterReading);
+  return {
+    periodStart, periodEnd, openingReadingKwh: latestBill.currentReading, readings,
+    projection: calculateUtilityMeterProjection({ periodStart, periodEnd, openingReadingKwh: latestBill.currentReading, readings })
+  };
+}
+
+export async function saveUtilityMeterReading(deviceSn, input) {
+  const siteId = await ensureSite(deviceSn);
+  const bills = await listUtilityBills(deviceSn);
+  const tracking = await utilityMeterTracking(deviceSn, bills);
+  if (!tracking) throw Object.assign(new Error('La última cuenta no tiene una lectura actual para iniciar el período.'), { status: 409 });
+  const readingKwh = Number(input.readingKwh);
+  if (!Number.isFinite(readingKwh) || readingKwh < tracking.openingReadingKwh) throw Object.assign(new Error(`La lectura debe ser igual o mayor a ${tracking.openingReadingKwh.toLocaleString('es-CL')} kWh.`), { status: 400 });
+  const readingAt = input.readingAt && Number.isFinite(Date.parse(input.readingAt)) ? new Date(input.readingAt).toISOString() : new Date().toISOString();
+  const rows = await rest('utility_meter_readings', {
+    method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({
+      site_id: siteId, period_start: tracking.periodStart, period_end: tracking.periodEnd,
+      opening_reading_kwh: tracking.openingReadingKwh, reading_at: readingAt,
+      reading_kwh: Number(readingKwh.toFixed(3)), notes: String(input.notes || '').trim().slice(0, 500) || null, source: 'manual'
+    })
+  });
+  return { reading: normalizeUtilityMeterReading(rows[0]), tracking: await utilityMeterTracking(deviceSn, bills) };
+}
+
 export async function utilityBillReminder(deviceSn, now = new Date()) {
   const siteId = await ensureSite(deviceSn);
   const [settingsRow, latestRows] = await Promise.all([
