@@ -19,9 +19,13 @@ function dateAdd(value, days) {
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
 }
 
-function periodDays(start, end) {
+function dateDifferenceDays(start, end) {
   const delta = Date.parse(`${end}T12:00:00Z`) - Date.parse(`${start}T12:00:00Z`);
-  return Number.isFinite(delta) && delta >= 0 ? Math.max(1, Math.round(delta / 86_400_000)) : 1;
+  return Number.isFinite(delta) && delta >= 0 ? Math.round(delta / 86_400_000) : 0;
+}
+
+function periodDays(start, end) {
+  return Math.max(1, dateDifferenceDays(start, end));
 }
 
 function billingMonth(value, fallback) {
@@ -433,16 +437,13 @@ export async function readWaterReadingPhoto(deviceSn, readingId) {
   return readStored(rows[0].storage_path, rows[0].mime_type, rows[0].original_name);
 }
 
-function projectionFor(period, readings, bills) {
+export function calculateWaterProjection(period, readings, bills, now = new Date()) {
   if (!period) return null;
-  const now = Date.now();
-  const startMs = Date.parse(`${period.periodStart}T12:00:00Z`);
-  const endMs = Date.parse(`${period.expectedCloseDate}T12:00:00Z`);
   const latest = readings[0];
-  const latestMs = latest ? Date.parse(latest.readingAt) : startMs;
   const consumed = latest ? Math.max(0, latest.readingM3 - period.openingReadingM3) : 0;
-  const elapsedDays = Math.max(0.25, (latestMs - startMs) / 86_400_000);
-  const totalDays = Math.max(1, (endMs - startMs) / 86_400_000);
+  const latestDateChile = latest ? todayChile(new Date(latest.readingAt)) : period.periodStart;
+  const elapsedDays = periodDays(period.periodStart, latestDateChile);
+  const totalDays = periodDays(period.periodStart, period.expectedCloseDate);
   const historicDaily = bills.filter((bill) => bill.billedM3 > 0).slice(0, 6).map((bill) => bill.billedM3 / bill.periodDays);
   const fallbackDaily = historicDaily.length ? historicDaily.reduce((sum, value) => sum + value, 0) / historicDaily.length : 0;
   const daily = consumed > 0 ? consumed / elapsedDays : fallbackDaily;
@@ -451,7 +452,7 @@ function projectionFor(period, readings, bills) {
   return {
     consumedM3: Number(consumed.toFixed(3)), averageDailyM3: Number(daily.toFixed(3)), projectedM3: Number(projectedM3.toFixed(2)),
     projectedAmountClp: Math.max(0, Math.round(projectedM3 * unitService)), unitServiceRateClp: unitService,
-    elapsedDays: Number(elapsedDays.toFixed(2)), remainingDays: Number(Math.max(0, (endMs - Math.min(now, endMs)) / 86_400_000).toFixed(2)),
+    elapsedDays, remainingDays: Math.max(0, dateDifferenceDays(todayChile(now), period.expectedCloseDate)),
     lastReadingAt: latest?.readingAt || null, calculatedAt: new Date().toISOString(), method: consumed > 0 ? 'current-readings' : 'historical-average'
   };
 }
@@ -462,7 +463,7 @@ export async function waterDashboard(deviceSn) {
   const period = await ensureOpenWaterPeriod(deviceSn);
   const rows = period ? await rest(`water_meter_readings?site_id=eq.${siteId}&period_id=eq.${period.id}&select=*&order=reading_at.desc&limit=300`) || [] : [];
   const readings = rows.map(normalizeReading);
-  return { bills, period, readings, projection: projectionFor(period, readings, bills), settings: normalizeSettings(settingsRow), today: todayChile() };
+  return { bills, period, readings, projection: calculateWaterProjection(period, readings, bills), settings: normalizeSettings(settingsRow), today: todayChile() };
 }
 
 export async function listDueWaterReminders(now = new Date()) {

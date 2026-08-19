@@ -1,3 +1,9 @@
+# Mi Solar v8.24.2
+
+- Agua: el promedio del mes en curso se calcula por días calendario transcurridos entre la lectura inicial y la última lectura, sin añadir horas ficticias a una fecha que no tiene hora.
+- Agua: la proyección y el total estimado del período usan el mismo intervalo diario corregido.
+- Agua: prueba automática con el caso real 7.876 → 7.892,713 m³ entre el 11 y el 18 de agosto.
+
 # Mi Solar v8.24.1
 
 - Agua: “Subir boleta” y “Subir lectura de hoy” permiten elegir entre cámara y rollo fotográfico antes de abrir el selector del teléfono.

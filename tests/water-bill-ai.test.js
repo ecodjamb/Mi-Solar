@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { reconcileWaterBill } from '../server/waterBillAi.js';
-import { classifyWaterConsumption } from '../server/waterCosts.js';
+import { calculateWaterProjection, classifyWaterConsumption } from '../server/waterCosts.js';
 
 const bill = reconcileWaterBill({
   periodStart: '2026-08-07', periodEnd: '2026-08-11', amountClp: 784570,
@@ -63,4 +63,13 @@ const visiblePhotoReadings = classifyWaterConsumption({}, { extracted: {
   readingStatus: 'actual', consumptionIsEstimated: false
 } });
 assert.equal(visiblePhotoReadings.status, 'actual');
+
+const currentPeriodProjection = calculateWaterProjection({
+  periodStart: '2026-08-11', expectedCloseDate: '2026-09-09', openingReadingM3: 7876
+}, [{ readingAt: '2026-08-19T02:14:40.783Z', readingM3: 7892.713 }], [], new Date('2026-08-19T02:20:00.000Z'));
+assert.equal(currentPeriodProjection.consumedM3, 16.713);
+assert.equal(currentPeriodProjection.elapsedDays, 7);
+assert.equal(currentPeriodProjection.averageDailyM3, 2.388);
+assert.equal(currentPeriodProjection.projectedM3, 69.24);
+assert.equal(currentPeriodProjection.projectedAmountClp, 103859);
 console.log('water bill AI reconciliation tests: ok');
