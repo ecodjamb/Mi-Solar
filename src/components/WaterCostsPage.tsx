@@ -473,6 +473,15 @@ export default function WaterCostsPage({
       return ordered.filter((bill) => billMonth(bill).startsWith(chartFilter));
     return ordered.slice(-(chartFilter === "6m" ? 6 : 12));
   }, [dashboard?.bills, chartFilter]);
+  const chartSummary = useMemo(() => {
+    const totalM3 = chartBills.reduce((sum, bill) => sum + bill.billedM3, 0);
+    const totalDays = chartBills.reduce((sum, bill) => sum + Math.max(0, bill.periodDays || bill.billingDays || 0), 0);
+    return {
+      totalM3,
+      averageMonthlyM3: chartBills.length ? totalM3 / chartBills.length : 0,
+      averageDailyM3: totalDays ? totalM3 / totalDays : 0,
+    };
+  }, [chartBills]);
   const chartOption = useMemo(
     () => ({
       tooltip: {
@@ -492,13 +501,27 @@ export default function WaterCostsPage({
         },
       },
       legend: {
-        top: 4,
+        top: 2,
         left: "center",
+        right: 4,
         textStyle: { color: "#a9bdc3" },
         itemWidth: 15,
         itemHeight: 9,
+        itemGap: 9,
       },
-      grid: { left: 34, right: 38, top: 70, bottom: 48, containLabel: true },
+      toolbox: {
+        show: true,
+        top: 48,
+        right: 4,
+        iconStyle: { borderColor: "#8ea6ad" },
+        emphasis: { iconStyle: { borderColor: "#ffffff" } },
+        feature: {
+          dataZoom: { title: { zoom: "Ampliar", back: "Deshacer ampliación" } },
+          restore: { title: "Restablecer" },
+          saveAsImage: { title: "Guardar imagen", pixelRatio: 2 },
+        },
+      },
+      grid: { left: 34, right: 38, top: 96, bottom: 48, containLabel: true },
       xAxis: {
         type: "category",
         data: chartBills.map((bill) =>
@@ -982,6 +1005,14 @@ export default function WaterCostsPage({
           <h1>Costos y consumo de agua</h1>
         </div>
       </header>
+      {dashboard?.reminderSchedule ? (
+        <section className="water-next-reading-line" aria-label="Próxima lectura Aguas Andinas">
+          <CalendarClock />
+          <strong>Próxima lectura Aguas Andinas</strong>
+          <span>{dateLabel(dashboard.reminderSchedule.nextReadingDate)}</span>
+          <b>{dashboard.reminderSchedule.daysRemaining === 0 ? "Hoy" : dashboard.reminderSchedule.daysRemaining === 1 ? "Falta 1 día" : `Faltan ${dashboard.reminderSchedule.daysRemaining} días`}</b>
+        </section>
+      ) : null}
       <input
         className="water-hidden-input"
         ref={billCameraInput}
@@ -1246,9 +1277,11 @@ export default function WaterCostsPage({
         <footer>
           <span>
             <b>
-              {m3(chartBills.reduce((sum, bill) => sum + bill.billedM3, 0))}
+              {m3(chartSummary.totalM3)}
             </b>{" "}
             consumo visible
+            <small>Promedio mensual: {m3(chartSummary.averageMonthlyM3, 2)}</small>
+            <small>Promedio diario: {m3(chartSummary.averageDailyM3, 2)}</small>
           </span>
           <span>
             <b>
