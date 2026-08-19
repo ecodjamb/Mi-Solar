@@ -1,8 +1,14 @@
 import { createHash } from 'node:crypto';
-import { ensureSite, rest } from './archive.js';
+import { ensureSite as ensureSolarSite, rest } from './archive.js';
 
 const TZ = 'America/Santiago';
 const BUCKET = 'water-cost-documents';
+const ARRAYAN_DEVICE_SN = '96342509120972';
+
+async function ensureSite(deviceSn) {
+  if (String(deviceSn) !== ARRAYAN_DEVICE_SN) throw Object.assign(new Error('Los costos de agua solo están habilitados para El Arrayán.'), { status: 404 });
+  return ensureSolarSite(deviceSn, 'El Arrayán');
+}
 
 function todayChile(now = new Date()) {
   return now.toLocaleDateString('en-CA', { timeZone: TZ });
