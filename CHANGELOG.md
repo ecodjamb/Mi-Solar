@@ -1,3 +1,13 @@
+# Mi Solar v8.22.0
+
+- Nueva pestaña final **Costos de agua** para Aguas Andinas.
+- Lectura por IA de hasta cuatro páginas por boleta, con respaldo privado de las fotografías.
+- Historial mensual con consumo real/estimado, monto, promedios, lecturas, m³ descontados y desglose completo.
+- Seguimiento del mes en curso mediante fotografías del medidor o lecturas manuales con fecha y hora.
+- Proyección de consumo y costo al cierre basada en las lecturas del mes o el promedio histórico.
+- Apertura y cierre de períodos, fotografía asociada a cada lectura y recordatorio push configurable.
+- Base de datos permanente separada para boletas, documentos, períodos, lecturas y preferencias de aviso.
+
 # Mi Solar v8.3.2
 
 - Eliminado definitivamente el artefacto triangular amarillo del flujo de batería.

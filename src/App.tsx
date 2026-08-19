@@ -27,6 +27,7 @@ import ProgrammingPage from './components/ProgrammingPage';
 import IntegrationsPage from './components/IntegrationsPage';
 import DailyConsumptionChart from './components/DailyConsumptionChart';
 import EquipmentPage from './components/EquipmentPage';
+import WaterCostsPage from './components/WaterCostsPage';
 import { api, apiLive } from './services/api';
 import { fetchWeather, type WeatherData } from './services/weather';
 import { accumulatedTheoreticalToday, calibrateSolarModel, expectedPowerNow, theoreticalDayKwh } from './utils/solarForecast';
@@ -44,7 +45,7 @@ const SESSION_IDLE_MS=SESSION_POLICY.idleMs;
 const ACTIVITY_PING_MS=SESSION_POLICY.activityPingMs;
 const LAST_ACTIVITY_KEY=SESSION_POLICY.storageKey;
 const REFRESH_MS=REFRESH_POLICY;
-const requestedPage=()=>{const value=new URLSearchParams(window.location.search).get('page');return(['home','charts','solar','costs','equipment','programming','integrations','technical'] as PageKey[]).includes(value as PageKey)?value as PageKey:'home'};
+const requestedPage=()=>{const value=new URLSearchParams(window.location.search).get('page');return(['home','charts','solar','costs','equipment','programming','integrations','technical','water'] as PageKey[]).includes(value as PageKey)?value as PageKey:'home'};
 const emptyEnergy:DailyEnergy={date:'',solar:0,pv1:0,pv2:0,load:0,grid:0,gridImport:0,gridExport:0,gridToLoad:0,charge:0,discharge:0,solarToLoad:0,batteryToLoad:0,solarToBattery:0,samples:0};
 type StoredSolarForecast={date:string;forecastKwh:number;radiationKwhM2:number;locked:boolean;lockedAt:string|null};
 type ForecastRevision={date:string;forecastKwh:number;radiationKwhM2:number;observedAt:string};
@@ -454,6 +455,7 @@ export default function App(){
       {page==='technical'&&<section className="technical-page"><section className="technical-summary"><article className="panel"><small>Versión de la app</small><strong>v{APP_VERSION}</strong></article><article className="panel"><small>Política de actualización</small><strong>30 s · 5 min · 5 min · 5 min</strong><p>Tiempo real · día · semana · mes</p></article><article className="panel"><small>Datos catalogados</small><strong>{catalog.reduce((n,s)=>n+s.items.filter(i=>i.value!==null).length,0)}</strong></article><article className="panel"><small>Muestras hoy</small><strong>{today.samples}</strong></article><article className="panel"><small>Muestras mes</small><strong>{month.samples}</strong></article></section><section className="technical-grid">{catalog.map(section=><article className="panel technical-section" key={section.title}><h2>{section.title}</h2>{section.items.map(item=><div className="technical-row" key={item.key}><span>{item.label}</span><strong>{item.value===null?'—':`${typeof item.value==='number'?item.value.toLocaleString('es-CL',{maximumFractionDigits:2}):item.value}${item.unit?` ${item.unit}`:''}`}</strong><small>{item.source||'campo no disponible'}</small></div>)}</article>)}</section><section className="panel technical"><h2>Parámetros disponibles no usados en el dashboard</h2><p>Se muestran aquí para mantener el inicio limpio y facilitar futuras estadísticas.</p><div className="unknown-parameter-grid">{rawUnknown.map(key=><div className="unknown-parameter" key={key}><span>{key}</span><strong>{String((realtime as Record<string,unknown>)[key]??(summary as Record<string,unknown>)[key]??'—')}</strong></div>)}</div><details><summary>Auditoría completa en JSON</summary><pre>{JSON.stringify({version:APP_VERSION,architecture:'Vercel native · caché aislado por equipo',refreshPolicyMs:REFRESH_MS,lastSectionUpdate,realtime,summary,today,week,month,quality,solarModel},null,2)}</pre></details></section></section>}
       {page==='programming'&&<ProgrammingPage deviceSn={selected} siteLabel={siteLabel} currentTime={clock} tomorrowDate={tomorrowDate} tomorrowForecast={forecastTomorrow}/>}
       {page==='integrations'&&<IntegrationsPage siteLabel={siteLabel}/>}
+      {page==='water'&&<WaterCostsPage key={selected} deviceSn={selected} siteLabel={siteLabel}/>}
     </main>
     <MobileNav page={page} setPage={setPage}/>
   </div>;

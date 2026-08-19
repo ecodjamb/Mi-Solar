@@ -4,6 +4,7 @@ import { loginOrigin, logoutOrigin, readInverterRealtime } from './inverterContr
 import { listNotificationSites, readAutomationCredentials, readNotificationState, saveNotificationState } from './automationStore.js';
 import { sendSiteNotification } from './pushNotifications.js';
 import { automationSiteProfile } from './siteProfiles.js';
+import { listDueWaterReminders } from './waterCosts.js';
 
 const PV1_KEYS = ['pvInputPower1', 'pvPower1', 'powerPv1', 'solarPower1', 'pv1Power', 'pvPowerInput1'];
 const PV2_KEYS = ['pvInputPower2', 'pvPower2', 'powerPv2', 'solarPower2', 'pv2Power', 'pvPowerInput2'];
@@ -221,10 +222,32 @@ async function monitorSite(site) {
 
 export async function runNotificationMonitors() {
   const sites = await listNotificationSites();
-  const settled = await Promise.all(sites.map((site) => monitorSite(site).catch((error) => ({
-    deviceSn: site.deviceSn,
-    status: 'failed',
-    error: error instanceof Error ? error.message : String(error)
-  }))));
-  return { checkedAt: new Date().toISOString(), sites: sites.length, results: settled };
+  const [settled, waterDue] = await Promise.all([
+    Promise.all(sites.map((site) => monitorSite(site).catch((error) => ({
+      deviceSn: site.deviceSn,
+      status: 'failed',
+      error: error instanceof Error ? error.message : String(error)
+    })))),
+    listDueWaterReminders().catch(() => [])
+  ]);
+  const waterReminders = [];
+  for (const reminder of waterDue) {
+    const eventKey = `water-reading-${reminder.periodId}`;
+    const previous = await readNotificationState(reminder.siteId, eventKey);
+    if (previous?.state === 'sent') {
+      waterReminders.push({ ...reminder, status: 'already-sent' });
+      continue;
+    }
+    const pushed = await sendSiteNotification(
+      reminder.siteId,
+      'water_reading_reminder',
+      '💧 Es momento de registrar el medidor',
+      `La próxima lectura de Aguas Andinas está prevista para el ${new Date(`${reminder.expectedCloseDate}T12:00:00`).toLocaleDateString('es-CL', { dateStyle: 'long' })}. Sube una foto o ingresa la lectura en Mi Solar.`,
+      { url: '/?page=water', expectedCloseDate: reminder.expectedCloseDate },
+      eventKey
+    );
+    await saveNotificationState(reminder.siteId, eventKey, 'sent', reminder, new Date().toISOString());
+    waterReminders.push({ ...reminder, status: 'sent', pushed });
+  }
+  return { checkedAt: new Date().toISOString(), sites: sites.length, results: settled, waterReminders };
 }

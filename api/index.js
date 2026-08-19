@@ -17,6 +17,11 @@ import { automationSiteProfile } from '../server/siteProfiles.js';
 import { forecastForDate, listForecastRevisions, lockTomorrowForecasts } from '../server/solarProjection.js';
 import { deleteUtilityBill, listUtilityBills, projectUtilityBill, readUtilityBillDocument, saveUtilityBill, updateUtilityBill } from '../server/utilityBills.js';
 import { extractUtilityBill, validateBillImages } from '../server/utilityBillAi.js';
+import {
+  closeWaterPeriod, deleteWaterBill, openWaterPeriod, readWaterBillDocument, readWaterReadingPhoto,
+  saveWaterBill, saveWaterReading, updateWaterSettings, waterDashboard
+} from '../server/waterCosts.js';
+import { extractWaterBill, extractWaterMeterReading, validateWaterImages } from '../server/waterBillAi.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
   res.statusCode = statusCode;
@@ -160,7 +165,7 @@ export default async function handler(req, res) {
   try {
     if (method === 'GET' && route === 'health') {
       const push = pushConfiguration();
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.21.6', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.22.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -700,6 +705,144 @@ export default async function handler(req, res) {
       details.chargeItems = chargeItems.map((item) => allowedChargeCategories.has(item.category) ? item : { ...item, category: 'other' });
       const bill = await saveUtilityBill(sn, { periodStart, periodEnd, previousReading, currentReading, billedKwh, estimatedKwh, consumptionIsEstimated: body.consumptionIsEstimated === true, amountClp, ...details }, images, { extracted: body.aiExtraction && typeof body.aiExtraction === 'object' ? body.aiExtraction : {}, confidence: optionalNumber('aiConfidence'), model: text('aiModel', 80) });
       return sendJson(res, 200, { bill });
+    }
+
+    const waterBillDocument = route.match(/^devices\/([^/]+)\/water-bills\/documents\/(\d+)$/);
+    if (method === 'GET' && waterBillDocument) {
+      requireSession(req);
+      const sn = decodeURIComponent(waterBillDocument[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      const document = await readWaterBillDocument(sn, waterBillDocument[2]);
+      res.statusCode = 200;
+      res.setHeader('Content-Type', document.mimeType);
+      res.setHeader('Cache-Control', 'private, max-age=300');
+      res.setHeader('Content-Disposition', `inline; filename="${String(document.originalName).replace(/[^a-zA-Z0-9._-]/g, '_')}"`);
+      return res.end(document.buffer);
+    }
+
+    const waterReadingPhoto = route.match(/^devices\/([^/]+)\/water-meter\/readings\/(\d+)\/photo$/);
+    if (method === 'GET' && waterReadingPhoto) {
+      requireSession(req);
+      const sn = decodeURIComponent(waterReadingPhoto[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      const document = await readWaterReadingPhoto(sn, waterReadingPhoto[2]);
+      res.statusCode = 200;
+      res.setHeader('Content-Type', document.mimeType);
+      res.setHeader('Cache-Control', 'private, max-age=300');
+      res.setHeader('Content-Disposition', `inline; filename="${String(document.originalName).replace(/[^a-zA-Z0-9._-]/g, '_')}"`);
+      return res.end(document.buffer);
+    }
+
+    const waterBillExtract = route.match(/^devices\/([^/]+)\/water-bills\/extract$/);
+    if (method === 'POST' && waterBillExtract) {
+      requireSession(req);
+      const sn = decodeURIComponent(waterBillExtract[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      const images = validateWaterImages(parseBody(req).images, 4);
+      return sendJson(res, 200, await extractWaterBill(images));
+    }
+
+    const waterMeterExtract = route.match(/^devices\/([^/]+)\/water-meter\/extract$/);
+    if (method === 'POST' && waterMeterExtract) {
+      requireSession(req);
+      const sn = decodeURIComponent(waterMeterExtract[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      const images = validateWaterImages(parseBody(req).images, 1);
+      return sendJson(res, 200, await extractWaterMeterReading(images[0]));
+    }
+
+    const waterBill = route.match(/^devices\/([^/]+)\/water-bills\/(\d+)$/);
+    if (method === 'DELETE' && waterBill) {
+      requireSession(req);
+      const sn = decodeURIComponent(waterBill[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      return sendJson(res, 200, { deleted: await deleteWaterBill(sn, waterBill[2]) });
+    }
+
+    const waterBills = route.match(/^devices\/([^/]+)\/water-bills$/);
+    if (method === 'POST' && waterBills) {
+      requireSession(req);
+      const sn = decodeURIComponent(waterBills[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      const body = parseBody(req);
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+      const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) ? String(value) : null;
+      const periodEnd = validDate(body.periodEnd) || validDate(body.issueDate) || today;
+      const periodStart = validDate(body.periodStart) && String(body.periodStart) <= periodEnd
+        ? String(body.periodStart)
+        : new Date(Date.parse(`${periodEnd}T12:00:00Z`) - 30 * 86_400_000).toISOString().slice(0, 10);
+      const images = Array.isArray(body.images) && body.images.length ? validateWaterImages(body.images, 4) : [];
+      const text = (value, max = 240) => value == null ? null : String(value).trim().slice(0, max) || null;
+      const number = (value) => value === '' || value == null || !Number.isFinite(Number(value)) ? null : Number(value);
+      const allowed = new Set(['fixed','potable_water','sewer_collection','wastewater_treatment','tax','discount','agreement','debt','interest','adjustment','other']);
+      const chargeItems = Array.isArray(body.chargeItems) ? body.chargeItems.slice(0, 80).map((item) => ({ label: text(item?.label, 180), cubicMeters: number(item?.cubicMeters), amountClp: Number(item?.amountClp), category: allowed.has(item?.category) ? item.category : 'other' })).filter((item) => item.label && Number.isFinite(item.amountClp)) : [];
+      const bill = await saveWaterBill(sn, {
+        periodStart, periodEnd, issueDate: validDate(body.issueDate), dueDate: validDate(body.dueDate), nextReadingDate: validDate(body.nextReadingDate),
+        previousReadingM3: number(body.previousReadingM3), currentReadingM3: number(body.currentReadingM3), readingDifferenceM3: number(body.readingDifferenceM3),
+        deductibleM3: number(body.deductibleM3), billedM3: number(body.billedM3), readingStatus: body.readingStatus,
+        consumptionIsEstimated: body.consumptionIsEstimated === true, amountClp: Math.max(0, Number(body.amountClp) || 0),
+        customerNumber: text(body.customerNumber, 80), meterNumber: text(body.meterNumber, 80), meterBrand: text(body.meterBrand, 80), meterModel: text(body.meterModel, 100),
+        invoiceNumber: text(body.invoiceNumber, 100), serviceAddress: text(body.serviceAddress, 300),
+        fixedChargeClp: number(body.fixedChargeClp), potableWaterChargeClp: number(body.potableWaterChargeClp), sewerCollectionChargeClp: number(body.sewerCollectionChargeClp),
+        wastewaterTreatmentChargeClp: number(body.wastewaterTreatmentChargeClp), subtotalServiceClp: number(body.subtotalServiceClp), taxesClp: number(body.taxesClp),
+        otherChargesClp: number(body.otherChargesClp), discountsClp: number(body.discountsClp), chargeItems
+      }, images, { extracted: body.aiExtraction && typeof body.aiExtraction === 'object' ? body.aiExtraction : {}, confidence: number(body.aiConfidence), model: text(body.aiModel, 80) });
+      return sendJson(res, 200, { bill });
+    }
+
+    const waterReading = route.match(/^devices\/([^/]+)\/water-meter\/readings$/);
+    if (method === 'POST' && waterReading) {
+      requireSession(req);
+      const sn = decodeURIComponent(waterReading[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      const body = parseBody(req);
+      const readingM3 = Number(body.readingM3);
+      if (!Number.isFinite(readingM3) || readingM3 < 0) return sendJson(res, 400, { error: 'Lectura de agua inválida.' });
+      const image = body.image ? validateWaterImages([body.image], 1)[0] : null;
+      const reading = await saveWaterReading(sn, { periodId: body.periodId, readingAt: body.readingAt, readingM3, notes: body.notes, source: image ? 'photo-ai' : 'manual' }, image, { extracted: body.aiExtraction && typeof body.aiExtraction === 'object' ? body.aiExtraction : {}, confidence: Number(body.aiConfidence), model: body.aiModel });
+      return sendJson(res, 200, { reading });
+    }
+
+    const waterPeriodOpen = route.match(/^devices\/([^/]+)\/water-periods\/open$/);
+    if (method === 'POST' && waterPeriodOpen) {
+      requireSession(req);
+      const sn = decodeURIComponent(waterPeriodOpen[1]);
+      const body = parseBody(req);
+      if (!/^\d{8,20}$/.test(sn) || !/^\d{4}-\d{2}-\d{2}$/.test(String(body.periodStart || '')) || !/^\d{4}-\d{2}-\d{2}$/.test(String(body.expectedCloseDate || ''))) return sendJson(res, 400, { error: 'Datos del período inválidos.' });
+      return sendJson(res, 200, { period: await openWaterPeriod(sn, body) });
+    }
+
+    const waterPeriodClose = route.match(/^devices\/([^/]+)\/water-periods\/close$/);
+    if (method === 'POST' && waterPeriodClose) {
+      requireSession(req);
+      const sn = decodeURIComponent(waterPeriodClose[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      return sendJson(res, 200, { period: await closeWaterPeriod(sn, parseBody(req)) });
+    }
+
+    const waterSettings = route.match(/^devices\/([^/]+)\/water-settings$/);
+    if (method === 'PATCH' && waterSettings) {
+      requireSession(req);
+      const sn = decodeURIComponent(waterSettings[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      return sendJson(res, 200, { settings: await updateWaterSettings(sn, parseBody(req)) });
+    }
+
+    const waterReminderTest = route.match(/^devices\/([^/]+)\/water-reminder-test$/);
+    if (method === 'POST' && waterReminderTest) {
+      requireSession(req);
+      const sn = decodeURIComponent(waterReminderTest[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      const siteId = await ensureSite(sn);
+      return sendJson(res, 200, await sendSiteNotification(siteId, 'water_reading_reminder_test', '💧 Recordatorio de lectura listo', 'Mi Solar te avisará antes de la próxima fecha estimada de lectura de Aguas Andinas.', { url: '/?page=water' }, `water-test-${Date.now()}`));
+    }
+
+    const waterCosts = route.match(/^devices\/([^/]+)\/water-costs$/);
+    if (method === 'GET' && waterCosts) {
+      requireSession(req);
+      const sn = decodeURIComponent(waterCosts[1]);
+      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      return sendJson(res, 200, await waterDashboard(sn));
     }
 
     const solarForecast = route.match(/^devices\/([^/]+)\/solar-forecast$/);
