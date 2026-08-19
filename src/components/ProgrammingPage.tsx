@@ -91,7 +91,7 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
   const [setupSaveMessage, setSetupSaveMessage] = useState('');
   const [setupSaveError, setSetupSaveError] = useState('');
   const hasForecast = tomorrowForecast != null;
-  const matchedCondition = hasForecast ? draft.conditions.find((condition) => condition.enabled && (condition.kind === 'lessThan' ? tomorrowForecast < condition.maxKwh : tomorrowForecast >= condition.minKwh && tomorrowForecast <= condition.maxKwh)) : null;
+  const matchedCondition = automation && hasForecast ? draft.conditions.find((condition) => condition.enabled && (condition.kind === 'lessThan' ? tomorrowForecast < condition.maxKwh : tomorrowForecast >= condition.minKwh && tomorrowForecast <= condition.maxKwh)) : null;
   const qualifies = matchedCondition?.preset === 'sunny';
 
   async function loadAutomation() {
@@ -252,7 +252,7 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
       </div>
     </section>
 
-    <details className="panel automation-setup">
+    {automation ? <details className="panel automation-setup">
       <summary><span><Settings2/><b>Setup de automatización</b><small>Perfiles, umbral, horario y acceso</small></span><ChevronDown/></summary>
       <div className="automation-setup-body">
         <section className="setup-section automation-conditions"><header><div><small>Condiciones de activación</small><h3>Reglas según la generación proyectada</h3></div><button type="button" className="add-condition" disabled={draft.conditions.length>=12} onClick={addCondition}><Plus/> Agregar condición</button></header>
@@ -280,7 +280,7 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
 
         <details className="setup-subdetails"><summary><span><KeyRound/> Acceso automático a i.Solar</span><b>{automation?.credentialsConfigured ? 'Configurado' : 'Pendiente'}</b></summary><div><p>Se valida una vez y se guarda cifrado. Nunca se muestra nuevamente.</p><input autoComplete="username" placeholder="Usuario i.Solar" value={username} onChange={(event) => setUsername(event.target.value)}/><input autoComplete="new-password" type="password" placeholder="Contraseña i.Solar" value={password} onChange={(event) => setPassword(event.target.value)}/><button className="primary-action" type="button" disabled={savingCredentials || !username || !password} onClick={saveCredentials}>{savingCredentials ? 'Validando…' : 'Validar y guardar acceso'}</button></div></details>
       </div>
-    </details>
+    </details> : <section className="panel archive-read-error" role={error ? 'alert' : 'status'}><Settings2/><div><strong>{error ? 'No se pudo recuperar la programación' : 'Recuperando programación guardada…'}</strong><p>{error ? 'Las condiciones persistentes no serán reemplazadas por reglas predeterminadas. Reintenta cuando se restablezca la conexión.' : 'Consultando las condiciones permanentes de esta instalación.'}</p>{error ? <small>{error}</small> : null}</div><button type="button" onClick={() => window.location.reload()}>Reintentar conexión</button></section>}
 
     <section className="panel notification-center">
       <header><div><small>Centro de avisos · {siteLabel}</small><h2><BellRing/> Notificaciones</h2><p>Elige qué eventos quieres recibir en este celular. Los controles se guardan por instalación.</p></div><span className={pushStatus?.configured ? 'notification-ready' : 'notification-pending'}>{pushStatus?.configured ? 'Celular conectado' : 'Pendiente de activar'}</span></header>

@@ -1,6 +1,6 @@
 import { md5, tumRequest } from '../server/tumcapp.js';
 import { clearCookie, openSession, sessionCookie, SESSION_IDLE_MS } from '../server/session.js';
-import { archiveRows, readArchive, readArchiveSeries } from '../server/archive.js';
+import { archiveRows, readArchive, readArchiveSeries, rest } from '../server/archive.js';
 import { getTuyaDevice, getTuyaDeviceProfile, listTuyaDevices, sendTuyaCommand, tuyaConfiguration } from '../server/tuya.js';
 import { parseInverterSettings } from '../server/isolarSettings.js';
 import {
@@ -165,7 +165,15 @@ export default async function handler(req, res) {
   try {
     if (method === 'GET' && route === 'health') {
       const push = pushConfiguration();
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.22.1', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      let archiveAuthorized = false;
+      let archiveError = null;
+      try {
+        const sites = await rest('solar_sites?select=id&limit=1');
+        archiveAuthorized = Array.isArray(sites);
+      } catch (cause) {
+        archiveError = cause instanceof Error ? cause.message : 'No fue posible comprobar el archivo permanente.';
+      }
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.22.2', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {

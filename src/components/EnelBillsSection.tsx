@@ -70,6 +70,7 @@ export default function EnelBillsSection({ deviceSn, siteLabel }: { deviceSn: st
   const [aiModel, setAiModel] = useState('');
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [message, setMessage] = useState('');
@@ -91,8 +92,8 @@ export default function EnelBillsSection({ deviceSn, siteLabel }: { deviceSn: st
   const calculatedRate = calculatedKwh > 0 ? (Number(draft.energyChargeClp || 0) > 0 ? rateBase / calculatedKwh : Number(draft.amountClp || 0) > 0 ? Number(draft.amountClp) / calculatedKwh : null) : null;
 
   useEffect(() => {
-    let active = true; setLoading(true);
-    api<{ list: UtilityBill[]; projection: UtilityBillProjection | null }>(`devices/${deviceSn}/utility-bills`).then((result) => { if (active) { setBills(result.list || []); setProjection(result.projection || null); } }).catch((error) => active && setMessage(error instanceof Error ? error.message : 'No fue posible cargar las cuentas.')).finally(() => active && setLoading(false));
+    let active = true; setLoading(true); setLoadError('');
+    api<{ list: UtilityBill[]; projection: UtilityBillProjection | null }>(`devices/${deviceSn}/utility-bills`).then((result) => { if (active) { setBills(result.list || []); setProjection(result.projection || null); } }).catch((error) => { if (active) { const text = error instanceof Error ? error.message : 'No fue posible cargar las cuentas.'; setLoadError(text); setMessage(text); } }).finally(() => active && setLoading(false));
     return () => { active = false; };
   }, [deviceSn]);
   useEffect(() => {
@@ -242,7 +243,7 @@ export default function EnelBillsSection({ deviceSn, siteLabel }: { deviceSn: st
       </div><button type="button" className="primary-action enel-save" disabled={editSaving} onClick={() => void saveEdit()}><Save/>{editSaving ? 'Guardando corrección…' : 'Guardar cambios'}</button>
     </section> : null}
     {message ? <p className="enel-bill-message" role="status">{message}</p> : null}
-    {loading ? <div className="chart-loading">Consultando cuentas guardadas…</div> : bills.length ? <>
+    {loading ? <div className="chart-loading">Consultando cuentas guardadas…</div> : loadError ? <section className="panel archive-read-error" role="alert"><FileImage/><div><strong>Las cuentas siguen respaldadas</strong><p>No se pudo consultar el archivo permanente. Mi Solar no reemplazará este error por una lista vacía.</p><small>{loadError}</small></div><button type="button" onClick={() => window.location.reload()}>Reintentar conexión</button></section> : bills.length ? <>
       <div className="enel-bill-list">{bills.map((bill, index) => {
         const variancePct = bill.theoreticalGridKwh > 0 ? bill.differenceKwh / bill.theoreticalGridKwh * 100 : 0;
         return <details className="panel enel-bill-card" key={bill.id}>

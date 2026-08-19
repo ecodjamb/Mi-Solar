@@ -20,9 +20,9 @@ const timestamp=(row)=>{
 };
 
 function config(){
-  const url=process.env.SUPABASE_URL;
-  const key=process.env.SUPABASE_PUBLISHABLE_KEY;
-  const appKey=process.env.MISOLAR_DB_KEY;
+  const url=process.env.SUPABASE_URL?.trim();
+  const key=process.env.SUPABASE_PUBLISHABLE_KEY?.trim();
+  const appKey=process.env.MISOLAR_DB_KEY?.trim();
   return url&&key&&appKey?{url,key,appKey}:null;
 }
 
