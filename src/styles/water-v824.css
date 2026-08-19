@@ -340,6 +340,31 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.water-reading-difference {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+  margin-top: 6px;
+  color: #8da8b0;
+  font-size: 9px;
+  line-height: 1.25;
+}
+.water-reading-difference > span {
+  flex-basis: 100%;
+}
+.water-reading-difference strong {
+  color: #66dfa9;
+  font-size: 11px;
+}
+.water-reading-difference small {
+  color: #a8c9d1;
+  font-size: 10px;
+}
+.water-reading-difference.negative strong,
+.water-reading-difference.negative small {
+  color: #ff9da8;
+}
 .water-current > header p {
   margin: 3px 0 0;
   color: #8ba4ab;

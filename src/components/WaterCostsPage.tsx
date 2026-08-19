@@ -279,6 +279,9 @@ function m3(value: number | null | undefined, digits = 0) {
   const displayDigits = digits === 3 ? 3 : digits === 2 ? 1 : digits;
   return `${Number(value || 0).toLocaleString("es-CL", { minimumFractionDigits: displayDigits, maximumFractionDigits: displayDigits })} m³`;
 }
+function litersFromM3(value: number) {
+  return `${Math.round(value * 1000).toLocaleString("es-CL")} L`;
+}
 function parseReadingInput(value: string) {
   const compact = value.trim().replace(/\s/g, "");
   if (!/^\d+(?:[,.]\d{0,3})?$/.test(compact)) return null;
@@ -1407,8 +1410,15 @@ export default function WaterCostsPage({
               {readings.length ? (
                 <div className="water-reading-history">
                   <h3>Lecturas del período</h3>
-                  {readings.map((reading) => (
-                    <article key={reading.id}>
+                  {readings.map((reading, index) => {
+                    const previousReadingM3 =
+                      readings[index + 1]?.readingM3 ??
+                      period.openingReadingM3;
+                    const differenceM3 = Number(
+                      (reading.readingM3 - previousReadingM3).toFixed(3),
+                    );
+                    return (
+                      <article key={reading.id}>
                       {reading.hasPhoto ? (
                         <button
                           className="water-reading-photo-icon"
@@ -1441,6 +1451,20 @@ export default function WaterCostsPage({
                               ? "cierre"
                               : "manual"}
                         </small>
+                        <span
+                          className={`water-reading-difference ${differenceM3 < 0 ? "negative" : ""}`}
+                          title={`Diferencia respecto de ${m3(previousReadingM3, 3)}`}
+                        >
+                          <span>Diferencia con lectura anterior</span>
+                          <strong>
+                            {differenceM3 > 0 ? "+" : ""}
+                            {m3(differenceM3, 3)}
+                          </strong>
+                          <small>
+                            {differenceM3 > 0 ? "+" : ""}
+                            {litersFromM3(differenceM3)}
+                          </small>
+                        </span>
                         {reading.notes &&
                         reading.notes !== "Lectura rápida desde fotografía" ? (
                           <em className="water-reading-note">
@@ -1448,8 +1472,9 @@ export default function WaterCostsPage({
                           </em>
                         ) : null}
                       </div>
-                    </article>
-                  ))}
+                      </article>
+                    );
+                  })}
                 </div>
               ) : null}
               <details className="water-close-period">
