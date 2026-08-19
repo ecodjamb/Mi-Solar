@@ -41,6 +41,48 @@ function nullableNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function validIsoDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) && Number.isFinite(Date.parse(`${value}T12:00:00Z`));
+}
+
+export function classifyWaterConsumption(bill, ai = null) {
+  const extracted = ai?.extracted && typeof ai.extracted === 'object' && Object.keys(ai.extracted).length ? ai.extracted : null;
+  const evidence = extracted || bill || {};
+  const periodStart = evidence.periodStart;
+  const periodEnd = evidence.periodEnd;
+  const previous = nullableNumber(evidence.previousReadingM3);
+  const current = nullableNumber(evidence.currentReadingM3);
+  const reportedDifference = nullableNumber(evidence.readingDifferenceM3);
+  const deductible = Math.max(0, nullableNumber(evidence.deductibleM3) || 0);
+  const billed = nullableNumber(evidence.billedM3);
+  const hasReadingDates = validIsoDate(periodStart) && validIsoDate(periodEnd) && periodEnd >= periodStart;
+  const hasMeterPair = previous != null && current != null && current >= previous;
+  const calculatedDifference = hasMeterPair ? current - previous : null;
+  const differenceTolerance = Math.max(0.1, Math.abs(calculatedDifference || 0) * 0.02);
+  const differenceMatches = calculatedDifference != null && (reportedDifference == null || Math.abs(reportedDifference - calculatedDifference) <= differenceTolerance);
+  const expectedBilled = calculatedDifference == null ? null : Math.max(0, calculatedDifference - deductible);
+  const billedTolerance = Math.max(0.25, Math.abs(expectedBilled || 0) * 0.05);
+  const billedMatches = expectedBilled != null && (billed == null || Math.abs(billed - expectedBilled) <= billedTolerance);
+
+  if (hasReadingDates && hasMeterPair) {
+    return {
+      status: 'actual',
+      method: differenceMatches && billedMatches ? 'actual-readings-verified' : 'actual-readings-reconciled',
+      reason: differenceMatches && billedMatches
+        ? 'Lecturas anterior y actual fechadas; diferencia y consumo coherentes.'
+        : 'Lecturas anterior y actual fechadas; la boleta aplica una conciliación o descuento adicional.',
+      evidence: { hasReadingDates, hasMeterPair, differenceMatches, billedMatches }
+    };
+  }
+  const companyEstimate = evidence.consumptionIsEstimated === true || ['estimated','pending','unavailable'].includes(evidence.readingStatus);
+  return {
+    status: 'estimated',
+    method: companyEstimate ? 'company-estimate-no-complete-reading' : 'missing-reading-evidence',
+    reason: hasMeterPair ? 'Falta la fecha completa de las lecturas; el consumo se trata como estimado.' : 'No hay dos lecturas fechadas y verificables; el consumo se trata como estimado.',
+    evidence: { hasReadingDates, hasMeterPair, differenceMatches, billedMatches }
+  };
+}
+
 function normalizeDocument(row) {
   return { id: Number(row.id), pageNumber: Number(row.page_number), originalName: row.original_name, mimeType: row.mime_type, bytes: Number(row.bytes || 0) };
 }
@@ -51,13 +93,22 @@ function normalizeBill(row, documents = []) {
   const month = billingMonth(row.billing_month, row.issue_date || row.period_end);
   const days = billingDays(month);
   const subtotal = nullableNumber(row.subtotal_service_clp);
+  const classification = row.source === 'meter-period' ? {
+    status: 'actual', method: 'meter-period-readings', reason: 'Consumo consolidado desde lecturas guardadas en Mi Solar.'
+  } : classifyWaterConsumption({
+    periodStart: row.period_start, periodEnd: row.period_end, previousReadingM3: row.previous_reading_m3,
+    currentReadingM3: row.current_reading_m3, readingDifferenceM3: row.reading_difference_m3,
+    deductibleM3: row.deductible_m3, billedM3: row.billed_m3,
+    readingStatus: row.consumption_status, consumptionIsEstimated: row.consumption_status !== 'actual'
+  });
   return {
     id: Number(row.id), billingMonth: month, periodStart: row.period_start, periodEnd: row.period_end, periodDays: readingSpanDays, billingDays: days, readingSpanDays,
     issueDate: row.issue_date, dueDate: row.due_date, nextReadingDate: row.next_reading_date,
     previousReadingM3: nullableNumber(row.previous_reading_m3), currentReadingM3: nullableNumber(row.current_reading_m3),
     readingDifferenceM3: nullableNumber(row.reading_difference_m3), deductibleM3: nullableNumber(row.deductible_m3), billedM3,
     averageDailyM3: billedM3 > 0 ? Number((billedM3 / days).toFixed(3)) : null,
-    consumptionStatus: row.consumption_status || 'unavailable', isEstimated: row.consumption_status !== 'actual', estimateMethod: row.estimate_method,
+    consumptionStatus: classification.status, isEstimated: classification.status !== 'actual', estimateMethod: classification.method,
+    classificationReason: row.estimate_method === 'historical-daily-average' ? 'Estimado con el promedio diario histórico.' : classification.reason,
     amountClp: Number(row.amount_clp || 0), unitServiceRateClp: billedM3 > 0 && subtotal != null ? Number((subtotal / billedM3).toFixed(2)) : null,
     customerNumber: row.customer_number, meterNumber: row.meter_number, meterBrand: row.meter_brand, meterModel: row.meter_model,
     invoiceNumber: row.invoice_number, serviceAddress: row.service_address,
@@ -162,18 +213,18 @@ export async function saveWaterBill(deviceSn, bill, images = [], ai = null) {
   const visibleBilled = nullableNumber(bill.billedM3);
   const calculatedBilled = difference != null ? Math.max(0, difference - deductible) : null;
   let billedM3 = visibleBilled != null && visibleBilled >= 0 ? visibleBilled : calculatedBilled;
-  let status = ['actual','estimated','pending','unavailable'].includes(bill.readingStatus) ? bill.readingStatus : 'unavailable';
-  let estimateMethod = status === 'actual' ? 'reported' : null;
+  const classification = classifyWaterConsumption(bill, ai);
+  let status = classification.status;
+  let estimateMethod = classification.method;
   if (!(billedM3 > 0)) {
     const averageDaily = await latestAverage(siteId);
     if (averageDaily != null) {
       billedM3 = Number((averageDaily * periodDays(bill.periodStart, bill.periodEnd)).toFixed(3));
       status = 'estimated'; estimateMethod = 'historical-daily-average';
     } else {
-      billedM3 = 0; status = status === 'pending' ? 'pending' : 'unavailable'; estimateMethod = 'not-enough-data';
+      billedM3 = 0; status = 'estimated'; estimateMethod = 'not-enough-data';
     }
   }
-  if (bill.consumptionIsEstimated === true && status === 'actual') status = 'estimated';
   const month = billingMonth(bill.billingMonth, bill.issueDate || bill.periodEnd);
   if (!month) throw Object.assign(new Error('No fue posible determinar el mes de la boleta.'), { status: 400 });
   const payload = {
@@ -187,7 +238,7 @@ export async function saveWaterBill(deviceSn, bill, images = [], ai = null) {
     sewer_collection_charge_clp: nullableNumber(bill.sewerCollectionChargeClp), wastewater_treatment_charge_clp: nullableNumber(bill.wastewaterTreatmentChargeClp),
     subtotal_service_clp: nullableNumber(bill.subtotalServiceClp), taxes_clp: nullableNumber(bill.taxesClp), other_charges_clp: nullableNumber(bill.otherChargesClp),
     discounts_clp: nullableNumber(bill.discountsClp), charge_items: Array.isArray(bill.chargeItems) ? bill.chargeItems.slice(0, 80) : [],
-    source: images.length ? 'photo-ai' : 'manual', ai_extraction: ai?.extracted || {}, ai_confidence: nullableNumber(ai?.confidence), ai_model: ai?.model || null,
+    source: images.length ? 'photo-ai' : 'manual', ai_extraction: { ...(ai?.extracted || {}), classification: { status, method: estimateMethod, reason: classification.reason, evidence: classification.evidence } }, ai_confidence: nullableNumber(ai?.confidence), ai_model: ai?.model || null,
     updated_at: new Date().toISOString()
   };
   const rows = await rest('water_bills?on_conflict=site_id,billing_month', {
@@ -316,8 +367,35 @@ export async function closeWaterPeriod(deviceSn, input) {
   const readingAt = input.readingAt || new Date().toISOString();
   if (!Number.isFinite(Date.parse(readingAt))) throw Object.assign(new Error('La fecha de cierre no es válida.'), { status: 400 });
   await saveWaterReading(deviceSn, { periodId: period.id, readingAt, readingM3: closing, source: 'closing', notes: 'Lectura de cierre del período' });
-  const updated = await rest(`water_meter_periods?id=eq.${period.id}`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ status: 'closed', actual_close_date: todayChile(new Date(readingAt)), closing_reading_m3: closing, updated_at: new Date().toISOString() }) });
-  return normalizePeriod(updated?.[0]);
+  const closedDate = todayChile(new Date(readingAt));
+  const updated = await rest(`water_meter_periods?id=eq.${period.id}`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ status: 'closed', actual_close_date: closedDate, closing_reading_m3: closing, updated_at: new Date().toISOString() }) });
+
+  const month = billingMonth(closedDate, closedDate);
+  const existingBill = await rest(`water_bills?site_id=eq.${siteId}&billing_month=eq.${month}&select=id,source&limit=1`) || [];
+  if (!existingBill[0]) {
+    const consumed = Math.max(0, closing - Number(period.opening_reading_m3));
+    await rest('water_bills?on_conflict=site_id,billing_month', {
+      method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({
+        site_id: siteId, billing_month: month, period_start: period.period_start, period_end: closedDate,
+        previous_reading_m3: Number(period.opening_reading_m3), current_reading_m3: closing,
+        reading_difference_m3: consumed, deductible_m3: null, billed_m3: consumed,
+        consumption_status: 'actual', estimate_method: 'meter-period-readings', amount_clp: 0,
+        charge_items: [], source: 'meter-period', ai_extraction: { classification: { status: 'actual', method: 'meter-period-readings', reason: 'Período cerrado con lecturas inicial y final guardadas en Mi Solar.' } },
+        updated_at: new Date().toISOString()
+      })
+    });
+  }
+
+  const settings = await settingsForSite(siteId);
+  let expectedCloseDate = dateAdd(closedDate, 30);
+  if (settings.closing_day_hint) {
+    const [year, monthNumber] = expectedCloseDate.split('-').map(Number);
+    const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+    expectedCloseDate = `${year}-${String(monthNumber).padStart(2, '0')}-${String(Math.min(lastDay, settings.closing_day_hint)).padStart(2, '0')}`;
+  }
+  const nextRows = await rest('water_meter_periods', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ site_id: siteId, period_start: closedDate, expected_close_date: expectedCloseDate, opening_reading_m3: closing, status: 'open' }) });
+  return { ...normalizePeriod(updated?.[0]), nextPeriod: normalizePeriod(nextRows?.[0]) };
 }
 
 export async function saveWaterReading(deviceSn, reading, image = null, ai = null) {

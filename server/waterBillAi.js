@@ -63,6 +63,15 @@ export function reconcileWaterBill(extracted) {
     extracted.periodStart = isoSpanishDate(readingDates[1], readingDates[2], readingDates[3]) || extracted.periodStart;
     extracted.periodEnd = isoSpanishDate(readingDates[4], readingDates[5], readingDates[6]) || extracted.periodEnd;
   }
+  const hasReadingDates = /^\d{4}-\d{2}-\d{2}$/.test(String(extracted.periodStart || '')) && /^\d{4}-\d{2}-\d{2}$/.test(String(extracted.periodEnd || ''));
+  const previous = extracted.previousReadingM3 == null ? Number.NaN : Number(extracted.previousReadingM3);
+  const current = extracted.currentReadingM3 == null ? Number.NaN : Number(extracted.currentReadingM3);
+  const hasMeterPair = Number.isFinite(previous) && Number.isFinite(current) && current >= previous;
+  extracted.readingStatus = hasReadingDates && hasMeterPair ? 'actual' : 'estimated';
+  extracted.consumptionIsEstimated = !(hasReadingDates && hasMeterPair);
+  if (!hasReadingDates || !hasMeterPair) {
+    extracted.warnings = [...(extracted.warnings || []), 'Mi Solar clasificará el consumo como estimado porque faltan dos lecturas fechadas y verificables.'];
+  }
   const total = Number(extracted.amountClp);
   const subtotal = Number(extracted.subtotalServiceClp);
   const discounts = Math.max(0, Number(extracted.discountsClp) || 0);
@@ -123,7 +132,7 @@ export async function extractWaterBill(images) {
 
 billingMonth identifica el mes comercial de esta única boleta y debe usar formato YYYY-MM-01. Derívalo del mes de emisión o del mes de la lectura actual; cada mes tiene una boleta independiente. El período periodStart/periodEnd es distinto: representa exactamente el intervalo entre los campos rotulados LECTURA ANTERIOR y LECTURA ACTUAL. Nunca uses emisión, vencimiento, último pago ni próxima lectura como intervalo de lecturas. Interpreta sin ambigüedad los meses españoles: ENE=01, FEB=02, MAR=03, ABR=04, MAY=05, JUN=06, JUL=07, AGO=08, SEP=09, OCT=10, NOV=11, DIC=12. Por ejemplo, 17-ENE-2026 es 2026-01-17 y jamás julio. En números chilenos, un punto entre miles es separador de miles: "7.876 m3" significa 7876 m3, no 7.876. previousReadingM3 y currentReadingM3 son lecturas acumuladas. readingDifferenceM3 es su diferencia visible. deductibleM3 son m3 ya cobrados mediante estimaciones de boletas mensuales anteriores. billedM3 es el consumo finalmente facturado en esta boleta: diferencia menos esos consumos estimados cuando corresponda. No confundas estos valores ni distribuyas billedM3 entre todos los meses del intervalo.
 
-Si no hay lecturas, conserva siempre el total, las fechas y cargos. Marca readingStatus='pending' o 'unavailable' y consumptionIsEstimated=true. Si la empresa presenta consumo estimado, billedM3 puede contener ese consumo y readingStatus='estimated'. Si hay lecturas reales y consumo real, usa 'actual'. Nunca bloquees por datos faltantes.
+  Decide el tipo de consumo por evidencia, no por apariencia: solo usa readingStatus='actual' y consumptionIsEstimated=false cuando existan las fechas de LECTURA ANTERIOR y LECTURA ACTUAL junto con ambos valores acumulados del medidor. Si falta cualquiera de esas cuatro evidencias, usa readingStatus='estimated' y consumptionIsEstimated=true, aunque la boleta muestre m³ facturados. Si hay lecturas reales separadas por varios meses y la empresa descuenta consumos estimados ya cobrados, sigue siendo una lectura real conciliada: conserva deductibleM3 y billedM3 tal como aparecen. Nunca bloquees por datos faltantes.
 
 Registra en chargeItems cada cargo o descuento que compone el total, conservando su nombre: cargo fijo, agua potable, recolección de aguas servidas, tratamiento, impuestos cobrados aparte, descuentos, convenios, deuda, intereses, ajustes y otros. No repitas en chargeItems las líneas de resumen SUBTOTAL, TOTAL SERVICIO, TOTAL VENTA, TOTAL IVA o TOTAL A PAGAR. Los descuentos deben ser negativos. Los campos resumidos no deben mezclar convenio/deuda con el costo del servicio. Si el documento dice explícitamente "El IVA de esta Boleta es $X", taxesClp debe ser exactamente X aunque esté incluido dentro del subtotal y no se sume nuevamente al total. otherChargesClp agrupa cargos no incluidos en los campos específicos, sin duplicarlos. discountsClp debe ser el total positivo de las rebajas. amountClp es siempre el total final a pagar. meterNumber debe provenir solo del campo rotulado "Número de medidor"; no confundas RUTA, MEC ni número de cuenta con el medidor.
 

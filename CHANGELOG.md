@@ -1,3 +1,10 @@
+# Mi Solar v8.23.0
+
+- Agua muestra primero un gráfico mensual más legible, diferenciando lecturas reales de consumos estimados.
+- Las boletas se analizan, clasifican y guardan automáticamente al seleccionar sus fotografías.
+- La clasificación real/estimada se decide en el servidor según fechas y pares de lecturas verificables.
+- Cerrar un mes consolida las lecturas en el historial y abre automáticamente el siguiente período.
+
 # Mi Solar v8.22.1
 
 - Costos de agua queda disponible exclusivamente para El Arrayán.
