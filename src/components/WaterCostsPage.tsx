@@ -772,7 +772,7 @@ export default function WaterCostsPage({
             periodId: dashboard.period.id,
             readingAt: new Date().toISOString(),
             readingM3: result.extracted.readingM3,
-            notes: "Lectura rápida desde fotografía",
+            notes: readingNotes || null,
             image,
             aiExtraction: result.extracted,
             aiConfidence: result.extracted.confidence,
@@ -781,6 +781,7 @@ export default function WaterCostsPage({
         });
         setReadingImage(null);
         setReadingValue("");
+        setReadingNotes("");
         setReadingAi(null);
         setReadingModel("");
         setReadingAt(localDateTimeInput());
@@ -959,9 +960,6 @@ export default function WaterCostsPage({
         <div>
           <small>Control de Aguas Andinas · {siteLabel}</small>
           <h1>Costos y consumo de agua</h1>
-          <p>
-            Boletas, lecturas del medidor y proyección del mes en un solo lugar.
-          </p>
         </div>
       </header>
       <input
@@ -1062,7 +1060,6 @@ export default function WaterCostsPage({
                 min="0"
                 step="0.001"
                 inputMode="decimal"
-                autoFocus
                 value={readingValue}
                 onChange={(event) => setReadingValue(event.target.value)}
                 placeholder="Ej. 7876"
@@ -1122,6 +1119,16 @@ export default function WaterCostsPage({
                 <X />
               </button>
             </header>
+            {captureChooser === "reading" ? (
+              <label className="water-source-note">
+                <span>Nota opcional</span>
+                <input
+                  value={readingNotes}
+                  onChange={(event) => setReadingNotes(event.target.value)}
+                  placeholder="Ej. lectura tomada por Carola"
+                />
+              </label>
+            ) : null}
             <div>
               <button
                 type="button"
@@ -1335,95 +1342,15 @@ export default function WaterCostsPage({
                   </article>
                 </div>
               ) : null}
-              <div className="water-reading-entry">
-                <div>
-                  <Camera />
-                  <span>
-                    <b>Ingreso manual rápido</b>
-                    <small>
-                      La fecha y hora vienen listas; solo escribe el número del
-                      visor.
-                    </small>
-                  </span>
-                </div>
-                <label>
-                  <span>Lectura acumulada (m³)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.001"
-                    value={readingValue}
-                    onChange={(event) => setReadingValue(event.target.value)}
-                    placeholder="Ej. 7876"
-                  />
-                </label>
-                <label>
-                  <span>Fecha y hora</span>
-                  <input
-                    type="datetime-local"
-                    value={readingAt}
-                    onChange={(event) => setReadingAt(event.target.value)}
-                  />
-                </label>
-                <label className="wide">
-                  <span>Nota opcional</span>
-                  <input
-                    value={readingNotes}
-                    onChange={(event) => setReadingNotes(event.target.value)}
-                    placeholder="Ej. lectura ingresada por Carola"
-                  />
-                </label>
-                {readingImage ? (
-                  <div className="water-photo-ready">
-                    <FileImage />
-                    <span>
-                      <b>{readingImage.name}</b>
-                      <small>
-                        {Math.round(readingImage.bytes / 1024)} KB · quedará
-                        respaldada
-                      </small>
-                    </span>
-                    <button
-                      onClick={() => {
-                        setReadingImage(null);
-                        setReadingAi(null);
-                      }}
-                      aria-label="Quitar foto"
-                    >
-                      <X />
-                    </button>
-                  </div>
-                ) : null}
-                <button
-                  className="primary wide"
-                  type="button"
-                  onClick={() => void saveReading()}
-                  disabled={readingBusy || !readingValue}
-                >
-                  <Save /> Guardar lectura
-                </button>
-              </div>
               {readings.length ? (
                 <div className="water-reading-history">
                   <h3>Lecturas del período</h3>
                   {readings.map((reading) => (
                     <article key={reading.id}>
-                      <span className={reading.hasPhoto ? "photo" : "manual"}>
-                        {reading.hasPhoto ? <Camera /> : <Gauge />}
-                      </span>
-                      <div>
-                        <b>{m3(reading.readingM3, 3)}</b>
-                        <small>
-                          {dateTimeLabel(reading.readingAt)} ·{" "}
-                          {reading.source === "photo-ai"
-                            ? "foto analizada por IA"
-                            : reading.source === "closing"
-                              ? "cierre"
-                              : "manual"}
-                        </small>
-                      </div>
                       {reading.hasPhoto ? (
                         <button
+                          className="water-reading-photo-icon"
+                          type="button"
                           onClick={() =>
                             setViewDocument({
                               kind: "reading",
@@ -1431,10 +1358,34 @@ export default function WaterCostsPage({
                               title: `Lectura ${m3(reading.readingM3, 3)}`,
                             })
                           }
+                          aria-label={`Abrir foto de la lectura ${m3(reading.readingM3, 3)}`}
+                          title="Abrir foto"
                         >
-                          Ver foto
+                          <Camera />
+                          <i aria-hidden="true" />
                         </button>
-                      ) : null}
+                      ) : (
+                        <span className="manual">
+                          <Gauge />
+                        </span>
+                      )}
+                      <div>
+                        <b>{m3(reading.readingM3, 3)}</b>
+                        <small>
+                          {dateTimeLabel(reading.readingAt)} ·{" "}
+                          {reading.source === "photo-ai"
+                            ? "foto IA"
+                            : reading.source === "closing"
+                              ? "cierre"
+                              : "manual"}
+                        </small>
+                        {reading.notes &&
+                        reading.notes !== "Lectura rápida desde fotografía" ? (
+                          <em className="water-reading-note">
+                            Nota: {reading.notes}
+                          </em>
+                        ) : null}
+                      </div>
                     </article>
                   ))}
                 </div>

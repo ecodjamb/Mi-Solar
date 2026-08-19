@@ -1,3 +1,11 @@
+# Mi Solar v8.24.3
+
+- Agua: cabecera compacta y modo entretenido activo por defecto, sin mostrar el selector de modo en esta sección.
+- Agua: eliminado el formulario manual duplicado dentro del detalle del mes en curso.
+- Agua: las fotografías se abren tocando el icono luminoso; “foto IA” y notas opcionales ocupan menos espacio.
+- Agua: la captura fotográfica permite escribir una nota antes de elegir cámara o rollo.
+- Agua: campos de 16 px y sin enfoque automático para evitar el zoom de Safari al abrir el ingreso manual.
+
 # Mi Solar v8.24.2
 
 - Agua: el promedio del mes en curso se calcula por días calendario transcurridos entre la lectura inicial y la última lectura, sin añadir horas ficticias a una fecha que no tiene hora.
