@@ -1,4 +1,4 @@
-import { rest } from './archive.js';
+import { findSiteId, rest } from './archive.js';
 import { automationSiteProfile } from './siteProfiles.js';
 
 function chileDate(now = new Date()) {
@@ -174,9 +174,8 @@ async function saveForecastLock(siteId, forecast) {
 
 export async function forecastForDate(deviceSn, targetDate, nowDate = new Date(), options = {}) {
   const profile = automationSiteProfile(deviceSn);
-  const siteRows = await rest(`solar_sites?device_sn=eq.${encodeURIComponent(deviceSn)}&select=id&limit=1`);
-  if (!siteRows?.[0]?.id) throw new Error('La instalación todavía no existe en el respaldo permanente.');
-  const siteId = siteRows[0].id;
+  const siteId = await findSiteId(deviceSn);
+  if (!siteId) throw new Error('La instalación todavía no existe en el respaldo permanente.');
   if (targetDate && !options.ignoreLock) {
     const existingLock = await readForecastLock(siteId, targetDate);
     if (existingLock) return { ...existingLock, site: profile };
@@ -194,8 +193,8 @@ export async function forecastForDate(deviceSn, targetDate, nowDate = new Date()
 
 export async function forecastRange(deviceSn, startDate, endDate, nowDate = new Date()) {
   const profile = automationSiteProfile(deviceSn);
-  const siteRows = await rest(`solar_sites?device_sn=eq.${encodeURIComponent(deviceSn)}&select=id&limit=1`);
-  if (!siteRows?.[0]?.id) return [];
+  const siteId = await findSiteId(deviceSn);
+  if (!siteId) return [];
   const today = chileDate(nowDate);
   const lastForecastDate = addDays(today, 15);
   const effectiveStart = startDate < today ? today : startDate;
@@ -204,8 +203,8 @@ export async function forecastRange(deviceSn, startDate, endDate, nowDate = new 
   const dates = [];
   for (let date = effectiveStart; date <= effectiveEnd; date = addDays(date, 1)) dates.push(date);
   const [context, locks] = await Promise.all([
-    forecastContext(profile, siteRows[0].id, today, 16),
-    rest(`solar_forecast_locks?site_id=eq.${siteRows[0].id}&forecast_date=gte.${effectiveStart}&forecast_date=lte.${effectiveEnd}&select=*&order=forecast_date.asc`) || []
+    forecastContext(profile, siteId, today, 16),
+    rest(`solar_forecast_locks?site_id=eq.${siteId}&forecast_date=gte.${effectiveStart}&forecast_date=lte.${effectiveEnd}&select=*&order=forecast_date.asc`) || []
   ]);
   const lockByDate = new Map(locks.map((row) => [row.forecast_date, {
     date: row.forecast_date, forecastKwh: Number(row.forecast_kwh), radiationKwhM2: Number(row.radiation_kwh_m2), sampleDays: Number(row.sample_days || 0),
@@ -215,8 +214,7 @@ export async function forecastRange(deviceSn, startDate, endDate, nowDate = new 
 }
 
 async function siteIdForDevice(deviceSn) {
-  const rows = await rest(`solar_sites?device_sn=eq.${encodeURIComponent(deviceSn)}&select=id&limit=1`);
-  return rows?.[0]?.id || null;
+  return findSiteId(deviceSn);
 }
 
 export async function listForecastRevisions(deviceSn, dates) {

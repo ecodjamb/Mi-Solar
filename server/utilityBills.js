@@ -171,7 +171,7 @@ export async function listUtilityBills(deviceSn) {
   const rows = await rest(`utility_bills?site_id=eq.${siteId}&select=*&order=period_end.desc,created_at.desc`) || [];
   const ids = rows.map((row) => row.id);
   const documents = ids.length ? await rest(`utility_bill_documents?bill_id=in.(${ids.join(',')})&select=id,bill_id,page_number,original_name,mime_type,bytes&order=page_number.asc`) || [] : [];
-  return Promise.all(rows.map(async (row) => normalize(row, await theoreticalGrid(deviceSn, row.period_start, row.period_end), documents.filter((document) => document.bill_id === row.id))));
+  return rows.map((row) => normalize(row, null, documents.filter((document) => document.bill_id === row.id)));
 }
 
 export async function projectUtilityBill(deviceSn, bills = null, unitRateClp = 250) {

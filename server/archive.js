@@ -39,9 +39,16 @@ export async function rest(path,options={}){
   return text?JSON.parse(text):null;
 }
 
-export async function ensureSite(deviceSn,name=deviceSn){
+export async function findSiteId(deviceSn){
   const existing=await rest(`solar_sites?device_sn=eq.${encodeURIComponent(deviceSn)}&select=id&limit=1`);
   if(existing?.[0]?.id)return existing[0].id;
+  const catalog=await rest('solar_sites?select=id,device_sn');
+  return catalog?.find(site=>String(site.device_sn)===String(deviceSn))?.id||null;
+}
+
+export async function ensureSite(deviceSn,name=deviceSn){
+  const existingId=await findSiteId(deviceSn);
+  if(existingId)return existingId;
   const created=await rest('solar_sites',{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify({device_sn:deviceSn,name})});
   return created?.[0]?.id||null;
 }
@@ -69,18 +76,18 @@ export async function archiveRows(deviceSn,rows,options={}){
 
 export async function readArchive(deviceSn,startIso,endIso){
   if(!config())return {rows:[],configured:false};
-  const sites=await rest(`solar_sites?device_sn=eq.${encodeURIComponent(deviceSn)}&select=id&limit=1`);
-  if(!sites?.[0]?.id)return {rows:[],configured:true};
-  const rows=await rest(`energy_samples?site_id=eq.${sites[0].id}&sample_at=gte.${encodeURIComponent(startIso)}&sample_at=lt.${encodeURIComponent(endIso)}&select=raw&order=sample_at.asc&limit=20000`);
+  const siteId=await findSiteId(deviceSn);
+  if(!siteId)return {rows:[],configured:true};
+  const rows=await rest(`energy_samples?site_id=eq.${siteId}&sample_at=gte.${encodeURIComponent(startIso)}&sample_at=lt.${encodeURIComponent(endIso)}&select=raw&order=sample_at.asc&limit=20000`);
   return {rows:(rows||[]).map(item=>item.raw),configured:true};
 }
 
 export async function readArchiveSeries(deviceSn,startIso,endIso,resolution='hour'){
   if(!config())return {rows:[],configured:false};
-  const sites=await rest(`solar_sites?device_sn=eq.${encodeURIComponent(deviceSn)}&select=id&limit=1`);
-  if(!sites?.[0]?.id)return {rows:[],configured:true};
+  const siteId=await findSiteId(deviceSn);
+  if(!siteId)return {rows:[],configured:true};
   const view=resolution==='day'?'energy_daily':'energy_hourly';
-  const rows=await rest(`${view}?site_id=eq.${sites[0].id}&bucket_at=gte.${encodeURIComponent(startIso)}&bucket_at=lt.${encodeURIComponent(endIso)}&select=bucket_at,solar_w,pv1_w,pv2_w,load_w,grid_w,grid_active,battery_charge_w,battery_discharge_w,battery_soc,samples,coverage_hours&order=bucket_at.asc&limit=10000`);
+  const rows=await rest(`${view}?site_id=eq.${siteId}&bucket_at=gte.${encodeURIComponent(startIso)}&bucket_at=lt.${encodeURIComponent(endIso)}&select=bucket_at,solar_w,pv1_w,pv2_w,load_w,grid_w,grid_active,battery_charge_w,battery_discharge_w,battery_soc,samples,coverage_hours&order=bucket_at.asc&limit=10000`);
   return {rows:(rows||[]).map(row=>({
     currentTime:row.bucket_at,
     pvInputPower1:Number(row.pv1_w||0),
