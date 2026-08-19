@@ -417,7 +417,7 @@ export async function closeWaterPeriod(deviceSn, input) {
 export async function saveWaterReading(deviceSn, reading, image = null, ai = null) {
   const siteId = await ensureSite(deviceSn);
   const period = reading.periodId ? { id: Number(reading.periodId) } : await ensureOpenWaterPeriod(deviceSn);
-  const readingM3 = Number(reading.readingM3);
+  const readingM3 = normalizeWaterReadingM3(reading.readingM3);
   if (!Number.isFinite(readingM3) || readingM3 < 0) throw Object.assign(new Error('Ingresa una lectura válida en m³.'), { status: 400 });
   const readingAt = reading.readingAt || new Date().toISOString();
   if (!Number.isFinite(Date.parse(readingAt))) throw Object.assign(new Error('La fecha de la lectura no es válida.'), { status: 400 });
@@ -428,6 +428,11 @@ export async function saveWaterReading(deviceSn, reading, image = null, ai = nul
     body: JSON.stringify({ site_id: siteId, period_id: period?.id || null, reading_at: readingAt, reading_m3: readingM3, source: image ? 'photo-ai' : reading.source || 'manual', notes: reading.notes || null, storage_path: uploaded?.storagePath || null, original_name: uploaded?.originalName || null, mime_type: uploaded?.mimeType || null, bytes: uploaded?.bytes || null, sha256: uploaded?.sha256 || null, ai_confidence: nullableNumber(ai?.confidence), ai_model: ai?.model || null, ai_extraction: ai?.extracted || {} })
   });
   return normalizeReading(rows?.[0]);
+}
+
+export function normalizeWaterReadingM3(value) {
+  const parsed = typeof value === 'string' ? Number(value.trim().replace(',', '.')) : Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Number(parsed.toFixed(3)) : NaN;
 }
 
 export async function readWaterReadingPhoto(deviceSn, readingId) {

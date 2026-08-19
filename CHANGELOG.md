@@ -1,3 +1,10 @@
+# Mi Solar v8.24.4
+
+- Agua: las lecturas manuales aceptan coma o punto decimal y se formatean como `7893,125 m³`.
+- Agua: las lecturas manuales y fotográficas se guardan y muestran siempre con tres decimales; las milésimas representan litros.
+- Agua: el servidor normaliza y redondea las lecturas a 0,001 m³ antes de guardarlas.
+- Agua: ayuda visible en el formulario: `0,125 m³ = 125 litros`.
+
 # Mi Solar v8.24.3
 
 - Agua: cabecera compacta y modo entretenido activo por defecto, sin mostrar el selector de modo en esta sección.

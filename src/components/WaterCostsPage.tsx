@@ -273,8 +273,19 @@ function billMonth(bill: WaterBill) {
   return bill.billingMonth || bill.periodEnd;
 }
 function m3(value: number | null | undefined, digits = 0) {
-  const displayDigits = digits >= 3 ? 0 : digits === 2 ? 1 : digits;
+  const displayDigits = digits === 3 ? 3 : digits === 2 ? 1 : digits;
   return `${Number(value || 0).toLocaleString("es-CL", { minimumFractionDigits: displayDigits, maximumFractionDigits: displayDigits })} m³`;
+}
+function parseReadingInput(value: string) {
+  const compact = value.trim().replace(/\s/g, "");
+  if (!/^\d+(?:[,.]\d{0,3})?$/.test(compact)) return null;
+  const parsed = Number(compact.replace(",", "."));
+  return Number.isFinite(parsed) && parsed >= 0
+    ? Number(parsed.toFixed(3))
+    : null;
+}
+function formatReadingInput(value: number) {
+  return Number(value).toFixed(3).replace(".", ",");
 }
 function localDateTimeInput() {
   return new Date()
@@ -758,7 +769,7 @@ export default function WaterCostsPage({
       setReadingValue(
         result.extracted.readingM3 == null
           ? ""
-          : String(result.extracted.readingM3),
+          : formatReadingInput(result.extracted.readingM3),
       );
       if (result.extracted.readingM3 == null || !dashboard?.period) {
         setManualReadingOpen(true);
@@ -786,7 +797,7 @@ export default function WaterCostsPage({
         setReadingModel("");
         setReadingAt(localDateTimeInput());
         setMessage(
-          `Lectura de ${m3(result.extracted.readingM3)} guardada con fecha, hora y fotografía.`,
+          `Lectura de ${m3(result.extracted.readingM3, 3)} guardada con fecha, hora y fotografía.`,
         );
         await reload();
       }
@@ -805,6 +816,11 @@ export default function WaterCostsPage({
 
   async function saveReading(useCurrentTime = false) {
     if (!dashboard?.period) return;
+    const parsedReading = parseReadingInput(readingValue);
+    if (parsedReading == null) {
+      setError("Ingresa la lectura con tres decimales, por ejemplo 7893,125.");
+      return;
+    }
     setReadingBusy(true);
     setError("");
     try {
@@ -815,7 +831,7 @@ export default function WaterCostsPage({
           readingAt: useCurrentTime
             ? new Date().toISOString()
             : new Date(readingAt).toISOString(),
-          readingM3: Number(readingValue),
+          readingM3: parsedReading,
           notes: readingNotes,
           image: readingImage,
           aiExtraction: readingAi,
@@ -1054,16 +1070,19 @@ export default function WaterCostsPage({
           </header>
           <div className="water-quick-reading-form">
             <label>
-              <span>Número de lectura de hoy (m³)</span>
+              <span>Lectura exacta de hoy (m³)</span>
               <input
-                type="number"
-                min="0"
-                step="0.001"
+                type="text"
                 inputMode="decimal"
                 value={readingValue}
                 onChange={(event) => setReadingValue(event.target.value)}
-                placeholder="Ej. 7876"
+                onBlur={() => {
+                  const value = parseReadingInput(readingValue);
+                  if (value != null) setReadingValue(formatReadingInput(value));
+                }}
+                placeholder="Ej. 7893,125"
               />
+              <small>Siempre 3 decimales: 0,125 m³ = 125 litros.</small>
             </label>
             <label>
               <span>Nota opcional</span>
@@ -1084,7 +1103,9 @@ export default function WaterCostsPage({
               className="primary"
               type="button"
               onClick={() => void saveReading(true)}
-              disabled={readingBusy || !readingValue || !period}
+              disabled={
+                readingBusy || parseReadingInput(readingValue) == null || !period
+              }
             >
               <Save /> {readingBusy ? "Guardando…" : "Ingresar lectura"}
             </button>
@@ -1305,11 +1326,15 @@ export default function WaterCostsPage({
                 </span>
                 <span>
                   <small>Lectura inicial</small>
-                  <b>{m3(period.openingReadingM3)}</b>
+                  <b>{m3(period.openingReadingM3, 3)}</b>
                 </span>
                 <span>
                   <small>Última lectura</small>
-                  <b>{readings[0] ? m3(readings[0].readingM3) : "Pendiente"}</b>
+                  <b>
+                    {readings[0]
+                      ? m3(readings[0].readingM3, 3)
+                      : "Pendiente"}
+                  </b>
                 </span>
               </div>
               {projection ? (

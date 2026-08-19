@@ -127,6 +127,11 @@
   color: #9bb0b6;
   font-size: 10px;
 }
+.water-quick-reading-form label > small {
+  color: #70a996;
+  font-size: 8px;
+  line-height: 1.3;
+}
 .water-quick-reading-form input {
   width: 100%;
   min-width: 0;
