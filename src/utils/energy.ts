@@ -48,6 +48,32 @@ export const pvVoltage=(d:Record<string,unknown>,index:1|2)=>firstNumber(d,index
 export const pvCurrent=(d:Record<string,unknown>,index:1|2)=>firstNumber(d,index===1?[...KEYS.pv1Current]:[...KEYS.pv2Current]);
 export const loadPower=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.loadPower]);
 export const gridPower=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.gridPower]);
+export function gridUsage(d:Record<string,unknown>){
+  const status=firstNumberWithSource(d,[...KEYS.statusGrid]);
+  if(status.key)return {active:status.value===1,status:status.value,source:status.key};
+  const power=gridPower(d);
+  return {active:Math.abs(power)>10,status:null,source:'potencia de red (respaldo)'};
+}
+/** Potencia efectiva: cuando existe statusGrid, solo cuenta con estado 1. */
+export const effectiveGridPower=(d:Record<string,unknown>)=>gridUsage(d).active?gridPower(d):0;
+export function powerAllocation(d:Record<string,unknown>){
+  const load=Math.max(0,loadPower(d));
+  const solar=Math.max(0,pvPower(d,1)+pvPower(d,2));
+  const grid=Math.max(0,effectiveGridPower(d));
+  const discharge=Math.max(0,batteryDischargePower(d));
+  const charge=Math.max(0,batteryChargePower(d));
+  const batteryToLoad=Math.min(load,discharge);
+  const remainingAfterBattery=Math.max(0,load-batteryToLoad);
+  const gridToLoad=Math.min(remainingAfterBattery,grid);
+  const solarToLoad=Math.max(0,remainingAfterBattery-gridToLoad);
+  const solarToBattery=Math.min(charge,Math.max(0,solar-solarToLoad));
+  return {load,solar,grid,batteryToLoad,gridToLoad,solarToLoad,solarToBattery};
+}
+export const gridToLoadPower=(d:Record<string,unknown>)=>powerAllocation(d).gridToLoad;
+export const solarToLoadPower=(d:Record<string,unknown>)=>powerAllocation(d).solarToLoad;
+export const solarToBatteryPower=(d:Record<string,unknown>)=>powerAllocation(d).solarToBattery;
+/** Aporte total del sistema solar a la casa: paneles directos + batería descargando. */
+export const solarSystemToLoadPower=(d:Record<string,unknown>)=>{const allocation=powerAllocation(d);return allocation.solarToLoad+allocation.batteryToLoad};
 export const batteryChargePower=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.chargePower]);
 export const batteryDischargePower=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.dischargePower]);
 export const batterySoc=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.soc]);
@@ -98,6 +124,9 @@ function apiFormat(d:Date){const p=zonedParts(d,API_TZ);return `${p.year}-${p.mo
 function dateAdd(date:string,days:number){const [y,m,d]=date.split('-').map(Number);const x=new Date(Date.UTC(y,m-1,d+days));return x.toISOString().slice(0,10);}
 export function siteDayBoundsUtc(date=formatSiteDate()){
   return {start:zonedLocalToUtc(`${date} 00:00:00`,SITE_TZ),end:zonedLocalToUtc(`${dateAdd(date,1)} 00:00:00`,SITE_TZ)};
+}
+export function siteRangeUtc(start:string,endExclusive:string){
+  return {start:zonedLocalToUtc(`${start} 00:00:00`,SITE_TZ).toISOString(),end:zonedLocalToUtc(`${endExclusive} 00:00:00`,SITE_TZ).toISOString()};
 }
 /** Query widened to complete API calendar days; exact Santiago filtering happens client-side. */
 export function chileDayApiRange(date=formatSiteDate()){
@@ -152,6 +181,8 @@ export function dedupeRows(rows:HistoryRow[]){
   return [...map.values()];
 }
 export function integrate(rows:HistoryRow[], selector:(r:HistoryRow)=>number){
+  const aggregated=rows.some(row=>Number(row.aggregateSamples||0)>0);
+  if(aggregated)return dedupeRows(rows).reduce((wh,row)=>{const hours=Number(row.aggregateHours||1);const coverage=hours===1?Math.min(1,Math.max(1,Number(row.aggregateSamples||12))/12):hours;return wh+Math.max(0,selector(row))*coverage},0)/1000;
   const pts=dedupeRows(rows).map(r=>({t:rowTimestamp(r),p:Math.max(0,selector(r))})).filter((x):x is {t:Date;p:number}=>Boolean(x.t)).sort((a,b)=>a.t.getTime()-b.t.getTime());
   if(pts.length<2) return 0;
   const intervals:number[]=[]; for(let i=1;i<pts.length;i++){const h=(pts[i].t.getTime()-pts[i-1].t.getTime())/36e5;if(h>0&&h<=1)intervals.push(h);}
@@ -161,23 +192,28 @@ export function integrate(rows:HistoryRow[], selector:(r:HistoryRow)=>number){
 }
 export function dailyEnergy(inputRows:HistoryRow[]):DailyEnergy {
   const rows=dedupeRows(inputRows).sort((a,b)=>Number(rowTimestamp(a))-Number(rowTimestamp(b))); const first=rowTimestamp(rows[0]||{}); const last=rowTimestamp(rows[rows.length-1]||{});
-  const gridImport=integrate(rows,r=>Math.max(0,gridPower(r))); const gridExport=integrate(rows,r=>Math.max(0,-gridPower(r)));
-  return {date:'',solar:integrate(rows,r=>pvPower(r,1)+pvPower(r,2)),pv1:integrate(rows,r=>pvPower(r,1)),pv2:integrate(rows,r=>pvPower(r,2)),load:integrate(rows,loadPower),grid:gridImport,gridImport,gridExport,charge:integrate(rows,batteryChargePower),discharge:integrate(rows,batteryDischargePower),samples:rows.length,firstSample:first?.toISOString(),lastSample:last?.toISOString()};
+  const gridImport=integrate(rows,r=>Math.max(0,effectiveGridPower(r))); const gridExport=integrate(rows,r=>Math.max(0,-effectiveGridPower(r)));
+  const batteryToLoad=integrate(rows,r=>powerAllocation(r).batteryToLoad);
+  const gridToLoad=integrate(rows,r=>powerAllocation(r).gridToLoad);
+  const solarToLoad=integrate(rows,r=>powerAllocation(r).solarToLoad);
+  const solarToBattery=integrate(rows,r=>powerAllocation(r).solarToBattery);
+  const samples=rows.some(row=>Number(row.aggregateSamples||0)>0)?rows.reduce((sum,row)=>sum+Number(row.aggregateSamples||0),0):rows.length;
+  return {date:'',solar:integrate(rows,r=>pvPower(r,1)+pvPower(r,2)),pv1:integrate(rows,r=>pvPower(r,1)),pv2:integrate(rows,r=>pvPower(r,2)),load:integrate(rows,loadPower),grid:gridImport,gridImport,gridExport,gridToLoad,charge:integrate(rows,batteryChargePower),discharge:integrate(rows,batteryDischargePower),solarToLoad,batteryToLoad,solarToBattery,samples,firstSample:first?.toISOString(),lastSample:last?.toISOString()};
 }
 export function detectPvCount(d:Record<string,unknown>,rows:HistoryRow[]=[]){const hasPv2=rows.some(r=>pvPower(r,2)>0||pvVoltage(r,2)>0||firstNumber(r,[...KEYS.statusSolar2])===1);return hasPv2||pvPower(d,2)!==0||pvVoltage(d,2)>0||firstNumber(d,[...KEYS.statusSolar2])===1?2:1;}
 export function health(d:Record<string,unknown>){let s=100;if(firstNumber(d,[...KEYS.statusInverter])!==1)s-=25;if(inverterTemperature(d)>55)s-=15;if(firstNumber(d,[...KEYS.fault1])>0)s-=30;if(firstNumber(d,[...KEYS.warning1])>0)s-=10;const a=pvPower(d,1),b=pvPower(d,2);if(a>300&&b>0&&Math.min(a,b)/Math.max(a,b)<.55)s-=10;return Math.max(0,s);}
 
 function item(d:Record<string,unknown>,key:string,label:string,aliases:string[],unit?:string,status?:TechnicalSection['items'][number]['status']){const found=firstNumberWithSource(d,aliases);return {key,label,value:found.key?found.value:null,unit,source:found.key||undefined,status};}
 function textItem(d:Record<string,unknown>,key:string,label:string,aliases:string[]){const found=firstText(d,aliases);return {key,label,value:found.key?found.value:null,source:found.key||undefined,status:'info' as const};}
-export function technicalCatalog(d:Record<string,unknown>,summary:Record<string,unknown>={}):TechnicalSection[]{
+export function technicalCatalog(d:Record<string,unknown>,summary:Record<string,unknown>={},gridLabel='Red eléctrica'):TechnicalSection[]{
   const merged={...summary,...d};
   return [
     {title:'Solar / MPPT',items:[item(merged,'pv1Power','Potencia PV1',[...KEYS.pv1Power],'W'),item(merged,'pv1Voltage','Voltaje PV1',[...KEYS.pv1Voltage],'V'),item(merged,'pv1Current','Corriente PV1',[...KEYS.pv1Current],'A'),item(merged,'pv2Power','Potencia PV2',[...KEYS.pv2Power],'W'),item(merged,'pv2Voltage','Voltaje PV2',[...KEYS.pv2Voltage],'V'),item(merged,'pv2Current','Corriente PV2',[...KEYS.pv2Current],'A')]},
     {title:'Salida / cargas',items:[item(merged,'loadPower','Potencia de carga',[...KEYS.loadPower],'W'),item(merged,'loadPercent','Carga del inversor',[...KEYS.loadPercent],'%'),item(merged,'outputVoltage','Voltaje de salida',[...KEYS.outputVoltage],'V'),item(merged,'outputFrequency','Frecuencia de salida',[...KEYS.outputFrequency],'Hz')]},
-    {title:'Red eléctrica',items:[item(merged,'gridPower','Potencia de red',[...KEYS.gridPower],'W'),item(merged,'gridVoltage','Voltaje de red',[...KEYS.gridVoltage],'V'),item(merged,'gridFrequency','Frecuencia de red',[...KEYS.gridFrequency],'Hz')]},
+    {title:gridLabel,items:[item(merged,'gridPower',`Potencia de ${gridLabel.toLocaleLowerCase('es-CL')}`,[...KEYS.gridPower],'W'),item(merged,'statusGrid',`Uso efectivo de ${gridLabel.toLocaleLowerCase('es-CL')}`,[...KEYS.statusGrid]),item(merged,'gridVoltage',`Voltaje de ${gridLabel.toLocaleLowerCase('es-CL')}`,[...KEYS.gridVoltage],'V'),item(merged,'gridFrequency',`Frecuencia de ${gridLabel.toLocaleLowerCase('es-CL')}`,[...KEYS.gridFrequency],'Hz')]},
     {title:'Batería',items:[item(merged,'soc','Estado de carga',[...KEYS.soc],'%'),item(merged,'batteryVoltage','Voltaje de batería',[...KEYS.batteryVoltage],'V'),item(merged,'batteryCurrent','Corriente de batería',[...KEYS.batteryCurrent],'A'),item(merged,'chargePower','Potencia de carga',[...KEYS.chargePower],'W'),item(merged,'dischargePower','Potencia de descarga',[...KEYS.dischargePower],'W')]},
     {title:'Inversor',items:[textItem(merged,'workMode','Modo de trabajo',[...KEYS.workMode]),item(merged,'temperature','Temperatura interna',[...KEYS.temperature],'°C'),item(merged,'heatsinkTemperature','Temperatura disipador',[...KEYS.heatsinkTemperature],'°C'),item(merged,'statusInverter','Estado inversor',[...KEYS.statusInverter]),item(merged,'fault','Código de falla',[...KEYS.fault1]),item(merged,'warning','Código de advertencia',[...KEYS.warning1])]},
-    {title:'Estados digitales',items:[item(merged,'statusSolar1','Estado PV1',[...KEYS.statusSolar1]),item(merged,'statusSolar2','Estado PV2',[...KEYS.statusSolar2]),item(merged,'statusGrid','Estado red',[...KEYS.statusGrid]),item(merged,'statusBattery','Estado batería',[...KEYS.statusBattery]),item(merged,'statusLoad','Estado carga',[...KEYS.statusLoad])]}];
+    {title:'Estados digitales',items:[item(merged,'statusSolar1','Estado PV1',[...KEYS.statusSolar1]),item(merged,'statusSolar2','Estado PV2',[...KEYS.statusSolar2]),item(merged,'statusGrid',`Estado ${gridLabel.toLocaleLowerCase('es-CL')}`,[...KEYS.statusGrid]),item(merged,'statusBattery','Estado batería',[...KEYS.statusBattery]),item(merged,'statusLoad','Estado carga',[...KEYS.statusLoad])]}];
 }
 export function dataQuality(rows:HistoryRow[],expectedDate=formatSiteDate()){
   const filtered=filterRowsForSiteDate(rows,expectedDate); const first=rowTimestamp(filtered[0]||{}); const last=rowTimestamp(filtered[filtered.length-1]||{}); const nowKey=formatSiteDate();

@@ -7,6 +7,8 @@ export type SiteCachePayload = {
   weekRows?: HistoryRow[];
   monthRows?: HistoryRow[];
   savedAt?: number;
+  realtimeSavedAt?: number;
+  summarySavedAt?: number;
 };
 
 const PREFIX = 'miSolar:v8.1:site-cache:';
@@ -33,7 +35,14 @@ export function writeSiteCache(deviceSn: string, patch: SiteCachePayload) {
   if (!deviceSn) return;
   try {
     const current = readSiteCache(deviceSn) || {};
-    localStorage.setItem(key(deviceSn), JSON.stringify({ ...current, ...patch, savedAt: Date.now() }));
+    const now = Date.now();
+    localStorage.setItem(key(deviceSn), JSON.stringify({
+      ...current,
+      ...patch,
+      savedAt: now,
+      ...(Object.prototype.hasOwnProperty.call(patch, 'realtime') ? { realtimeSavedAt: now } : {}),
+      ...(Object.prototype.hasOwnProperty.call(patch, 'summary') ? { summarySavedAt: now } : {})
+    }));
   } catch {
     // El caché es una mejora de resiliencia: nunca debe romper la aplicación.
   }

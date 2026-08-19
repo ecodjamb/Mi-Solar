@@ -9,10 +9,12 @@ import {
   batterySoc,
   batteryVoltage,
   detectPvCount,
+  effectiveGridPower,
   firstNumber,
   firstText,
   gridFrequency,
   gridPower,
+  gridUsage,
   gridVoltage,
   heatsinkTemperature,
   inverterTemperature,
@@ -133,14 +135,15 @@ function Node({ className, icon: Icon, title, value, status, accumulated, detail
   </article>;
 }
 
-export default function SimpleEnergyFlow({ data, history, today }: { data: Realtime; history: HistoryRow[]; today: DailyEnergy }) {
+export default function SimpleEnergyFlow({ data, history, today, gridLabel='Red activa',pvCountOverride,historical=false,dateLabel,liveStatus='Esperando datos' }: { data: Realtime; history: HistoryRow[]; today: DailyEnergy; gridLabel?:string;pvCountOverride?:1|2;historical?:boolean;dateLabel?:string;liveStatus?:string }) {
   const p1 = pvPower(data, 1), p2 = pvPower(data, 2), solar = p1 + p2;
-  const load = loadPower(data), grid = gridPower(data);
+  const load = loadPower(data), rawGrid = gridPower(data), gridState=gridUsage(data), grid = effectiveGridPower(data);
   const charge = batteryChargePower(data), discharge = batteryDischargePower(data), soc = batterySoc(data);
-  const pvCount = detectPvCount(data, history);
+  const pvCount = pvCountOverride??detectPvCount(data, history);
   const batteryStatus = charge > discharge ? `Cargando ${watts(charge)}` : discharge > 0 ? `Entregando ${watts(discharge)}` : 'En espera';
-  const gridStatus = grid < 0 ? 'Exportando' : grid > 0 ? 'Importando' : 'Sin intercambio';
-  const inverterPower = Math.max(load, solar + Math.max(grid, 0) + discharge);
+  const isGenerator=gridLabel==='Generador';
+  const gridStatus = isGenerator?(grid>0?'Generador encendido':'Generador detenido'):(grid < 0 ? 'Exportando' : grid > 0 ? 'Importando' : 'Sin intercambio');
+  const inverterPower = Math.max(load, solar + discharge);
   const solarStatus = pvCount === 2 ? `PV1 ${watts(p1)} · PV2 ${watts(p2)}` : 'Un MPPT detectado';
   const outV = outputVoltage(data);
   const outF = outputFrequency(data);
@@ -182,12 +185,15 @@ export default function SimpleEnergyFlow({ data, history, today }: { data: Realt
   ];
 
   const gridDetails: Detail[] = [
-    { label: 'Potencia de red', value: watts(Math.abs(grid)) },
+    { label: 'Potencia efectiva', value: watts(Math.abs(grid)) },
+    { label: 'Lectura bruta', value: watts(Math.abs(rawGrid)) },
+    { label: 'Uso efectivo (0/1)', value: gridState.status===null?'Inferido':String(gridState.status) },
+    { label: 'Parámetro de estado', value: gridState.source },
     { label: 'Sentido', value: gridStatus },
     { label: 'Voltaje', value: `${gridVoltage(data).toFixed(1)} V` },
     { label: 'Frecuencia', value: `${gridFrequency(data).toFixed(1)} Hz` },
-    { label: 'Importado hoy', value: kwh(today.gridImport) },
-    { label: 'Exportado hoy', value: kwh(today.gridExport) }
+    { label: isGenerator?'Aporte del generador hoy':'Importado hoy', value: kwh(today.gridImport) },
+    ...(!isGenerator?[{ label: 'Exportado hoy', value: kwh(today.gridExport) }]:[])
   ];
 
   const inverterDetails: Detail[] = [
@@ -201,7 +207,7 @@ export default function SimpleEnergyFlow({ data, history, today }: { data: Realt
   ];
 
   return <section className="panel simple-flow-panel">
-    <header className="section-head"><div><small>Flujo instantáneo</small><h2>Tu sistema ahora</h2></div><span className="status-dot">{Object.keys(data).length ? 'En línea' : 'Esperando datos'}</span></header>
+    <header className="section-head"><div><small>{historical?'Flujo histórico':'Flujo instantáneo'}</small><h2>{historical?dateLabel:'Tu sistema ahora'}</h2></div><span className={`status-dot ${liveStatus==='En línea'?'is-fresh':'is-stale'}`}>{historical?'Sin animación':liveStatus}</span></header>
     <div className="simple-energy-flow">
       <Node className="simple-solar" icon={PanelsTopLeft} title={pvCount === 2 ? 'Paneles · PV1 + PV2' : 'Paneles'} value={watts(solar)} status={solarStatus} accumulated={`Hoy: ${kwh(today.solar)} · PV1 ${kwh(today.pv1)}${pvCount === 2 ? ` · PV2 ${kwh(today.pv2)}` : ''}`} details={solarDetails}/>
       <Node className="simple-battery" icon={Battery} title={`Batería · ${soc.toFixed(0)}%`} value={watts(Math.max(charge, discharge))} status={batteryStatus} accumulated={`Hoy: cargada ${kwh(today.charge)} · entregada ${kwh(today.discharge)}`} details={batteryDetails}/>
@@ -210,16 +216,16 @@ export default function SimpleEnergyFlow({ data, history, today }: { data: Realt
         <FlowDetails title="Inversor" details={inverterDetails}/>
       </article>
       <Node className="simple-house" icon={House} title="Consumo de la casa" value={watts(load)} status="Consumo instantáneo" accumulated={`Acumulado hoy: ${kwh(today.load)}`} details={houseDetails}/>
-      <Node className="simple-grid" icon={RadioTower} title="Red eléctrica" value={watts(Math.abs(grid))} status={gridStatus} accumulated={`Hoy: importado ${kwh(today.gridImport)} · exportado ${kwh(today.gridExport)}`} details={gridDetails}/>
+      <Node className="simple-grid" icon={RadioTower} title={isGenerator?'Generador de respaldo':`${gridLabel} · estado 1`} value={watts(Math.abs(grid))} status={gridStatus} accumulated={isGenerator?`Hoy: aporte del generador ${kwh(today.gridImport)}`:`Hoy: importado activo ${kwh(today.gridImport)} · exportado ${kwh(today.gridExport)}`} details={gridDetails}/>
       <svg className="simple-flow-lines" viewBox="0 0 1000 620" preserveAspectRatio="none" aria-hidden="true">
-        <path className={`sf-line sf-solar ${solar > 5 ? 'active' : ''}`} d="M270 145 C390 145 410 270 480 300"/>
-        <path className={`sf-line sf-battery ${Math.max(charge, discharge) > 5 ? 'active' : ''}`} d={charge > discharge ? "M480 325 C410 355 390 485 270 485" : "M270 485 C390 485 410 355 480 325"}/>
-        <path className={`sf-line sf-house ${load > 5 ? 'active' : ''}`} d="M535 300 C610 270 630 145 745 145"/>
-        <path className={`sf-line sf-grid ${Math.abs(grid) > 5 ? 'active' : ''}`} d={grid >= 0 ? "M745 485 C630 485 610 355 535 325" : "M535 325 C610 355 630 485 745 485"}/>
-        {solar > 5 && <circle className="sf-particle sf-particle-solar" r="5"><animateMotion dur="2.2s" repeatCount="indefinite" path="M270 145 C390 145 410 270 480 300"/></circle>}
-        {Math.max(charge, discharge) > 5 && <circle className="sf-particle sf-particle-battery" r="5"><animateMotion dur="2.6s" repeatCount="indefinite" path={charge > discharge ? "M480 325 C410 355 390 485 270 485" : "M270 485 C390 485 410 355 480 325"}/></circle>}
-        {load > 5 && <circle className="sf-particle sf-particle-house" r="5"><animateMotion dur="1.8s" repeatCount="indefinite" path="M535 300 C610 270 630 145 745 145"/></circle>}
-        {Math.abs(grid) > 5 && <circle className="sf-particle sf-particle-grid" r="5"><animateMotion dur="1.8s" repeatCount="indefinite" path={grid >= 0 ? "M745 485 C630 485 610 355 535 325" : "M535 325 C610 355 630 485 745 485"}/></circle>}
+        <path className={`sf-line sf-solar ${!historical&&solar > 5 ? 'active' : ''}`} d="M270 145 C390 145 410 270 480 300"/>
+        <path className={`sf-line sf-battery ${!historical&&Math.max(charge, discharge) > 5 ? 'active' : ''}`} d={charge > discharge ? "M480 325 C410 355 390 485 270 485" : "M270 485 C390 485 410 355 480 325"}/>
+        <path className={`sf-line sf-house ${!historical&&load > 5 ? 'active' : ''}`} d="M535 300 C610 270 630 145 745 145"/>
+        <path className={`sf-line sf-grid ${!historical&&Math.abs(grid) > 5 ? 'active' : ''}`} d={grid >= 0 ? "M745 485 C630 485 610 355 535 325" : "M535 325 C610 355 630 485 745 485"}/>
+        {!historical&&solar > 5 && <circle className="sf-particle sf-particle-solar" r="5"><animateMotion dur="2.2s" repeatCount="indefinite" path="M270 145 C390 145 410 270 480 300"/></circle>}
+        {!historical&&Math.max(charge, discharge) > 5 && <circle className="sf-particle sf-particle-battery" r="5"><animateMotion dur="2.6s" repeatCount="indefinite" path={charge > discharge ? "M480 325 C410 355 390 485 270 485" : "M270 485 C390 485 410 355 480 325"}/></circle>}
+        {!historical&&load > 5 && <circle className="sf-particle sf-particle-house" r="5"><animateMotion dur="1.8s" repeatCount="indefinite" path="M535 300 C610 270 630 145 745 145"/></circle>}
+        {!historical&&Math.abs(grid) > 5 && <circle className="sf-particle sf-particle-grid" r="5"><animateMotion dur="1.8s" repeatCount="indefinite" path={grid >= 0 ? "M745 485 C630 485 610 355 535 325" : "M535 325 C610 355 630 485 745 485"}/></circle>}
       </svg>
     </div>
   </section>;

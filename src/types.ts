@@ -10,13 +10,17 @@ export type DailyEnergy = {
   grid:number;
   gridImport:number;
   gridExport:number;
+  gridToLoad:number;
   charge:number;
   discharge:number;
+  solarToLoad:number;
+  batteryToLoad:number;
+  solarToBattery:number;
   samples:number;
   firstSample?:string;
   lastSample?:string;
 };
-export type PageKey = 'home'|'charts'|'solar'|'costs'|'equipment'|'technical';
+export type PageKey = 'home'|'charts'|'solar'|'costs'|'equipment'|'programming'|'integrations'|'technical'|'water';
 export type TechnicalItem = {
   key:string;
   label:string;

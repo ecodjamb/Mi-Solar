@@ -1,4 +1,4 @@
-export const APP_VERSION = '8.3.2';
+export const APP_VERSION = '8.26.1';
 
 export const SESSION_POLICY = {
   idleMs: 24 * 60 * 60_000,
@@ -9,8 +9,8 @@ export const SESSION_POLICY = {
 export const REFRESH_POLICY = {
   realtime: 30_000,
   day: 5 * 60_000,
-  week: 30 * 60_000,
-  month: 2 * 60 * 60_000,
-  weather: 15 * 60_000,
-  radiation: 60 * 60_000
+  week: 5 * 60_000,
+  month: 5 * 60_000,
+  weather: 5 * 60_000,
+  radiation: 5 * 60_000
 } as const;
