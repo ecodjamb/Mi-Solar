@@ -1,3 +1,10 @@
+# Mi Solar v8.22.1
+
+- Costos de agua queda disponible exclusivamente para El Arrayán.
+- Las boletas se identifican por mes comercial, una por mes, separando ese mes del intervalo real entre lecturas.
+- Las regularizaciones conservan diferencia total, m³ previamente estimados/descontados y consumo finalmente facturado.
+- Resincronización segura del acceso Vercel–Supabase sin modificar registros históricos.
+
 # Mi Solar v8.22.0
 
 - Nueva pestaña final **Costos de agua** para Aguas Andinas.

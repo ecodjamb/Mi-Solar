@@ -8,7 +8,7 @@ type WaterImage = { name: string; dataUrl: string; mimeType: string; bytes: numb
 type WaterCharge = { label: string; cubicMeters: number | null; amountClp: number; category: string };
 type WaterDocument = { id: number; pageNumber: number; originalName?: string | null; mimeType: string; bytes: number };
 type WaterBill = {
-  id: number; periodStart: string; periodEnd: string; periodDays: number; issueDate?: string | null; dueDate?: string | null; nextReadingDate?: string | null;
+  id: number; billingMonth: string; periodStart: string; periodEnd: string; periodDays: number; billingDays: number; readingSpanDays: number; issueDate?: string | null; dueDate?: string | null; nextReadingDate?: string | null;
   previousReadingM3: number | null; currentReadingM3: number | null; readingDifferenceM3: number | null; deductibleM3: number | null;
   billedM3: number; averageDailyM3: number | null; consumptionStatus: 'actual'|'estimated'|'pending'|'unavailable'; isEstimated: boolean; estimateMethod?: string | null;
   amountClp: number; unitServiceRateClp: number | null; customerNumber?: string | null; meterNumber?: string | null; meterBrand?: string | null; meterModel?: string | null;
@@ -22,7 +22,7 @@ type WaterProjection = { consumedM3: number; averageDailyM3: number; projectedM3
 type WaterSettings = { reminderEnabled: boolean; reminderDaysBefore: number; reminderTimeLocal: string; closingDayHint: number | null; updatedAt: string | null };
 type WaterDashboard = { bills: WaterBill[]; period: WaterPeriod | null; readings: WaterReading[]; projection: WaterProjection | null; settings: WaterSettings; today: string };
 type WaterBillExtract = {
-  provider: string | null; documentType: string | null; invoiceNumber: string | null; periodStart: string | null; periodEnd: string | null; issueDate: string | null;
+  provider: string | null; documentType: string | null; invoiceNumber: string | null; billingMonth: string | null; periodStart: string | null; periodEnd: string | null; issueDate: string | null;
   dueDate: string | null; nextReadingDate: string | null; previousReadingM3: number | null; currentReadingM3: number | null; readingDifferenceM3: number | null;
   deductibleM3: number | null; billedM3: number | null; readingStatus: 'actual'|'estimated'|'pending'|'unavailable'; consumptionIsEstimated: boolean;
   amountClp: number | null; customerNumber: string | null; meterNumber: string | null; meterBrand: string | null; meterModel: string | null; serviceAddress: string | null;
@@ -36,13 +36,14 @@ function addDays(value: string, days: number) {
 }
 function defaultBillDraft() {
   const periodEnd = formatSiteDate();
-  return { periodStart: addDays(periodEnd, -30), periodEnd, issueDate: '', dueDate: '', nextReadingDate: '', previousReadingM3: '', currentReadingM3: '', readingDifferenceM3: '', deductibleM3: '', billedM3: '', readingStatus: 'unavailable', amountClp: '', customerNumber: '', meterNumber: '', meterBrand: 'SENSUS', meterModel: '', invoiceNumber: '', serviceAddress: '', fixedChargeClp: '', potableWaterChargeClp: '', sewerCollectionChargeClp: '', wastewaterTreatmentChargeClp: '', subtotalServiceClp: '', taxesClp: '', otherChargesClp: '', discountsClp: '' };
+  return { billingMonth: periodEnd.slice(0, 7), periodStart: addDays(periodEnd, -30), periodEnd, issueDate: '', dueDate: '', nextReadingDate: '', previousReadingM3: '', currentReadingM3: '', readingDifferenceM3: '', deductibleM3: '', billedM3: '', readingStatus: 'unavailable', amountClp: '', customerNumber: '', meterNumber: '', meterBrand: 'SENSUS', meterModel: '', invoiceNumber: '', serviceAddress: '', fixedChargeClp: '', potableWaterChargeClp: '', sewerCollectionChargeClp: '', wastewaterTreatmentChargeClp: '', subtotalServiceClp: '', taxesClp: '', otherChargesClp: '', discountsClp: '' };
 }
 type BillDraft = ReturnType<typeof defaultBillDraft>;
 function text(value: unknown) { return value == null ? '' : String(value); }
 function dateLabel(value?: string | null) { return value ? new Date(`${value.slice(0, 10)}T12:00:00`).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'; }
 function dateTimeLabel(value?: string | null) { return value ? new Date(value).toLocaleString('es-CL', { timeZone: 'America/Santiago', dateStyle: 'medium', timeStyle: 'short' }) : 'Sin lecturas'; }
 function monthLabel(value: string) { return new Date(`${value}T12:00:00`).toLocaleDateString('es-CL', { month: 'long', year: 'numeric' }); }
+function billMonth(bill: WaterBill) { return bill.billingMonth || bill.periodEnd; }
 function m3(value: number | null | undefined, digits = 2) { return `${Number(value || 0).toLocaleString('es-CL', { minimumFractionDigits: digits, maximumFractionDigits: digits })} m³`; }
 function localDateTimeInput() { return new Date().toLocaleString('sv-SE', { timeZone: 'America/Santiago', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).replace(' ', 'T'); }
 function toDataUrl(blob: Blob) { return new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(blob); }); }
@@ -96,16 +97,16 @@ export default function WaterCostsPage({ deviceSn, siteLabel }: { deviceSn: stri
   useEffect(() => { let active = true; setLoading(true); api<WaterDashboard>(`devices/${deviceSn}/water-costs`).then((result) => { if (active) { setDashboard(result); setSettingsDraft(result.settings); setError(''); } }).catch((cause) => active && setError(cause instanceof Error ? cause.message : 'No fue posible cargar los costos de agua.')).finally(() => active && setLoading(false)); return () => { active = false; }; }, [deviceSn]);
   useEffect(() => { if (!viewDocument) return; const close = (event: KeyboardEvent) => event.key === 'Escape' && setViewDocument(null); window.addEventListener('keydown', close); return () => window.removeEventListener('keydown', close); }, [viewDocument]);
 
-  const years = useMemo(() => [...new Set((dashboard?.bills || []).map((bill) => bill.periodEnd.slice(0, 4)))].sort((a, b) => b.localeCompare(a)), [dashboard?.bills]);
+  const years = useMemo(() => [...new Set((dashboard?.bills || []).map((bill) => billMonth(bill).slice(0, 4)))].sort((a, b) => b.localeCompare(a)), [dashboard?.bills]);
   const chartBills = useMemo(() => {
-    const ordered = [...(dashboard?.bills || [])].sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
-    if (/^\d{4}$/.test(chartFilter)) return ordered.filter((bill) => bill.periodEnd.startsWith(chartFilter));
+    const ordered = [...(dashboard?.bills || [])].sort((a, b) => billMonth(a).localeCompare(billMonth(b)));
+    if (/^\d{4}$/.test(chartFilter)) return ordered.filter((bill) => billMonth(bill).startsWith(chartFilter));
     return ordered.slice(-(chartFilter === '6m' ? 6 : 12));
   }, [dashboard?.bills, chartFilter]);
   const chartOption = useMemo(() => ({
-    tooltip: { trigger: 'axis', confine: true, formatter: (params: unknown) => { const items = Array.isArray(params) ? params as Array<{ dataIndex?: number }> : []; const bill = chartBills[Number(items[0]?.dataIndex || 0)]; return bill ? `<b>${monthLabel(bill.periodEnd)}</b><br/>${bill.isEstimated ? 'Consumo estimado' : 'Consumo real'}: ${m3(bill.billedM3)}<br/>Total: ${clp(bill.amountClp)}` : ''; } },
+    tooltip: { trigger: 'axis', confine: true, formatter: (params: unknown) => { const items = Array.isArray(params) ? params as Array<{ dataIndex?: number }> : []; const bill = chartBills[Number(items[0]?.dataIndex || 0)]; return bill ? `<b>${monthLabel(billMonth(bill))}</b><br/>${bill.isEstimated ? 'Consumo estimado' : 'Consumo facturado'}: ${m3(bill.billedM3)}<br/>Total: ${clp(bill.amountClp)}` : ''; } },
     legend: { top: 2, textStyle: { color: '#a9bdc3' } }, grid: { left: 48, right: 42, top: 62, bottom: 54, containLabel: true },
-    xAxis: { type: 'category', data: chartBills.map((bill) => monthLabel(bill.periodEnd)), axisLabel: { color: '#8ba0a8', hideOverlap: true }, axisLine: { lineStyle: { color: '#29444e' } } },
+    xAxis: { type: 'category', data: chartBills.map((bill) => monthLabel(billMonth(bill))), axisLabel: { color: '#8ba0a8', hideOverlap: true }, axisLine: { lineStyle: { color: '#29444e' } } },
     yAxis: [{ type: 'value', name: 'm³', axisLabel: { color: '#8ba0a8' }, nameTextStyle: { color: '#8ba0a8' }, splitLine: { lineStyle: { color: 'rgba(110,150,160,.12)' } } }, { type: 'value', name: 'CLP', axisLabel: { color: '#8ba0a8', formatter: (value: number) => `$${Math.round(value / 1000)}k` }, nameTextStyle: { color: '#8ba0a8' }, splitLine: { show: false } }],
     series: [
       { name: 'Consumo real', type: 'bar', stack: 'water', data: chartBills.map((bill) => bill.isEstimated ? null : bill.billedM3), itemStyle: { color: '#38bdf8', borderRadius: [6, 6, 0, 0] } },
@@ -132,7 +133,7 @@ export default function WaterCostsPage({ deviceSn, siteLabel }: { deviceSn: stri
     try {
       const result = await api<{ extracted: WaterBillExtract; model: string }>(`devices/${deviceSn}/water-bills/extract`, { method: 'POST', body: JSON.stringify({ images: billImages }) });
       const value = result.extracted; setBillAi(value); setBillModel(result.model);
-      setBillDraft((current) => ({ ...current, periodStart: value.periodStart || current.periodStart, periodEnd: value.periodEnd || current.periodEnd, issueDate: text(value.issueDate), dueDate: text(value.dueDate), nextReadingDate: text(value.nextReadingDate), previousReadingM3: text(value.previousReadingM3), currentReadingM3: text(value.currentReadingM3), readingDifferenceM3: text(value.readingDifferenceM3), deductibleM3: text(value.deductibleM3), billedM3: text(value.billedM3), readingStatus: value.readingStatus, amountClp: text(value.amountClp), customerNumber: text(value.customerNumber), meterNumber: text(value.meterNumber), meterBrand: text(value.meterBrand || current.meterBrand), meterModel: text(value.meterModel), invoiceNumber: text(value.invoiceNumber), serviceAddress: text(value.serviceAddress), fixedChargeClp: text(value.fixedChargeClp), potableWaterChargeClp: text(value.potableWaterChargeClp), sewerCollectionChargeClp: text(value.sewerCollectionChargeClp), wastewaterTreatmentChargeClp: text(value.wastewaterTreatmentChargeClp), subtotalServiceClp: text(value.subtotalServiceClp), taxesClp: text(value.taxesClp), otherChargesClp: text(value.otherChargesClp), discountsClp: text(value.discountsClp) }));
+      setBillDraft((current) => ({ ...current, billingMonth: text(value.billingMonth).slice(0, 7) || current.billingMonth, periodStart: value.periodStart || current.periodStart, periodEnd: value.periodEnd || current.periodEnd, issueDate: text(value.issueDate), dueDate: text(value.dueDate), nextReadingDate: text(value.nextReadingDate), previousReadingM3: text(value.previousReadingM3), currentReadingM3: text(value.currentReadingM3), readingDifferenceM3: text(value.readingDifferenceM3), deductibleM3: text(value.deductibleM3), billedM3: text(value.billedM3), readingStatus: value.readingStatus, amountClp: text(value.amountClp), customerNumber: text(value.customerNumber), meterNumber: text(value.meterNumber), meterBrand: text(value.meterBrand || current.meterBrand), meterModel: text(value.meterModel), invoiceNumber: text(value.invoiceNumber), serviceAddress: text(value.serviceAddress), fixedChargeClp: text(value.fixedChargeClp), potableWaterChargeClp: text(value.potableWaterChargeClp), sewerCollectionChargeClp: text(value.sewerCollectionChargeClp), wastewaterTreatmentChargeClp: text(value.wastewaterTreatmentChargeClp), subtotalServiceClp: text(value.subtotalServiceClp), taxesClp: text(value.taxesClp), otherChargesClp: text(value.otherChargesClp), discountsClp: text(value.discountsClp) }));
       setMessage(`Lectura lista · confianza ${Math.round(value.confidence * 100)}%. Revisa y guarda; los campos ausentes no impedirán el respaldo.`);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible leer la boleta.'); }
     finally { setBillBusy(false); }
@@ -195,7 +196,7 @@ export default function WaterCostsPage({ deviceSn, siteLabel }: { deviceSn: stri
   }
 
   async function removeBill(bill: WaterBill) {
-    if (!window.confirm(`¿Eliminar definitivamente la cuenta de ${monthLabel(bill.periodEnd)} y sus fotografías?`)) return;
+    if (!window.confirm(`¿Eliminar definitivamente la cuenta de ${monthLabel(billMonth(bill))} y sus fotografías?`)) return;
     setError('');
     try { await api(`devices/${deviceSn}/water-bills/${bill.id}`, { method: 'DELETE' }); setMessage('Cuenta de agua eliminada de la base de datos.'); await reload(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible eliminar la cuenta.'); }

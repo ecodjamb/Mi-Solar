@@ -18,6 +18,17 @@ function periodDays(start, end) {
   return Number.isFinite(delta) && delta >= 0 ? Math.max(1, Math.round(delta / 86_400_000)) : 1;
 }
 
+function billingMonth(value, fallback) {
+  const raw = String(value || fallback || '');
+  const match = raw.match(/^(\d{4})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-01` : null;
+}
+
+function billingDays(value) {
+  const [year, month] = String(value || '').split('-').map(Number);
+  return year && month ? new Date(Date.UTC(year, month, 0)).getUTCDate() : 30;
+}
+
 function nullableNumber(value) {
   if (value === '' || value == null) return null;
   const number = Number(value);
@@ -30,10 +41,12 @@ function normalizeDocument(row) {
 
 function normalizeBill(row, documents = []) {
   const billedM3 = Number(row.billed_m3 || 0);
-  const days = periodDays(row.period_start, row.period_end);
+  const readingSpanDays = periodDays(row.period_start, row.period_end);
+  const month = billingMonth(row.billing_month, row.issue_date || row.period_end);
+  const days = billingDays(month);
   const subtotal = nullableNumber(row.subtotal_service_clp);
   return {
-    id: Number(row.id), periodStart: row.period_start, periodEnd: row.period_end, periodDays: days,
+    id: Number(row.id), billingMonth: month, periodStart: row.period_start, periodEnd: row.period_end, periodDays: readingSpanDays, billingDays: days, readingSpanDays,
     issueDate: row.issue_date, dueDate: row.due_date, nextReadingDate: row.next_reading_date,
     previousReadingM3: nullableNumber(row.previous_reading_m3), currentReadingM3: nullableNumber(row.current_reading_m3),
     readingDifferenceM3: nullableNumber(row.reading_difference_m3), deductibleM3: nullableNumber(row.deductible_m3), billedM3,
@@ -121,16 +134,16 @@ async function readStored(path, mimeType, originalName) {
 
 export async function listWaterBills(deviceSn) {
   const siteId = await ensureSite(deviceSn);
-  const rows = await rest(`water_bills?site_id=eq.${siteId}&select=*&order=period_end.desc,created_at.desc`) || [];
+  const rows = await rest(`water_bills?site_id=eq.${siteId}&select=*&order=billing_month.desc,created_at.desc`) || [];
   const ids = rows.map((row) => row.id);
   const docs = ids.length ? await rest(`water_bill_documents?bill_id=in.(${ids.join(',')})&select=id,bill_id,page_number,original_name,mime_type,bytes&order=page_number.asc`) || [] : [];
   return rows.map((row) => normalizeBill(row, docs.filter((doc) => doc.bill_id === row.id)));
 }
 
 async function latestAverage(siteId) {
-  const rows = await rest(`water_bills?site_id=eq.${siteId}&billed_m3=gt.0&select=billed_m3,period_start,period_end&order=period_end.desc&limit=6`) || [];
+  const rows = await rest(`water_bills?site_id=eq.${siteId}&billed_m3=gt.0&select=billed_m3,billing_month&order=billing_month.desc&limit=6`) || [];
   if (!rows.length) return null;
-  const daily = rows.map((row) => Number(row.billed_m3) / periodDays(row.period_start, row.period_end)).filter(Number.isFinite);
+  const daily = rows.map((row) => Number(row.billed_m3) / billingDays(row.billing_month)).filter(Number.isFinite);
   return daily.length ? daily.reduce((sum, value) => sum + value, 0) / daily.length : null;
 }
 
@@ -155,8 +168,10 @@ export async function saveWaterBill(deviceSn, bill, images = [], ai = null) {
     }
   }
   if (bill.consumptionIsEstimated === true && status === 'actual') status = 'estimated';
+  const month = billingMonth(bill.billingMonth, bill.issueDate || bill.periodEnd);
+  if (!month) throw Object.assign(new Error('No fue posible determinar el mes de la boleta.'), { status: 400 });
   const payload = {
-    site_id: siteId, period_start: bill.periodStart, period_end: bill.periodEnd, issue_date: bill.issueDate || null, due_date: bill.dueDate || null,
+    site_id: siteId, billing_month: month, period_start: bill.periodStart, period_end: bill.periodEnd, issue_date: bill.issueDate || null, due_date: bill.dueDate || null,
     next_reading_date: bill.nextReadingDate || null, previous_reading_m3: previous, current_reading_m3: current,
     reading_difference_m3: difference, deductible_m3: deductible || null, billed_m3: billedM3, consumption_status: status,
     estimate_method: estimateMethod || (status === 'actual' ? 'reported' : 'bill-estimate'), amount_clp: Math.max(0, Number(bill.amountClp) || 0),
@@ -169,7 +184,7 @@ export async function saveWaterBill(deviceSn, bill, images = [], ai = null) {
     source: images.length ? 'photo-ai' : 'manual', ai_extraction: ai?.extracted || {}, ai_confidence: nullableNumber(ai?.confidence), ai_model: ai?.model || null,
     updated_at: new Date().toISOString()
   };
-  const rows = await rest('water_bills?on_conflict=site_id,period_start,period_end', {
+  const rows = await rest('water_bills?on_conflict=site_id,billing_month', {
     method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify(payload)
   });
   const saved = rows?.[0];

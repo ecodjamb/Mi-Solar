@@ -110,6 +110,7 @@ export default function App(){
   const weekRows=useMemo(()=>filterRowsForSiteRange(combinedWeekRows,weekRange.siteStart,weekRange.siteEnd),[combinedWeekRows,weekRange.siteStart,weekRange.siteEnd]);
   const device=devices.find(d=>d.deviceSn===selected);
   const profile=siteProfile(device?.nickName||'');
+  const waterEnabled=profile.key==='arrayan';
   const peerDevice=useMemo(()=>{
     if(!device)return undefined;
     const currentKey=siteProfile(device.nickName||'').key;
@@ -147,6 +148,8 @@ export default function App(){
   const sampleAgeMs=realtimeSampleAt?Date.now()-realtimeSampleAt.getTime():null;
   const liveFresh=Object.keys(realtime).length>0&&queryAgeMs<=75_000&&(sampleAgeMs===null||sampleAgeMs<=5*60_000);
   const liveStatus=isHistoricalDay?'Sin animación':loading?'Sincronizando…':liveFresh?'En línea':Object.keys(realtime).length?'Dato atrasado':'Esperando datos';
+
+  useEffect(()=>{if(page==='water'&&!waterEnabled)setPage('home')},[page,waterEnabled]);
 
   async function fetchHistoryRange(sn:string,start:string,end:string,maxPages=18){
     return api<{list:HistoryRow[];total:number;truncated?:boolean;pages?:number}>(`devices/${sn}/history?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&maxPages=${maxPages}`);
@@ -393,7 +396,7 @@ export default function App(){
   const rawUnknown=[...new Set([...Object.keys(summary),...Object.keys(realtime)])].filter(k=>!used.has(k)).sort();
 
   return <div className="shell">
-    <Sidebar page={page} setPage={setPage} site={device?.nickName||'Mi instalación'} onLogout={async()=>{await api('logout',{method:'POST'});setAuth(false)}}/>
+    <Sidebar page={page} setPage={setPage} site={device?.nickName||'Mi instalación'} waterEnabled={waterEnabled} onLogout={async()=>{await api('logout',{method:'POST'});setAuth(false)}}/>
     <main className="content">
       <header className="topbar">
         <div><select value={selected} onChange={e=>switchDevice(e.target.value)}>{devices.map(d=><option key={d.deviceSn} value={d.deviceSn}>{d.nickName||d.deviceSn}</option>)}</select><span className={`online ${liveFresh?'is-fresh':'is-stale'}`}>● {liveStatus}</span></div>
@@ -455,8 +458,8 @@ export default function App(){
       {page==='technical'&&<section className="technical-page"><section className="technical-summary"><article className="panel"><small>Versión de la app</small><strong>v{APP_VERSION}</strong></article><article className="panel"><small>Política de actualización</small><strong>30 s · 5 min · 5 min · 5 min</strong><p>Tiempo real · día · semana · mes</p></article><article className="panel"><small>Datos catalogados</small><strong>{catalog.reduce((n,s)=>n+s.items.filter(i=>i.value!==null).length,0)}</strong></article><article className="panel"><small>Muestras hoy</small><strong>{today.samples}</strong></article><article className="panel"><small>Muestras mes</small><strong>{month.samples}</strong></article></section><section className="technical-grid">{catalog.map(section=><article className="panel technical-section" key={section.title}><h2>{section.title}</h2>{section.items.map(item=><div className="technical-row" key={item.key}><span>{item.label}</span><strong>{item.value===null?'—':`${typeof item.value==='number'?item.value.toLocaleString('es-CL',{maximumFractionDigits:2}):item.value}${item.unit?` ${item.unit}`:''}`}</strong><small>{item.source||'campo no disponible'}</small></div>)}</article>)}</section><section className="panel technical"><h2>Parámetros disponibles no usados en el dashboard</h2><p>Se muestran aquí para mantener el inicio limpio y facilitar futuras estadísticas.</p><div className="unknown-parameter-grid">{rawUnknown.map(key=><div className="unknown-parameter" key={key}><span>{key}</span><strong>{String((realtime as Record<string,unknown>)[key]??(summary as Record<string,unknown>)[key]??'—')}</strong></div>)}</div><details><summary>Auditoría completa en JSON</summary><pre>{JSON.stringify({version:APP_VERSION,architecture:'Vercel native · caché aislado por equipo',refreshPolicyMs:REFRESH_MS,lastSectionUpdate,realtime,summary,today,week,month,quality,solarModel},null,2)}</pre></details></section></section>}
       {page==='programming'&&<ProgrammingPage deviceSn={selected} siteLabel={siteLabel} currentTime={clock} tomorrowDate={tomorrowDate} tomorrowForecast={forecastTomorrow}/>}
       {page==='integrations'&&<IntegrationsPage siteLabel={siteLabel}/>}
-      {page==='water'&&<WaterCostsPage key={selected} deviceSn={selected} siteLabel={siteLabel}/>}
+      {page==='water'&&waterEnabled&&<WaterCostsPage key={selected} deviceSn={selected} siteLabel={siteLabel}/>}
     </main>
-    <MobileNav page={page} setPage={setPage}/>
+    <MobileNav page={page} setPage={setPage} waterEnabled={waterEnabled}/>
   </div>;
 }

@@ -165,7 +165,7 @@ export default async function handler(req, res) {
   try {
     if (method === 'GET' && route === 'health') {
       const push = pushConfiguration();
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.22.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.22.1', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -768,6 +768,7 @@ export default async function handler(req, res) {
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
       const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) ? String(value) : null;
       const periodEnd = validDate(body.periodEnd) || validDate(body.issueDate) || today;
+      const billingMonth = /^\d{4}-\d{2}$/.test(String(body.billingMonth || '')) ? `${body.billingMonth}-01` : validDate(body.billingMonth) || `${(validDate(body.issueDate) || periodEnd).slice(0, 7)}-01`;
       const periodStart = validDate(body.periodStart) && String(body.periodStart) <= periodEnd
         ? String(body.periodStart)
         : new Date(Date.parse(`${periodEnd}T12:00:00Z`) - 30 * 86_400_000).toISOString().slice(0, 10);
@@ -777,7 +778,7 @@ export default async function handler(req, res) {
       const allowed = new Set(['fixed','potable_water','sewer_collection','wastewater_treatment','tax','discount','agreement','debt','interest','adjustment','other']);
       const chargeItems = Array.isArray(body.chargeItems) ? body.chargeItems.slice(0, 80).map((item) => ({ label: text(item?.label, 180), cubicMeters: number(item?.cubicMeters), amountClp: Number(item?.amountClp), category: allowed.has(item?.category) ? item.category : 'other' })).filter((item) => item.label && Number.isFinite(item.amountClp)) : [];
       const bill = await saveWaterBill(sn, {
-        periodStart, periodEnd, issueDate: validDate(body.issueDate), dueDate: validDate(body.dueDate), nextReadingDate: validDate(body.nextReadingDate),
+        billingMonth, periodStart, periodEnd, issueDate: validDate(body.issueDate), dueDate: validDate(body.dueDate), nextReadingDate: validDate(body.nextReadingDate),
         previousReadingM3: number(body.previousReadingM3), currentReadingM3: number(body.currentReadingM3), readingDifferenceM3: number(body.readingDifferenceM3),
         deductibleM3: number(body.deductibleM3), billedM3: number(body.billedM3), readingStatus: body.readingStatus,
         consumptionIsEstimated: body.consumptionIsEstimated === true, amountClp: Math.max(0, Number(body.amountClp) || 0),

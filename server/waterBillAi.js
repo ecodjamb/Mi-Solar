@@ -13,7 +13,7 @@ const CHARGE_ITEM = {
 const WATER_BILL_SCHEMA = {
   type: 'object', additionalProperties: false,
   properties: {
-    provider: nullableString, documentType: nullableString, invoiceNumber: nullableString,
+    provider: nullableString, documentType: nullableString, invoiceNumber: nullableString, billingMonth: nullableString,
     periodStart: nullableString, periodEnd: nullableString, issueDate: nullableString, dueDate: nullableString, nextReadingDate: nullableString,
     previousReadingM3: nullableNumber, currentReadingM3: nullableNumber, readingDifferenceM3: nullableNumber,
     deductibleM3: nullableNumber, billedM3: nullableNumber,
@@ -24,7 +24,7 @@ const WATER_BILL_SCHEMA = {
     subtotalServiceClp: nullableNumber, taxesClp: nullableNumber, otherChargesClp: nullableNumber, discountsClp: nullableNumber,
     chargeItems: { type: 'array', items: CHARGE_ITEM }, confidence: { type: 'number' }, warnings: { type: 'array', items: { type: 'string' } }
   },
-  required: ['provider','documentType','invoiceNumber','periodStart','periodEnd','issueDate','dueDate','nextReadingDate','previousReadingM3','currentReadingM3','readingDifferenceM3','deductibleM3','billedM3','readingStatus','consumptionIsEstimated','amountClp','customerNumber','meterNumber','meterBrand','meterModel','serviceAddress','fixedChargeClp','potableWaterChargeClp','sewerCollectionChargeClp','wastewaterTreatmentChargeClp','subtotalServiceClp','taxesClp','otherChargesClp','discountsClp','chargeItems','confidence','warnings']
+  required: ['provider','documentType','invoiceNumber','billingMonth','periodStart','periodEnd','issueDate','dueDate','nextReadingDate','previousReadingM3','currentReadingM3','readingDifferenceM3','deductibleM3','billedM3','readingStatus','consumptionIsEstimated','amountClp','customerNumber','meterNumber','meterBrand','meterModel','serviceAddress','fixedChargeClp','potableWaterChargeClp','sewerCollectionChargeClp','wastewaterTreatmentChargeClp','subtotalServiceClp','taxesClp','otherChargesClp','discountsClp','chargeItems','confidence','warnings']
 };
 
 const METER_READING_SCHEMA = {
@@ -121,7 +121,7 @@ export async function extractWaterBill(images) {
   validateWaterImages(images, 4);
   return structuredVision(images, `Analiza todas las imágenes como páginas de una sola boleta chilena de agua potable, normalmente Aguas Andinas. Extrae solo información visible y consolida páginas repetidas. Usa fechas ISO YYYY-MM-DD y montos CLP sin separadores.
 
-El período debe representar exactamente el intervalo entre los campos rotulados LECTURA ANTERIOR y LECTURA ACTUAL: usa sus fechas como periodStart y periodEnd. Nunca uses emisión, vencimiento, último pago ni próxima lectura como período. Interpreta sin ambigüedad los meses españoles: ENE=01, FEB=02, MAR=03, ABR=04, MAY=05, JUN=06, JUL=07, AGO=08, SEP=09, OCT=10, NOV=11, DIC=12. Por ejemplo, 17-ENE-2026 es 2026-01-17 y jamás julio. En números chilenos, un punto entre miles es separador de miles: "7.876 m3" significa 7876 m3, no 7.876. previousReadingM3 y currentReadingM3 son lecturas acumuladas. readingDifferenceM3 es su diferencia visible. deductibleM3 son m3 abonados, descontables o rebajados. billedM3 es el consumo finalmente facturado: diferencia menos descuentos cuando corresponda. No confundas estos tres valores.
+billingMonth identifica el mes comercial de esta única boleta y debe usar formato YYYY-MM-01. Derívalo del mes de emisión o del mes de la lectura actual; cada mes tiene una boleta independiente. El período periodStart/periodEnd es distinto: representa exactamente el intervalo entre los campos rotulados LECTURA ANTERIOR y LECTURA ACTUAL. Nunca uses emisión, vencimiento, último pago ni próxima lectura como intervalo de lecturas. Interpreta sin ambigüedad los meses españoles: ENE=01, FEB=02, MAR=03, ABR=04, MAY=05, JUN=06, JUL=07, AGO=08, SEP=09, OCT=10, NOV=11, DIC=12. Por ejemplo, 17-ENE-2026 es 2026-01-17 y jamás julio. En números chilenos, un punto entre miles es separador de miles: "7.876 m3" significa 7876 m3, no 7.876. previousReadingM3 y currentReadingM3 son lecturas acumuladas. readingDifferenceM3 es su diferencia visible. deductibleM3 son m3 ya cobrados mediante estimaciones de boletas mensuales anteriores. billedM3 es el consumo finalmente facturado en esta boleta: diferencia menos esos consumos estimados cuando corresponda. No confundas estos valores ni distribuyas billedM3 entre todos los meses del intervalo.
 
 Si no hay lecturas, conserva siempre el total, las fechas y cargos. Marca readingStatus='pending' o 'unavailable' y consumptionIsEstimated=true. Si la empresa presenta consumo estimado, billedM3 puede contener ese consumo y readingStatus='estimated'. Si hay lecturas reales y consumo real, usa 'actual'. Nunca bloquees por datos faltantes.
 
