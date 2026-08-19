@@ -57,6 +57,12 @@ export function classifyWaterConsumption(bill, ai = null) {
   const billed = nullableNumber(evidence.billedM3);
   const hasReadingDates = validIsoDate(periodStart) && validIsoDate(periodEnd) && periodEnd >= periodStart;
   const hasMeterPair = previous != null && current != null && current >= previous;
+  const isPhotoExtraction = Boolean(extracted);
+  const visibleEvidence = !isPhotoExtraction || (
+    evidence.previousReadingVisible === true && evidence.currentReadingVisible === true
+    && evidence.previousReadingDateVisible === true && evidence.currentReadingDateVisible === true
+    && evidence.readingStatus === 'actual' && evidence.consumptionIsEstimated !== true
+  );
   const calculatedDifference = hasMeterPair ? current - previous : null;
   const differenceTolerance = Math.max(0.1, Math.abs(calculatedDifference || 0) * 0.02);
   const differenceMatches = calculatedDifference != null && (reportedDifference == null || Math.abs(reportedDifference - calculatedDifference) <= differenceTolerance);
@@ -64,7 +70,7 @@ export function classifyWaterConsumption(bill, ai = null) {
   const billedTolerance = Math.max(0.25, Math.abs(expectedBilled || 0) * 0.05);
   const billedMatches = expectedBilled != null && (billed == null || Math.abs(billed - expectedBilled) <= billedTolerance);
 
-  if (hasReadingDates && hasMeterPair) {
+  if (hasReadingDates && hasMeterPair && visibleEvidence) {
     return {
       status: 'actual',
       method: differenceMatches && billedMatches ? 'actual-readings-verified' : 'actual-readings-reconciled',
@@ -95,6 +101,12 @@ function normalizeBill(row, documents = []) {
   const subtotal = nullableNumber(row.subtotal_service_clp);
   const classification = row.source === 'meter-period' ? {
     status: 'actual', method: 'meter-period-readings', reason: 'Consumo consolidado desde lecturas guardadas en Mi Solar.'
+  } : row.source === 'photo-ai' ? {
+    status: row.consumption_status === 'actual' ? 'actual' : 'estimated',
+    method: row.estimate_method || (row.consumption_status === 'actual' ? 'actual-readings-verified' : 'company-estimate-no-complete-reading'),
+    reason: row.consumption_status === 'actual'
+      ? 'La fotografía contiene ambas lecturas acumuladas y sus fechas.'
+      : 'La boleta no muestra las dos lecturas acumuladas completas; el consumo informado se trata como estimado.'
   } : classifyWaterConsumption({
     periodStart: row.period_start, periodEnd: row.period_end, previousReadingM3: row.previous_reading_m3,
     currentReadingM3: row.current_reading_m3, readingDifferenceM3: row.reading_difference_m3,
@@ -435,12 +447,10 @@ function projectionFor(period, readings, bills) {
   const fallbackDaily = historicDaily.length ? historicDaily.reduce((sum, value) => sum + value, 0) / historicDaily.length : 0;
   const daily = consumed > 0 ? consumed / elapsedDays : fallbackDaily;
   const projectedM3 = Math.max(consumed, daily * totalDays);
-  const latestBill = bills[0];
-  const unitService = latestBill?.unitServiceRateClp || (latestBill?.billedM3 > 0 ? Math.max(0, Number(latestBill.subtotalServiceClp || latestBill.amountClp) / latestBill.billedM3) : 0);
-  const fixed = Number(latestBill?.fixedChargeClp || 0);
+  const unitService = 1500;
   return {
     consumedM3: Number(consumed.toFixed(3)), averageDailyM3: Number(daily.toFixed(3)), projectedM3: Number(projectedM3.toFixed(2)),
-    projectedAmountClp: Math.max(0, Math.round(projectedM3 * unitService + fixed)), unitServiceRateClp: Number(unitService.toFixed(2)),
+    projectedAmountClp: Math.max(0, Math.round(projectedM3 * unitService)), unitServiceRateClp: unitService,
     elapsedDays: Number(elapsedDays.toFixed(2)), remainingDays: Number(Math.max(0, (endMs - Math.min(now, endMs)) / 86_400_000).toFixed(2)),
     lastReadingAt: latest?.readingAt || null, calculatedAt: new Date().toISOString(), method: consumed > 0 ? 'current-readings' : 'historical-average'
   };

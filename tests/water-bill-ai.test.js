@@ -43,4 +43,24 @@ const missingReadings = reconcileWaterBill({
   currentReadingM3: null, warnings: [], chargeItems: []
 });
 assert.equal(missingReadings.readingStatus, 'estimated');
+
+const inferredReading = reconcileWaterBill({
+  periodStart: '2026-05-11', periodEnd: '2026-06-10', previousReadingM3: 4280,
+  currentReadingM3: 4382, readingDifferenceM3: 102, previousReadingVisible: false,
+  currentReadingVisible: true, previousReadingDateVisible: true, currentReadingDateVisible: true,
+  readingStatus: 'actual', consumptionIsEstimated: false,
+  warnings: ['La lectura anterior no aparece visible; se infirió por resta.'], chargeItems: []
+});
+assert.equal(inferredReading.readingStatus, 'estimated');
+assert.equal(inferredReading.previousReadingM3, null);
+assert.equal(inferredReading.currentReadingM3, null);
+
+const visiblePhotoReadings = classifyWaterConsumption({}, { extracted: {
+  periodStart: '2026-07-07', periodEnd: '2026-08-11', previousReadingM3: 6797,
+  currentReadingM3: 7876, readingDifferenceM3: 1079, deductibleM3: 622, billedM3: 457,
+  previousReadingVisible: true, currentReadingVisible: true,
+  previousReadingDateVisible: true, currentReadingDateVisible: true,
+  readingStatus: 'actual', consumptionIsEstimated: false
+} });
+assert.equal(visiblePhotoReadings.status, 'actual');
 console.log('water bill AI reconciliation tests: ok');

@@ -1,0 +1,166 @@
+.water-hidden-input {
+  display: none;
+}
+.water-quick-actions {
+  display: grid;
+  grid-template-columns: 1.2fr 1.2fr 0.8fr;
+  gap: 10px;
+  order: 1;
+}
+.water-quick-actions button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 72px;
+  padding: 13px 16px;
+  border: 1px solid rgba(65, 169, 207, 0.4);
+  border-radius: 16px;
+  background: linear-gradient(
+    145deg,
+    rgba(14, 82, 109, 0.78),
+    rgba(6, 31, 41, 0.94)
+  );
+  color: #ecfbff;
+  text-align: left;
+  cursor: pointer;
+}
+.water-quick-actions button.reading {
+  border-color: rgba(74, 211, 154, 0.44);
+  background: linear-gradient(
+    145deg,
+    rgba(16, 99, 73, 0.66),
+    rgba(6, 35, 33, 0.94)
+  );
+}
+.water-quick-actions button.manual {
+  border-color: rgba(151, 165, 172, 0.28);
+  background: rgba(8, 29, 37, 0.84);
+}
+.water-quick-actions button:disabled {
+  opacity: 0.62;
+  cursor: progress;
+}
+.water-quick-actions svg {
+  width: 27px;
+  height: 27px;
+  flex: 0 0 auto;
+}
+.water-quick-actions span {
+  display: grid;
+  gap: 3px;
+}
+.water-quick-actions b {
+  font-size: 14px;
+}
+.water-quick-actions small {
+  color: #91aab1;
+  font-size: 9px;
+}
+.water-current {
+  order: 2;
+}
+.water-current > header p {
+  margin: 3px 0 0;
+  color: #8ba4ab;
+  font-size: 10px;
+}
+.water-current-glance {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+  margin: 15px 0;
+}
+.water-current-glance span {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid rgba(58, 132, 155, 0.3);
+  border-radius: 13px;
+  background: rgba(5, 23, 30, 0.54);
+}
+.water-current-glance span.featured {
+  border-color: rgba(74, 211, 154, 0.46);
+  background: linear-gradient(
+    145deg,
+    rgba(24, 102, 77, 0.34),
+    rgba(5, 31, 31, 0.72)
+  );
+}
+.water-current-glance b {
+  font-size: 17px;
+}
+.water-current-glance em {
+  color: #75dca9;
+  font-size: 9px;
+  font-style: normal;
+}
+.water-current-details {
+  border-top: 1px solid rgba(67, 114, 128, 0.24);
+  padding-top: 11px;
+}
+.water-current-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #a8bec4;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  list-style: none;
+}
+.water-current-details > summary::-webkit-details-marker {
+  display: none;
+}
+.water-current-details > summary svg {
+  width: 18px;
+  transition: 0.2s;
+}
+.water-current-details[open] > summary svg {
+  transform: rotate(180deg);
+}
+.water-chart-card {
+  order: 3;
+}
+.water-bill-entry {
+  order: 4;
+}
+.water-bill-history {
+  order: 5;
+}
+.water-notifications{order:7;padding:15px 18px}.water-notifications>summary{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:11px;cursor:pointer;list-style:none}.water-notifications>summary::-webkit-details-marker{display:none}.water-notifications>summary>svg:first-child{color:#55c9f1}.water-notifications>summary>svg:last-child{width:18px;transition:.2s}.water-notifications[open]>summary>svg:last-child{transform:rotate(180deg)}.water-notifications>summary span{display:grid;gap:2px}.water-notifications>summary small{color:#8da4ab;font-size:9px}.water-notifications .water-reminder{padding:16px 0 0;box-shadow:none;border:0;background:none}.water-notifications .water-reminder>header>svg{display:none}.water-notifications .water-reminder>header{grid-template-columns:1fr auto}
+.water-message,
+.water-error {
+  order: 1;
+}
+.water-document-viewer {
+  order: 8;
+}
+@media (max-width: 780px) {
+  .water-quick-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+  .water-quick-actions button.manual {
+    grid-column: 1/-1;
+    min-height: 54px;
+  }
+  .water-current-glance {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 480px) {
+  .water-quick-actions {
+    grid-template-columns: 1fr;
+  }
+  .water-quick-actions button.manual {
+    grid-column: auto;
+  }
+  .water-quick-actions button {
+    min-height: 62px;
+  }
+  .water-current-glance {
+    grid-template-columns: 1fr 1fr;
+  }
+  .water-current-glance b {
+    font-size: 14px;
+  }
+}

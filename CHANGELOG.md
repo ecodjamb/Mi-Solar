@@ -1,3 +1,13 @@
+# Mi Solar v8.24.0
+
+- Agua: accesos directos para subir una boleta o una lectura del medidor desde la cámara.
+- Agua: la lectura fotográfica se guarda de inmediato con fecha, hora, imagen y análisis.
+- Agua: resumen plegable del mes en curso con consumo, promedio y proyección a $1.500 por m³.
+- Agua: clasificación estricta; una boleta solo es real cuando ambas lecturas y fechas están visibles.
+- Agua: junio y julio de 2026 y septiembre de 2025 fueron corregidos a estimados sin borrar boletas ni fotos.
+- Agua: notificaciones quedaron al final en un apartado plegable.
+- Agua: m³ enteros en toda la vista, salvo el promedio diario con un decimal.
+
 # Mi Solar v8.23.0
 
 - Agua muestra primero un gráfico mensual más legible, diferenciando lecturas reales de consumos estimados.

@@ -17,6 +17,8 @@ const WATER_BILL_SCHEMA = {
     periodStart: nullableString, periodEnd: nullableString, issueDate: nullableString, dueDate: nullableString, nextReadingDate: nullableString,
     previousReadingM3: nullableNumber, currentReadingM3: nullableNumber, readingDifferenceM3: nullableNumber,
     deductibleM3: nullableNumber, billedM3: nullableNumber,
+    previousReadingVisible: { type: 'boolean' }, currentReadingVisible: { type: 'boolean' },
+    previousReadingDateVisible: { type: 'boolean' }, currentReadingDateVisible: { type: 'boolean' },
     readingStatus: { enum: ['actual','estimated','pending','unavailable'] }, consumptionIsEstimated: { type: 'boolean' },
     amountClp: nullableNumber, customerNumber: nullableString, meterNumber: nullableString, meterBrand: nullableString, meterModel: nullableString,
     serviceAddress: nullableString, fixedChargeClp: nullableNumber, potableWaterChargeClp: nullableNumber,
@@ -24,7 +26,7 @@ const WATER_BILL_SCHEMA = {
     subtotalServiceClp: nullableNumber, taxesClp: nullableNumber, otherChargesClp: nullableNumber, discountsClp: nullableNumber,
     chargeItems: { type: 'array', items: CHARGE_ITEM }, confidence: { type: 'number' }, warnings: { type: 'array', items: { type: 'string' } }
   },
-  required: ['provider','documentType','invoiceNumber','billingMonth','periodStart','periodEnd','issueDate','dueDate','nextReadingDate','previousReadingM3','currentReadingM3','readingDifferenceM3','deductibleM3','billedM3','readingStatus','consumptionIsEstimated','amountClp','customerNumber','meterNumber','meterBrand','meterModel','serviceAddress','fixedChargeClp','potableWaterChargeClp','sewerCollectionChargeClp','wastewaterTreatmentChargeClp','subtotalServiceClp','taxesClp','otherChargesClp','discountsClp','chargeItems','confidence','warnings']
+  required: ['provider','documentType','invoiceNumber','billingMonth','periodStart','periodEnd','issueDate','dueDate','nextReadingDate','previousReadingM3','currentReadingM3','readingDifferenceM3','deductibleM3','billedM3','previousReadingVisible','currentReadingVisible','previousReadingDateVisible','currentReadingDateVisible','readingStatus','consumptionIsEstimated','amountClp','customerNumber','meterNumber','meterBrand','meterModel','serviceAddress','fixedChargeClp','potableWaterChargeClp','sewerCollectionChargeClp','wastewaterTreatmentChargeClp','subtotalServiceClp','taxesClp','otherChargesClp','discountsClp','chargeItems','confidence','warnings']
 };
 
 const METER_READING_SCHEMA = {
@@ -67,9 +69,20 @@ export function reconcileWaterBill(extracted) {
   const previous = extracted.previousReadingM3 == null ? Number.NaN : Number(extracted.previousReadingM3);
   const current = extracted.currentReadingM3 == null ? Number.NaN : Number(extracted.currentReadingM3);
   const hasMeterPair = Number.isFinite(previous) && Number.isFinite(current) && current >= previous;
-  extracted.readingStatus = hasReadingDates && hasMeterPair ? 'actual' : 'estimated';
-  extracted.consumptionIsEstimated = !(hasReadingDates && hasMeterPair);
-  if (!hasReadingDates || !hasMeterPair) {
+  const warningsText = (extracted.warnings || []).join(' ').toLowerCase();
+  const inferenceWarning = /(inferid|se infiri|no aparece|no se observa|no se visualiza|sin lectura|falta.*lectura|rayita|guion)/i.test(warningsText);
+  const visibleEvidence = extracted.previousReadingVisible === true && extracted.currentReadingVisible === true
+    && extracted.previousReadingDateVisible === true && extracted.currentReadingDateVisible === true;
+  const modelAlreadyEstimated = extracted.readingStatus !== 'actual' || extracted.consumptionIsEstimated === true;
+  const verifiedActual = hasReadingDates && hasMeterPair && visibleEvidence && !inferenceWarning && !modelAlreadyEstimated;
+  if (!verifiedActual) {
+    extracted.previousReadingM3 = null;
+    extracted.currentReadingM3 = null;
+    extracted.readingDifferenceM3 = null;
+  }
+  extracted.readingStatus = verifiedActual ? 'actual' : 'estimated';
+  extracted.consumptionIsEstimated = !verifiedActual;
+  if (!verifiedActual) {
     extracted.warnings = [...(extracted.warnings || []), 'Mi Solar clasificará el consumo como estimado porque faltan dos lecturas fechadas y verificables.'];
   }
   const total = Number(extracted.amountClp);
@@ -132,7 +145,7 @@ export async function extractWaterBill(images) {
 
 billingMonth identifica el mes comercial de esta única boleta y debe usar formato YYYY-MM-01. Derívalo del mes de emisión o del mes de la lectura actual; cada mes tiene una boleta independiente. El período periodStart/periodEnd es distinto: representa exactamente el intervalo entre los campos rotulados LECTURA ANTERIOR y LECTURA ACTUAL. Nunca uses emisión, vencimiento, último pago ni próxima lectura como intervalo de lecturas. Interpreta sin ambigüedad los meses españoles: ENE=01, FEB=02, MAR=03, ABR=04, MAY=05, JUN=06, JUL=07, AGO=08, SEP=09, OCT=10, NOV=11, DIC=12. Por ejemplo, 17-ENE-2026 es 2026-01-17 y jamás julio. En números chilenos, un punto entre miles es separador de miles: "7.876 m3" significa 7876 m3, no 7.876. previousReadingM3 y currentReadingM3 son lecturas acumuladas. readingDifferenceM3 es su diferencia visible. deductibleM3 son m3 ya cobrados mediante estimaciones de boletas mensuales anteriores. billedM3 es el consumo finalmente facturado en esta boleta: diferencia menos esos consumos estimados cuando corresponda. No confundas estos valores ni distribuyas billedM3 entre todos los meses del intervalo.
 
-  Decide el tipo de consumo por evidencia, no por apariencia: solo usa readingStatus='actual' y consumptionIsEstimated=false cuando existan las fechas de LECTURA ANTERIOR y LECTURA ACTUAL junto con ambos valores acumulados del medidor. Si falta cualquiera de esas cuatro evidencias, usa readingStatus='estimated' y consumptionIsEstimated=true, aunque la boleta muestre m³ facturados. Si hay lecturas reales separadas por varios meses y la empresa descuenta consumos estimados ya cobrados, sigue siendo una lectura real conciliada: conserva deductibleM3 y billedM3 tal como aparecen. Nunca bloquees por datos faltantes.
+  Decide el tipo de consumo por evidencia, no por apariencia: solo usa readingStatus='actual' y consumptionIsEstimated=false cuando existan las fechas de LECTURA ANTERIOR y LECTURA ACTUAL junto con ambos valores acumulados del medidor. Marca los cuatro booleanos *Visible en true únicamente si cada dato está impreso y legible en la fotografía. Una raya, guion, espacio vacío o un dato deducido equivale a false y null. Nunca calcules una lectura anterior restando el consumo a la lectura actual, ni confundas el número de medidor con una lectura. Si falta cualquiera de esas cuatro evidencias, usa readingStatus='estimated' y consumptionIsEstimated=true, aunque la boleta muestre m³ facturados. Si hay lecturas reales separadas por varios meses y la empresa descuenta consumos estimados ya cobrados, sigue siendo una lectura real conciliada: conserva deductibleM3 y billedM3 tal como aparecen. Nunca bloquees por datos faltantes.
 
 Registra en chargeItems cada cargo o descuento que compone el total, conservando su nombre: cargo fijo, agua potable, recolección de aguas servidas, tratamiento, impuestos cobrados aparte, descuentos, convenios, deuda, intereses, ajustes y otros. No repitas en chargeItems las líneas de resumen SUBTOTAL, TOTAL SERVICIO, TOTAL VENTA, TOTAL IVA o TOTAL A PAGAR. Los descuentos deben ser negativos. Los campos resumidos no deben mezclar convenio/deuda con el costo del servicio. Si el documento dice explícitamente "El IVA de esta Boleta es $X", taxesClp debe ser exactamente X aunque esté incluido dentro del subtotal y no se sume nuevamente al total. otherChargesClp agrupa cargos no incluidos en los campos específicos, sin duplicarlos. discountsClp debe ser el total positivo de las rebajas. amountClp es siempre el total final a pagar. meterNumber debe provenir solo del campo rotulado "Número de medidor"; no confundas RUTA, MEC ni número de cuenta con el medidor.
 
