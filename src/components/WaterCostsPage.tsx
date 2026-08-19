@@ -356,6 +356,10 @@ export default function WaterCostsPage({
   const [billAi, setBillAi] = useState<WaterBillExtract | null>(null);
   const [billModel, setBillModel] = useState("");
   const [billBusy, setBillBusy] = useState(false);
+  const [captureChooser, setCaptureChooser] = useState<
+    "bill" | "reading" | null
+  >(null);
+  const [manualReadingOpen, setManualReadingOpen] = useState(false);
   const [chartFilter, setChartFilter] = useState("12m");
   const [viewDocument, setViewDocument] = useState<{
     kind: "bill" | "reading";
@@ -380,8 +384,10 @@ export default function WaterCostsPage({
   const [settingsDraft, setSettingsDraft] = useState<WaterSettings | null>(
     null,
   );
-  const billInput = useRef<HTMLInputElement>(null);
-  const readingInput = useRef<HTMLInputElement>(null);
+  const billCameraInput = useRef<HTMLInputElement>(null);
+  const billLibraryInput = useRef<HTMLInputElement>(null);
+  const readingCameraInput = useRef<HTMLInputElement>(null);
+  const readingLibraryInput = useRef<HTMLInputElement>(null);
 
   async function reload(showLoading = false) {
     if (showLoading) setLoading(true);
@@ -628,7 +634,8 @@ export default function WaterCostsPage({
           : "No fue posible preparar las imágenes.",
       );
     }
-    if (billInput.current) billInput.current.value = "";
+    if (billCameraInput.current) billCameraInput.current.value = "";
+    if (billLibraryInput.current) billLibraryInput.current.value = "";
   }
 
   async function importBillAutomatically(images: WaterImage[]) {
@@ -754,7 +761,7 @@ export default function WaterCostsPage({
           : String(result.extracted.readingM3),
       );
       if (result.extracted.readingM3 == null || !dashboard?.period) {
-        setCurrentOpen(true);
+        setManualReadingOpen(true);
         setMessage(
           "No fue posible leer el visor con seguridad. Ingresa solamente el número y pulsa guardar.",
         );
@@ -790,11 +797,12 @@ export default function WaterCostsPage({
       );
     } finally {
       setReadingBusy(false);
-      if (readingInput.current) readingInput.current.value = "";
+      if (readingCameraInput.current) readingCameraInput.current.value = "";
+      if (readingLibraryInput.current) readingLibraryInput.current.value = "";
     }
   }
 
-  async function saveReading() {
+  async function saveReading(useCurrentTime = false) {
     if (!dashboard?.period) return;
     setReadingBusy(true);
     setError("");
@@ -803,7 +811,9 @@ export default function WaterCostsPage({
         method: "POST",
         body: JSON.stringify({
           periodId: dashboard.period.id,
-          readingAt: new Date(readingAt).toISOString(),
+          readingAt: useCurrentTime
+            ? new Date().toISOString()
+            : new Date(readingAt).toISOString(),
           readingM3: Number(readingValue),
           notes: readingNotes,
           image: readingImage,
@@ -818,6 +828,7 @@ export default function WaterCostsPage({
       setReadingAi(null);
       setReadingModel("");
       setReadingAt(localDateTimeInput());
+      setManualReadingOpen(false);
       setMessage("Lectura guardada. La proyección del mes fue actualizada.");
       await reload();
     } catch (cause) {
@@ -955,19 +966,33 @@ export default function WaterCostsPage({
       </header>
       <input
         className="water-hidden-input"
-        ref={billInput}
+        ref={billCameraInput}
         type="file"
         accept="image/jpeg,image/png,image/webp"
-        multiple
         capture="environment"
         onChange={(event) => void chooseBillFiles(event.target.files)}
       />
       <input
         className="water-hidden-input"
-        ref={readingInput}
+        ref={billLibraryInput}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        multiple
+        onChange={(event) => void chooseBillFiles(event.target.files)}
+      />
+      <input
+        className="water-hidden-input"
+        ref={readingCameraInput}
         type="file"
         accept="image/jpeg,image/png,image/webp"
         capture="environment"
+        onChange={(event) => void chooseReadingPhoto(event.target.files)}
+      />
+      <input
+        className="water-hidden-input"
+        ref={readingLibraryInput}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
         onChange={(event) => void chooseReadingPhoto(event.target.files)}
       />
       <section
@@ -977,7 +1002,7 @@ export default function WaterCostsPage({
         <button
           className="bill"
           type="button"
-          onClick={() => billInput.current?.click()}
+          onClick={() => setCaptureChooser("bill")}
           disabled={billBusy}
         >
           <FilePlus2 />
@@ -989,7 +1014,7 @@ export default function WaterCostsPage({
         <button
           className="reading"
           type="button"
-          onClick={() => readingInput.current?.click()}
+          onClick={() => setCaptureChooser("reading")}
           disabled={readingBusy}
         >
           <Camera />
@@ -1001,15 +1026,141 @@ export default function WaterCostsPage({
         <button
           className="manual"
           type="button"
-          onClick={() => setCurrentOpen(true)}
+          onClick={() => {
+            setReadingAt(localDateTimeInput());
+            setManualReadingOpen(true);
+          }}
         >
           <Gauge />
           <span>
-            <b>Ingresar número</b>
-            <small>Alternativa manual rápida</small>
+            <b>Ingresar número lectura de hoy</b>
+            <small>Guarda automáticamente fecha y hora</small>
           </span>
         </button>
       </section>
+      {manualReadingOpen ? (
+        <section className="panel water-quick-reading" aria-live="polite">
+          <header>
+            <div>
+              <small>Ingreso manual rápido</small>
+              <h2>Lectura de hoy</h2>
+              <p>Escribe el número del visor. La fecha y hora son automáticas.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setManualReadingOpen(false)}
+              aria-label="Cerrar ingreso manual"
+            >
+              <X />
+            </button>
+          </header>
+          <div className="water-quick-reading-form">
+            <label>
+              <span>Número de lectura de hoy (m³)</span>
+              <input
+                type="number"
+                min="0"
+                step="0.001"
+                inputMode="decimal"
+                autoFocus
+                value={readingValue}
+                onChange={(event) => setReadingValue(event.target.value)}
+                placeholder="Ej. 7876"
+              />
+            </label>
+            <label>
+              <span>Nota opcional</span>
+              <input
+                value={readingNotes}
+                onChange={(event) => setReadingNotes(event.target.value)}
+                placeholder="Ej. lectura ingresada por Carola"
+              />
+            </label>
+            <div className="water-quick-reading-time">
+              <CalendarClock />
+              <span>
+                <small>Se guardará con</small>
+                <b>{dateTimeLabel(new Date().toISOString())}</b>
+              </span>
+            </div>
+            <button
+              className="primary"
+              type="button"
+              onClick={() => void saveReading(true)}
+              disabled={readingBusy || !readingValue || !period}
+            >
+              <Save /> {readingBusy ? "Guardando…" : "Ingresar lectura"}
+            </button>
+          </div>
+        </section>
+      ) : null}
+      {captureChooser ? (
+        <div
+          className="water-source-backdrop"
+          role="presentation"
+          onClick={() => setCaptureChooser(null)}
+        >
+          <section
+            className="water-source-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="water-source-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <small>
+                  {captureChooser === "bill" ? "Nueva boleta" : "Lectura de hoy"}
+                </small>
+                <h2 id="water-source-title">¿Cómo quieres subir la imagen?</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCaptureChooser(null)}
+                aria-label="Cancelar"
+              >
+                <X />
+              </button>
+            </header>
+            <div>
+              <button
+                type="button"
+                onClick={() => {
+                  const input =
+                    captureChooser === "bill"
+                      ? billCameraInput.current
+                      : readingCameraInput.current;
+                  setCaptureChooser(null);
+                  input?.click();
+                }}
+              >
+                <Camera />
+                <span>
+                  <b>Sacar foto</b>
+                  <small>Abrir la cámara ahora</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const input =
+                    captureChooser === "bill"
+                      ? billLibraryInput.current
+                      : readingLibraryInput.current;
+                  setCaptureChooser(null);
+                  input?.click();
+                }}
+              >
+                <FileImage />
+                <span>
+                  <b>Elegir del rollo</b>
+                  <small>Buscar una foto guardada</small>
+                </span>
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
       {message ? (
         <p className="water-message">
           <CheckCircle2 /> {message}
@@ -1516,7 +1667,7 @@ export default function WaterCostsPage({
           <div className="water-upload-zone">
             <button
               type="button"
-              onClick={() => billInput.current?.click()}
+              onClick={() => setCaptureChooser("bill")}
               disabled={billBusy}
             >
               <Upload />{" "}

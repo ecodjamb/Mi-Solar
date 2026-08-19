@@ -56,6 +56,171 @@
   color: #91aab1;
   font-size: 9px;
 }
+.water-quick-reading {
+  order: 1;
+  padding: 18px;
+  border-color: rgba(73, 205, 151, 0.42);
+  background: linear-gradient(
+    145deg,
+    rgba(12, 62, 52, 0.84),
+    rgba(5, 25, 32, 0.96)
+  );
+}
+.water-quick-reading > header,
+.water-source-sheet > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+.water-quick-reading > header h2,
+.water-source-sheet > header h2 {
+  margin: 2px 0 0;
+}
+.water-quick-reading > header p {
+  margin: 5px 0 0;
+  color: #91aab1;
+  font-size: 10px;
+}
+.water-quick-reading > header > button,
+.water-source-sheet > header > button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(90, 137, 150, 0.45);
+  border-radius: 11px;
+  background: rgba(4, 23, 30, 0.72);
+  color: #d7eaee;
+  cursor: pointer;
+}
+.water-quick-reading-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto auto;
+  align-items: end;
+  gap: 10px;
+  margin-top: 15px;
+}
+.water-quick-reading-form label {
+  display: grid;
+  gap: 6px;
+  color: #9bb0b6;
+  font-size: 10px;
+}
+.water-quick-reading-form input {
+  width: 100%;
+  min-width: 0;
+  min-height: 45px;
+  padding: 9px 11px;
+  border: 1px solid #315b61;
+  border-radius: 11px;
+  background: #071c22;
+  color: #f0faf8;
+  color-scheme: dark;
+}
+.water-quick-reading-time {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 45px;
+  padding: 7px 11px;
+  border: 1px solid rgba(72, 133, 142, 0.3);
+  border-radius: 11px;
+  background: rgba(5, 25, 31, 0.58);
+}
+.water-quick-reading-time svg {
+  width: 20px;
+  color: #70dba7;
+}
+.water-quick-reading-time span {
+  display: grid;
+  white-space: nowrap;
+}
+.water-quick-reading-time small {
+  color: #819ba2;
+  font-size: 8px;
+}
+.water-quick-reading-form > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 45px;
+  padding: 9px 16px;
+  border: 1px solid #2caa75;
+  border-radius: 11px;
+  background: #16875b;
+  color: white;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.water-quick-reading-form > button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.water-source-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(0, 10, 14, 0.72);
+  backdrop-filter: blur(7px);
+}
+.water-source-sheet {
+  width: min(560px, 100%);
+  padding: 20px;
+  border: 1px solid rgba(73, 159, 187, 0.48);
+  border-radius: 22px;
+  background: linear-gradient(160deg, #0b303d, #061b23 70%);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.58);
+}
+.water-source-sheet > header small {
+  color: #5ad2ee;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.water-source-sheet > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 11px;
+  margin-top: 17px;
+}
+.water-source-sheet > div > button {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-height: 82px;
+  padding: 14px;
+  border: 1px solid rgba(71, 166, 198, 0.42);
+  border-radius: 15px;
+  background: rgba(8, 48, 62, 0.72);
+  color: #eefbff;
+  text-align: left;
+  cursor: pointer;
+}
+.water-source-sheet > div > button:last-child {
+  border-color: rgba(74, 211, 154, 0.38);
+  background: rgba(10, 66, 52, 0.54);
+}
+.water-source-sheet > div > button svg {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+}
+.water-source-sheet > div > button span {
+  display: grid;
+  gap: 4px;
+}
+.water-source-sheet > div > button small {
+  color: #91aab1;
+  font-size: 9px;
+}
 .water-current {
   order: 2;
 }
@@ -146,6 +311,9 @@
   .water-current-glance {
     grid-template-columns: 1fr 1fr;
   }
+  .water-quick-reading-form {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 @media (max-width: 480px) {
   .water-quick-actions {
@@ -162,5 +330,22 @@
   }
   .water-current-glance b {
     font-size: 14px;
+  }
+  .water-quick-reading {
+    padding: 15px;
+  }
+  .water-quick-reading-form,
+  .water-source-sheet > div {
+    grid-template-columns: 1fr;
+  }
+  .water-source-backdrop {
+    padding: 10px;
+  }
+  .water-source-sheet {
+    padding: 17px;
+    border-radius: 20px;
+  }
+  .water-source-sheet > div > button {
+    min-height: 68px;
   }
 }

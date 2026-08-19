@@ -1,3 +1,9 @@
+# Mi Solar v8.24.1
+
+- Agua: “Subir boleta” y “Subir lectura de hoy” permiten elegir entre cámara y rollo fotográfico antes de abrir el selector del teléfono.
+- Agua: nuevo ingreso manual compacto bajo los accesos rápidos, con número, nota opcional y fecha/hora automáticas.
+- Agua: al guardar una lectura manual se actualizan de inmediato el mes en curso, su proyección y el historial de lecturas.
+
 # Mi Solar v8.24.0
 
 - Agua: accesos directos para subir una boleta o una lectura del medidor desde la cámara.
