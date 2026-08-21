@@ -10,24 +10,33 @@ let requestRunning = false;
 
 const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
 
+function requiresMiSolarSession(path: string) {
+  if (path === 'family' || path.startsWith('family/')) return true;
+  if (path.startsWith('admin/')) return true;
+  if (path === 'app-auth/change-password') return true;
+  if (path === 'provider-accounts') return true;
+  return /^sites\/\d+\/providers\/(isolar|watchpower)\/(credentials|test|sync)$/.test(path);
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-async function executeOnce<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function executeOnce<T>(path: string, options: RequestInit = {}, timeoutMs?: number): Promise<T> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), path.endsWith('/extract') ? 60_000 : 30_000);
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs ?? (path.endsWith('/extract') ? 60_000 : 30_000));
   try {
+    const csrfToken = document.cookie.split(';').map(value => value.trim()).find(value => value.startsWith('misolar_csrf='))?.split('=').slice(1).join('=');
     const response = await fetch(`/api/${path}`, {
       credentials: 'same-origin',
       cache: 'no-store',
-      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      headers: { 'Content-Type': 'application/json', ...(csrfToken ? { 'x-csrf-token': decodeURIComponent(csrfToken) } : {}), ...(options.headers || {}) },
       ...options,
       signal: controller.signal
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      if (response.status === 401 && path !== 'login') window.dispatchEvent(new CustomEvent('misolar:auth-expired'));
+      if (response.status === 401 && requiresMiSolarSession(path)) window.dispatchEvent(new CustomEvent('misolar:auth-expired'));
       const error = new Error(data.error || `Error ${response.status}`) as Error & { status?: number; details?: unknown };
       error.status = response.status;
       error.details = data;
@@ -96,4 +105,13 @@ export function api<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export function apiLive<T>(path: string, options: RequestInit = {}): Promise<T> {
   return enqueue<T>(path, options, true);
+}
+
+/**
+ * Solicitudes breves que no deben esperar la cola histórica ni reintentarse.
+ * Se usa durante el arranque para que una red móvil lenta nunca deje la PWA
+ * atrapada en la pantalla de carga.
+ */
+export function apiFast<T>(path: string, options: RequestInit = {}, timeoutMs = 8_000): Promise<T> {
+  return executeOnce<T>(path, options, timeoutMs);
 }

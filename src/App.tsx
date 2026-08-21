@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Battery, CircleDollarSign, House, RadioTower, RefreshCw, Sun } from 'lucide-react';
+import { Battery, CircleDollarSign, House, RadioTower, RefreshCw, ShieldCheck, Sun } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
 import KpiCard from './components/KpiCard';
@@ -28,7 +28,9 @@ import IntegrationsPage from './components/IntegrationsPage';
 import DailyConsumptionChart from './components/DailyConsumptionChart';
 import EquipmentPage from './components/EquipmentPage';
 import WaterCostsPage from './components/WaterCostsPage';
-import { api, apiLive } from './services/api';
+import UsersPage from './components/UsersPage';
+import FamilyFinancePage from './components/FamilyFinancePage';
+import { api, apiFast, apiLive } from './services/api';
 import { fetchWeather, type WeatherData } from './services/weather';
 import { accumulatedTheoreticalToday, calibrateSolarModel, expectedPowerNow, theoreticalDayKwh } from './utils/solarForecast';
 import type { DailyEnergy, Device, HistoryRow, PageKey, Realtime } from './types';
@@ -45,12 +47,16 @@ const SESSION_IDLE_MS=SESSION_POLICY.idleMs;
 const ACTIVITY_PING_MS=SESSION_POLICY.activityPingMs;
 const LAST_ACTIVITY_KEY=SESSION_POLICY.storageKey;
 const REFRESH_MS=REFRESH_POLICY;
-const requestedPage=()=>{const value=new URLSearchParams(window.location.search).get('page');return(['home','charts','solar','costs','equipment','programming','integrations','technical','water'] as PageKey[]).includes(value as PageKey)?value as PageKey:'home'};
+const requestedPage=()=>{const value=new URLSearchParams(window.location.search).get('page');return(['home','charts','solar','costs','equipment','programming','integrations','technical','water','users','family'] as PageKey[]).includes(value as PageKey)?value as PageKey:'home'};
 const emptyEnergy:DailyEnergy={date:'',solar:0,pv1:0,pv2:0,load:0,grid:0,gridImport:0,gridExport:0,gridToLoad:0,charge:0,discharge:0,solarToLoad:0,batteryToLoad:0,solarToBattery:0,samples:0};
 type StoredSolarForecast={date:string;forecastKwh:number;radiationKwhM2:number;locked:boolean;lockedAt:string|null};
 type ForecastRevision={date:string;forecastKwh:number;radiationKwhM2:number;observedAt:string};
 type SolarForecastResponse={today:StoredSolarForecast;tomorrow:StoredSolarForecast;revisions:Record<string,ForecastRevision[]>;lockTimeChile:string};
 type LiveResponse={realtime:Realtime;summary:Realtime;partial?:boolean;receivedAt?:string;source?:string};
+type ProviderName='isolar'|'watchpower';
+type ProviderSite={id:number;name:string;siteKey:string;deviceSuffix:string;providers:{provider:ProviderName;enabled:boolean;status:string;lastSuccessAt:string|null;lastAttemptAt:string|null;readOnly:boolean}[]};
+type ProviderCatalog={sites:ProviderSite[];defaultProvider:ProviderName};
+type AppIdentity={authenticated:boolean;authRequired:boolean;user?:{id:string;username:string;displayName:string;mustChangePassword:boolean}|null;access:{role:string;permissions:string[];menus:Record<string,boolean>;actions:Record<string,boolean>}};
 const sumDays=(days:DailyEnergy[])=>days.reduce((a,d)=>({...a,solar:a.solar+d.solar,pv1:a.pv1+d.pv1,pv2:a.pv2+d.pv2,load:a.load+d.load,grid:a.grid+d.grid,gridImport:a.gridImport+d.gridImport,gridExport:a.gridExport+d.gridExport,gridToLoad:a.gridToLoad+d.gridToLoad,charge:a.charge+d.charge,discharge:a.discharge+d.discharge,solarToLoad:a.solarToLoad+d.solarToLoad,batteryToLoad:a.batteryToLoad+d.batteryToLoad,solarToBattery:a.solarToBattery+d.solarToBattery,samples:a.samples+d.samples}),{...emptyEnergy});
 
 function addDays(date:string,days:number){const [y,m,d]=date.split('-').map(Number);return new Date(Date.UTC(y,m-1,d+days)).toISOString().slice(0,10)}
@@ -65,17 +71,28 @@ function monthChunkRanges(date:string,chunkDays=4){
 
 function Login({done}:{done:()=>void}){
   const [u,setU]=useState(''),[p,setP]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
-  return <main className="login"><form onSubmit={async e=>{e.preventDefault();setBusy(true);setError('');try{await api('login',{method:'POST',body:JSON.stringify({username:u,password:p})});done()}catch(err){setError(err instanceof Error?err.message:'Error')}finally{setBusy(false)}}}>
+  return <main className="login"><form onSubmit={async e=>{e.preventDefault();setBusy(true);setError('');try{await api('app-auth/login',{method:'POST',body:JSON.stringify({username:u,password:p})});done()}catch(err){setError(err instanceof Error?err.message:'Error')}finally{setBusy(false)}}}>
     <Sun size={38}/><h1>Mi Solar</h1><p>Centro inteligente de energía · v{APP_VERSION}</p><input placeholder="Usuario" value={u} onChange={e=>setU(e.target.value)}/><input placeholder="Contraseña" type="password" value={p} onChange={e=>setP(e.target.value)}/>{error&&<span className="error">{error}</span>}<button disabled={busy}>{busy?'Ingresando…':'Ingresar'}</button>
+  </form></main>;
+}
+
+function ChangeInitialPassword({done}:{done:()=>void}){
+  const [currentPassword,setCurrentPassword]=useState(''),[newPassword,setNewPassword]=useState(''),[confirmPassword,setConfirmPassword]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+  return <main className="login"><form onSubmit={async event=>{event.preventDefault();if(newPassword!==confirmPassword){setError('La confirmación no coincide.');return}setBusy(true);setError('');try{await api('app-auth/change-password',{method:'POST',body:JSON.stringify({currentPassword,newPassword})});done()}catch(cause){setError(cause instanceof Error?cause.message:'No fue posible cambiar la contraseña.')}finally{setBusy(false)}}}>
+    <ShieldCheck size={38}/><h1>Protege Mi Solar</h1><p>Reemplaza la contraseña inicial antes de continuar.</p><input autoComplete="current-password" placeholder="Contraseña actual" type="password" value={currentPassword} onChange={event=>setCurrentPassword(event.target.value)}/><input autoComplete="new-password" placeholder="Nueva contraseña · mínimo 12 caracteres" type="password" value={newPassword} onChange={event=>setNewPassword(event.target.value)}/><input autoComplete="new-password" placeholder="Confirmar nueva contraseña" type="password" value={confirmPassword} onChange={event=>setConfirmPassword(event.target.value)}/>{error&&<span className="error">{error}</span>}<button disabled={busy}>{busy?'Guardando…':'Cambiar contraseña'}</button>
   </form></main>;
 }
 
 export default function App(){
   const [clock,setClock]=useState(formatClock());
   const [auth,setAuth]=useState<boolean|null>(null);
+  const [legacyAuth,setLegacyAuth]=useState(false);
   const [page,setPage]=useState<PageKey>(requestedPage);
   const [devices,setDevices]=useState<Device[]>([]);
   const [selected,setSelected]=useState('');
+  const [providerCatalog,setProviderCatalog]=useState<ProviderCatalog|null>(null);
+  const [appIdentity,setAppIdentity]=useState<AppIdentity|null>(null);
+  const [source,setSource]=useState<ProviderName>('isolar');
   const [realtime,setRealtime]=useState<Realtime>({});
   const [summary,setSummary]=useState<Realtime>({});
   const [rawDayRows,setRawDayRows]=useState<HistoryRow[]>([]);
@@ -98,6 +115,7 @@ export default function App(){
   const [projectionHistory,setProjectionHistory]=useState<DailyEnergy[]>([]);
   const [storedForecast,setStoredForecast]=useState<SolarForecastResponse|null>(null);
   const selectedRef=useRef('');
+  const sourceRef=useRef<ProviderName>('isolar');
   const liveRequestsRef=useRef(new Map<string,Promise<void>>());
   const markUpdated=(key:string)=>setLastSectionUpdate(prev=>({...prev,[key]:new Date()}));
 
@@ -109,6 +127,9 @@ export default function App(){
   const combinedWeekRows=useMemo(()=>rawWeekRows.some(row=>Number(row.aggregateSamples||0)>0)?rawWeekRows:[...rawWeekRows,...rawDayRows],[rawWeekRows,rawDayRows]);
   const weekRows=useMemo(()=>filterRowsForSiteRange(combinedWeekRows,weekRange.siteStart,weekRange.siteEnd),[combinedWeekRows,weekRange.siteStart,weekRange.siteEnd]);
   const device=devices.find(d=>d.deviceSn===selected);
+  const providerSiteFor=(value:string)=>providerCatalog?.sites.find(site=>site.siteKey===value||(site.deviceSuffix&&value.endsWith(site.deviceSuffix)));
+  const selectedProviderSite=providerSiteFor(selected);
+  const selectedProviderStatus=selectedProviderSite?.providers.find(item=>item.provider===source);
   const profile=siteProfile(device?.nickName||'');
   const waterEnabled=profile.key==='arrayan';
   const peerDevice=useMemo(()=>{
@@ -162,7 +183,12 @@ export default function App(){
     const request=(async()=>{
       if(selectedRef.current===sn)setLoading(true);
       try{
-        const result=await apiLive<LiveResponse>(`devices/${sn}/live`);
+        const provider=sourceRef.current;
+        const providerSite=providerSiteFor(sn);
+        const useCanonical=Boolean(providerSite&&(provider==='watchpower'||!legacyAuth));
+        const result:LiveResponse=useCanonical&&providerSite
+          ? await apiLive<{legacy:Realtime|null;sample?:{received_at?:string}}>(`sites/${providerSite.id}/providers/${provider}/latest`).then(value=>({realtime:value.legacy||{},summary:value.legacy||{},receivedAt:value.sample?.received_at,source:provider}))
+          : await apiLive<LiveResponse>(`devices/${sn}/live`);
         const value=result.realtime||{};
         const summaryValue=result.summary||{};
         writeSiteCache(sn,{realtime:value,summary:summaryValue});
@@ -190,6 +216,14 @@ export default function App(){
     const rows:HistoryRow[]=[];
     const warnings:string[]=[];
     try{
+      const provider=sourceRef.current;
+      const providerSite=providerSiteFor(sn);
+      if(providerSite&&(provider==='watchpower'||!legacyAuth)){
+        const range=siteRangeUtc(siteDate,addDays(siteDate,1));
+        const response=await api<{samples:{legacy:HistoryRow}[]}>(`sites/${providerSite.id}/providers/${provider}/history?from=${encodeURIComponent(range.start)}&to=${encodeURIComponent(range.end)}`);
+        const providerRows=(response.samples||[]).map(item=>item.legacy);
+        setRawDayRows(providerRows);markUpdated('day');setHistoryMessage(`Día cargado desde el respaldo ${provider==='watchpower'?'WatchPower':'i.Solar'} de Mi Solar · ${providerRows.length} muestras.`);return;
+      }
       const archiveRange=siteRangeUtc(siteDate,addDays(siteDate,1));
       try{
         const archived=await api<{list:HistoryRow[]}>(`devices/${sn}/archive?start=${encodeURIComponent(archiveRange.start)}&end=${encodeURIComponent(archiveRange.end)}`);
@@ -234,6 +268,12 @@ export default function App(){
     if(!sn)return;
     try{
       const utc=siteRangeUtc(weekRange.siteStart,weekRange.siteEnd);
+      const provider=sourceRef.current;
+      const providerSite=providerSiteFor(sn);
+      if(providerSite&&(provider==='watchpower'||!legacyAuth)){
+        const response=await api<{samples:{legacy:HistoryRow}[]}>(`sites/${providerSite.id}/providers/${provider}/history?from=${encodeURIComponent(utc.start)}&to=${encodeURIComponent(utc.end)}`);
+        const providerRows=(response.samples||[]).map(item=>item.legacy);setRawWeekRows(providerRows);markUpdated('week');return;
+      }
       try{
         const archived=await api<{list:HistoryRow[]}>(`devices/${sn}/archive-series?start=${encodeURIComponent(utc.start)}&end=${encodeURIComponent(utc.end)}&resolution=hour`);
         if(archived.list?.length){setRawWeekRows(archived.list);writeSiteCache(sn,{weekRows:archived.list});markUpdated('week');return}
@@ -252,6 +292,11 @@ export default function App(){
     if(!sn)return;
     const chunks=monthChunkRanges(siteDate,4);
     const archiveRange=siteRangeUtc(chunks[0].siteStart,chunks[chunks.length-1].siteEnd);
+    const provider=sourceRef.current;
+    const providerSite=providerSiteFor(sn);
+    if(providerSite&&(provider==='watchpower'||!legacyAuth)){
+      try{const response=await api<{samples:{legacy:HistoryRow}[]}>(`sites/${providerSite.id}/providers/${provider}/history?from=${encodeURIComponent(archiveRange.start)}&to=${encodeURIComponent(archiveRange.end)}`);const providerRows=(response.samples||[]).map(item=>item.legacy);setRawMonthRows(providerRows);markUpdated('month');setHistoryMessage(`Mes cargado desde el respaldo ${provider==='watchpower'?'WatchPower':'i.Solar'} de Mi Solar.`)}catch(error){setHistoryMessage(`Histórico ${provider==='watchpower'?'WatchPower':'i.Solar'} temporalmente no disponible: ${error instanceof Error?error.message:'error'}`)}finally{setHistoryProgress('')}return;
+    }
     try{
       const archived=await api<{list:HistoryRow[]}>(`devices/${sn}/archive-series?start=${encodeURIComponent(archiveRange.start)}&end=${encodeURIComponent(archiveRange.end)}&resolution=hour`);
       if(archived.list?.length){setRawMonthRows(archived.list);writeSiteCache(sn,{monthRows:archived.list});markUpdated('month');setHistoryMessage('Mes cargado desde el respaldo permanente de Mi Solar.');return}
@@ -278,6 +323,9 @@ export default function App(){
   function switchDevice(sn:string){
     selectedRef.current=sn;
     setSelected(sn);
+    const preferred=(localStorage.getItem(`misolar-provider:${sn}`) as ProviderName)||'isolar';
+    const configured=providerSiteFor(sn)?.providers.find(item=>item.provider===preferred)?.enabled;
+    sourceRef.current=configured?preferred:'isolar';setSource(sourceRef.current);
     const cached=readSiteCache(sn);
     const cachedRealtimeFresh=Boolean(cached?.realtimeSavedAt&&Date.now()-cached.realtimeSavedAt<=2*60_000);
     setRealtime(cachedRealtimeFresh?cached?.realtime||{}:{});setSummary(cachedRealtimeFresh?cached?.summary||{}:{});
@@ -300,25 +348,48 @@ export default function App(){
     void refreshMonthHistory(sn);
   }
 
+  function switchProvider(provider:ProviderName){
+    if(provider===sourceRef.current)return;
+    sourceRef.current=provider;setSource(provider);localStorage.setItem(`misolar-provider:${selected}`,provider);
+    setRealtime({});setSummary({});setRawDayRows([]);setRawWeekRows([]);setRawMonthRows([]);setTimelineIndex(null);
+    setSyncMessage(provider==='watchpower'?'Cargando exclusivamente datos de WatchPower…':'Cargando exclusivamente datos de i.Solar…');
+    void refreshAll(selected);
+  }
+
   useEffect(()=>{const timer=setInterval(()=>setClock(formatClock()),1000);return()=>clearInterval(timer)},[]);
-  useEffect(()=>{api<{authenticated:boolean}>('session?validate=1').then(x=>setAuth(x.authenticated)).catch(()=>setAuth(false));const expired=()=>setAuth(false);window.addEventListener('misolar:auth-expired',expired);return()=>window.removeEventListener('misolar:auth-expired',expired)},[]);
   useEffect(()=>{
-    if(!auth)return;
+    const boot=async()=>{
+      const identity=await apiFast<typeof appIdentity>('app-auth/session').catch(()=>null);
+      setAppIdentity(identity);
+      const legacy=await apiFast<{authenticated:boolean}>('session').catch(()=>({authenticated:false}));
+      setLegacyAuth(legacy.authenticated);
+      setAuth(identity?.authRequired===false?true:Boolean(identity?.authenticated));
+    };
+    void boot();
+    const expired=()=>setAppIdentity(current=>{
+      setAuth(current?.authRequired===false);
+      return current?{...current,authenticated:false}:current;
+    });
+    window.addEventListener('misolar:auth-expired',expired);
+    return()=>window.removeEventListener('misolar:auth-expired',expired);
+  },[]);
+  useEffect(()=>{if(!auth)return;api<ProviderCatalog>('providers/catalog').then(setProviderCatalog).catch(()=>setProviderCatalog(null))},[auth]);
+  useEffect(()=>{const changed=(event:Event)=>{const value=(event as CustomEvent).detail;setAppIdentity(value);setAuth(value?.authRequired===false||value?.authenticated===true)};window.addEventListener('misolar:app-auth-changed',changed);return()=>window.removeEventListener('misolar:app-auth-changed',changed)},[]);
+  useEffect(()=>{
+    if(!auth||!legacyAuth)return;
     let lastPing=0;
     const registerActivity=()=>{
       const now=Date.now();
       localStorage.setItem(LAST_ACTIVITY_KEY,String(now));
       if(now-lastPing>=ACTIVITY_PING_MS){
         lastPing=now;
-        void api<{ok:boolean;expiresAt:number}>('activity',{method:'POST'}).catch((error)=>{
-          if((error as {status?:number})?.status===401)setAuth(false);
-        });
+        void api<{ok:boolean;expiresAt:number}>('activity',{method:'POST'}).catch(()=>undefined);
       }
     };
     const checkIdle=()=>{
       const last=Number(localStorage.getItem(LAST_ACTIVITY_KEY)||0);
       if(last&&Date.now()-last>=SESSION_IDLE_MS){
-        void api('logout',{method:'POST'}).catch(()=>undefined).finally(()=>setAuth(false));
+        void api('logout',{method:'POST'}).catch(()=>undefined).finally(()=>setLegacyAuth(false));
       }
     };
     registerActivity();
@@ -330,7 +401,7 @@ export default function App(){
     ];
     events.forEach(([name,handler,options])=>window.addEventListener(name,handler,options));
     const refreshOnResume=()=>{const sn=selectedRef.current;if(sn)void refreshRealtime(sn)};
-    const onVisibility=()=>{if(document.visibilityState==='visible'){registerActivity();void apiLive<{authenticated:boolean}>('session?validate=1').then(value=>{if(!value.authenticated)setAuth(false);else refreshOnResume()}).catch(()=>setAuth(false))}};
+    const onVisibility=()=>{if(document.visibilityState==='visible'){registerActivity();void apiFast<{authenticated:boolean}>('session').then(value=>{setLegacyAuth(value.authenticated);refreshOnResume()}).catch(()=>refreshOnResume())}};
     const onOnline=()=>refreshOnResume();
     const onPageShow=()=>refreshOnResume();
     document.addEventListener('visibilitychange',onVisibility);
@@ -344,8 +415,8 @@ export default function App(){
       window.removeEventListener('pageshow',onPageShow);
       window.clearInterval(idleTimer);
     };
-  },[auth]);
-  useEffect(()=>{if(!auth)return;api<{devices:Device[]}>('devices').then(x=>{setDevices(x.devices||[]);const sn=x.devices?.[0]?.deviceSn||'';if(sn)switchDevice(sn)}).catch(()=>setSyncMessage('No fue posible cargar los equipos.'))},[auth]);
+  },[auth,legacyAuth]);
+  useEffect(()=>{if(!auth||!providerCatalog)return;const fallback=()=>{const list=providerCatalog.sites.map(site=>({deviceSn:site.siteKey,nickName:site.name,onlineStatus:site.providers.some(item=>item.status==='connected')?1:0}));setDevices(list);if(!selected&&list[0])switchDevice(list[0].deviceSn)};if(!legacyAuth){fallback();return}api<{devices:Device[]}>('devices').then(x=>{const list=x.devices||[];if(!list.length){fallback();return}setDevices(list);const sn=list[0]?.deviceSn||'';if(sn&&!selected)switchDevice(sn)}).catch(fallback)},[auth,legacyAuth,providerCatalog]);
   useEffect(()=>{if(!device)return;setTariff(Number(localStorage.getItem(siteStorageKey('tariffCLP',device.nickName||'')))||profile.defaultTariff)},[device?.deviceSn]);
   useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>void refreshRealtime(selected),REFRESH_MS.realtime);return()=>clearInterval(t)},[auth,selected]);
   useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>void refreshDayHistory(selected),REFRESH_MS.day);return()=>clearInterval(t)},[auth,selected]);
@@ -387,19 +458,22 @@ export default function App(){
   },[auth,device?.deviceSn]);
 
   if(auth===null)return <div className="boot">Cargando Mi Solar…</div>;
-  if(!auth)return <Login done={()=>setAuth(true)}/>;
+  if(!auth)return <Login done={()=>{apiFast<NonNullable<typeof appIdentity>>('app-auth/session').then(value=>{setAppIdentity(value);setAuth(value.authenticated)}).catch(()=>setAuth(false))}}/>;
+  if(appIdentity?.authenticated&&appIdentity.user?.mustChangePassword)return <ChangeInitialPassword done={()=>{setAuth(false);setAppIdentity(null)}}/>;
 
   const systemToLoad=(energy:DailyEnergy)=>Math.max(0,energy.solarToLoad)+Math.max(0,energy.batteryToLoad);
   const savings=systemToLoad(homeEnergy)*tariff;
   const catalog=technicalCatalog(realtime,summary,gridSourceLabel);
   const used=new Set(catalog.flatMap(s=>s.items.map(i=>i.source).filter(Boolean)) as string[]);
   const rawUnknown=[...new Set([...Object.keys(summary),...Object.keys(realtime)])].filter(k=>!used.has(k)).sort();
+  const showUsers=appIdentity?.authenticated===true&&appIdentity.access.role==='superadmin';
+  const showFamily=appIdentity?.authenticated===true&&(appIdentity.access.role==='superadmin'||appIdentity.access.permissions.includes('family.view')||appIdentity.access.menus.family===true);
 
   return <div className="shell">
-    <Sidebar page={page} setPage={setPage} site={device?.nickName||'Mi instalación'} waterEnabled={waterEnabled} onLogout={async()=>{await api('logout',{method:'POST'});setAuth(false)}}/>
+    <Sidebar page={page} setPage={setPage} site={device?.nickName||'Mi instalación'} waterEnabled={waterEnabled} showUsers={showUsers} showFamily={showFamily} onLogout={async()=>{await Promise.allSettled([api('logout',{method:'POST'}),api('app-auth/logout',{method:'POST'})]);setAuth(false);setAppIdentity(null)}}/>
     <main className="content">
       <header className="topbar">
-        <div><select value={selected} onChange={e=>switchDevice(e.target.value)}>{devices.map(d=><option key={d.deviceSn} value={d.deviceSn}>{d.nickName||d.deviceSn}</option>)}</select><span className={`online ${liveFresh?'is-fresh':'is-stale'}`}>● {liveStatus}</span></div>
+        <div className="source-controls"><label><small>Instalación</small><select value={selected} onChange={e=>switchDevice(e.target.value)}>{devices.map(d=><option key={d.deviceSn} value={d.deviceSn}>{d.nickName||d.deviceSn}</option>)}</select></label><label><small>Fuente</small><select value={source} onChange={e=>switchProvider(e.target.value as ProviderName)}><option value="isolar">i.Solar</option><option value="watchpower" disabled={!selectedProviderSite?.providers.find(item=>item.provider==='watchpower')?.enabled}>WatchPower{!selectedProviderSite?.providers.find(item=>item.provider==='watchpower')?.enabled?' · pendiente':''}</option></select></label><span className={`online ${liveFresh?'is-fresh':'is-stale'}`}>● {selectedProviderStatus?.status==='temporarily_blocked'?'Bloqueado temporalmente':liveStatus}</span>{source==='watchpower'&&<em className="read-only-chip">Solo lectura</em>}</div>
         <div className="time-box"><strong>{clock}</strong><small>Hora de Chile</small><small>Último dato: {formatDate(realtime.currentTime||realtime.createTime)}</small><small>Consulta: {lastFetch?lastFetch.toLocaleTimeString('es-CL',{timeZone:'America/Santiago',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}):'—'} · v{APP_VERSION}</small></div>
         {page!=='water'&&<FunModeToggle value={funMode} onChange={v=>{setFunMode(v);localStorage.setItem('funMode',v?'on':'off')}}/>}
         <button className="refresh-button" onClick={()=>void refreshRealtime()} disabled={loading} title="Traer el último dato del flujo instantáneo"><RefreshCw className={loading?'spin':''}/><span>{loading?'Actualizando flujo…':'Actualizar'}</span></button>
@@ -456,10 +530,12 @@ export default function App(){
       {page==='equipment'&&<EquipmentPage deviceSn={selected} siteLabel={siteLabel} realtime={realtime} summary={summary} gridLabel={gridSourceLabel}/>}
 
       {page==='technical'&&<section className="technical-page"><section className="technical-summary"><article className="panel"><small>Versión de la app</small><strong>v{APP_VERSION}</strong></article><article className="panel"><small>Política de actualización</small><strong>30 s · 5 min · 5 min · 5 min</strong><p>Tiempo real · día · semana · mes</p></article><article className="panel"><small>Datos catalogados</small><strong>{catalog.reduce((n,s)=>n+s.items.filter(i=>i.value!==null).length,0)}</strong></article><article className="panel"><small>Muestras hoy</small><strong>{today.samples}</strong></article><article className="panel"><small>Muestras mes</small><strong>{month.samples}</strong></article></section><section className="technical-grid">{catalog.map(section=><article className="panel technical-section" key={section.title}><h2>{section.title}</h2>{section.items.map(item=><div className="technical-row" key={item.key}><span>{item.label}</span><strong>{item.value===null?'—':`${typeof item.value==='number'?item.value.toLocaleString('es-CL',{maximumFractionDigits:2}):item.value}${item.unit?` ${item.unit}`:''}`}</strong><small>{item.source||'campo no disponible'}</small></div>)}</article>)}</section><section className="panel technical"><h2>Parámetros disponibles no usados en el dashboard</h2><p>Se muestran aquí para mantener el inicio limpio y facilitar futuras estadísticas.</p><div className="unknown-parameter-grid">{rawUnknown.map(key=><div className="unknown-parameter" key={key}><span>{key}</span><strong>{String((realtime as Record<string,unknown>)[key]??(summary as Record<string,unknown>)[key]??'—')}</strong></div>)}</div><details><summary>Auditoría completa en JSON</summary><pre>{JSON.stringify({version:APP_VERSION,architecture:'Vercel native · caché aislado por equipo',refreshPolicyMs:REFRESH_MS,lastSectionUpdate,realtime,summary,today,week,month,quality,solarModel},null,2)}</pre></details></section></section>}
-      {page==='programming'&&<ProgrammingPage deviceSn={selected} siteLabel={siteLabel} currentTime={clock} tomorrowDate={tomorrowDate} tomorrowForecast={forecastTomorrow}/>}
-      {page==='integrations'&&<IntegrationsPage siteLabel={siteLabel}/>}
+      {page==='programming'&&(source==='watchpower'?<section className="panel provider-readonly-notice"><h2>WatchPower: solo lectura</h2><p>La programación conocida puede consultarse, pero no se enviará ningún comando. Para editar la programación, seleccione i.Solar.</p></section>:<ProgrammingPage deviceSn={selected} siteLabel={siteLabel} currentTime={clock} tomorrowDate={tomorrowDate} tomorrowForecast={forecastTomorrow}/>)}
+      {page==='integrations'&&<IntegrationsPage siteLabel={siteLabel} siteId={selectedProviderSite?.id}/>}
       {page==='water'&&waterEnabled&&<WaterCostsPage key={selected} deviceSn={selected} siteLabel={siteLabel}/>}
+      {page==='users'&&showUsers&&<UsersPage/>}
+      {page==='family'&&showFamily&&<FamilyFinancePage/>}
     </main>
-    <MobileNav page={page} setPage={setPage} waterEnabled={waterEnabled}/>
+    <MobileNav page={page} setPage={setPage} waterEnabled={waterEnabled} showUsers={showUsers} showFamily={showFamily}/>
   </div>;
 }

@@ -21,9 +21,10 @@ const timestamp=(row)=>{
 
 function config(){
   const url=process.env.SUPABASE_URL?.trim();
-  const key=process.env.SUPABASE_PUBLISHABLE_KEY?.trim();
+  const serverKey=(process.env.SUPABASE_SECRET_KEY||process.env.SUPABASE_SERVICE_ROLE_KEY)?.trim();
+  const key=serverKey||process.env.SUPABASE_PUBLISHABLE_KEY?.trim();
   const appKey=process.env.MISOLAR_DB_KEY?.trim();
-  return url&&key&&appKey?{url,key,appKey}:null;
+  return url&&key&&(serverKey||appKey)?{url,key,appKey,serverKey:Boolean(serverKey)}:null;
 }
 
 export async function rest(path,options={}){
@@ -31,7 +32,7 @@ export async function rest(path,options={}){
   if(!value)return null;
   const response=await fetch(`${value.url}/rest/v1/${path}`,{
     ...options,
-    headers:{apikey:value.key,'x-misolar-key':value.appKey,'Content-Type':'application/json',...(options.headers||{})}
+    headers:{apikey:value.key,Authorization:`Bearer ${value.key}`,...(!value.serverKey?{'x-misolar-key':value.appKey}:{}),'Content-Type':'application/json',...(options.headers||{})}
   });
   if(!response.ok)throw new Error(`Archivo permanente HTTP ${response.status}: ${(await response.text()).slice(0,180)}`);
   if(response.status===204)return null;

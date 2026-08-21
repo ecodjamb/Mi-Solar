@@ -22,6 +22,14 @@ import {
   saveWaterBill, saveWaterReading, updateWaterSettings, waterDashboard
 } from '../server/waterCosts.js';
 import { extractWaterBill, extractWaterMeterReading, validateWaterImages } from '../server/waterBillAi.js';
+import { appSessionStatus, changeAppPassword, loginApp, logoutApp, requireAppPermission, requireAppViewIfEnabled } from '../server/appAuth.js';
+import {
+  disconnectProvider, latestCanonical, listProviderAccounts, providerHistory, saveProviderCredentials,
+  syncProviderNow, testProviderConnection, publicProviderCatalog
+} from '../server/providerStore.js';
+import { canonicalToLegacy } from '../server/canonicalTelemetry.js';
+import { createUser, listUsers, resetUserPassword, revokeUserSessions, updateUser } from '../server/userAdmin.js';
+import { createAllowance, createExpenseMovement, createLoan, familyDashboard, generateAllowanceObligations, recordLoanPayment } from '../server/familyFinance.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
   res.statusCode = statusCode;
@@ -163,6 +171,138 @@ export default async function handler(req, res) {
   const route = routeOf(req);
 
   try {
+    if (method === 'GET' && route === 'app-auth/session') {
+      return sendJson(res, 200, await appSessionStatus(req));
+    }
+
+    if (method === 'POST' && route === 'app-auth/login') {
+      const body = parseBody(req);
+      const result = await loginApp(body.username, body.password, req);
+      return sendJson(res, 200, { user: result.user, access: result.access, expiresAt: result.expiresAt }, { 'Set-Cookie': result.cookies });
+    }
+
+    if (method === 'POST' && route === 'app-auth/logout') {
+      return sendJson(res, 200, { ok: true }, { 'Set-Cookie': await logoutApp(req) });
+    }
+
+    if (method === 'POST' && route === 'app-auth/change-password') {
+      const body = parseBody(req);
+      const result = await changeAppPassword(req, body.currentPassword, body.newPassword);
+      return sendJson(res, 200, { ok: true }, { 'Set-Cookie': result.cookies });
+    }
+
+    if (method === 'GET' && route === 'admin/users') {
+      await requireAppPermission(req, 'users.manage');
+      return sendJson(res, 200, { users: await listUsers() });
+    }
+    if (method === 'POST' && route === 'admin/users') {
+      const actor = await requireAppPermission(req, 'users.manage');
+      return sendJson(res, 201, { user: await createUser(parseBody(req), actor.user.id) });
+    }
+    const adminUser = route.match(/^admin\/users\/([0-9a-f-]+)$/i);
+    if (adminUser && method === 'PATCH') {
+      const actor = await requireAppPermission(req, 'users.manage');
+      return sendJson(res, 200, await updateUser(adminUser[1], parseBody(req), actor.user.id));
+    }
+    const adminUserPassword = route.match(/^admin\/users\/([0-9a-f-]+)\/reset-password$/i);
+    if (adminUserPassword && method === 'POST') {
+      const actor = await requireAppPermission(req, 'users.manage');
+      return sendJson(res, 200, await resetUserPassword(adminUserPassword[1], parseBody(req).password, actor.user.id));
+    }
+    const adminUserSessions = route.match(/^admin\/users\/([0-9a-f-]+)\/revoke-sessions$/i);
+    if (adminUserSessions && method === 'POST') {
+      const actor = await requireAppPermission(req, 'users.manage');
+      return sendJson(res, 200, await revokeUserSessions(adminUserSessions[1], actor.user.id));
+    }
+
+    if (method === 'GET' && route === 'family') {
+      const session = await requireAppPermission(req, 'family.view');
+      return sendJson(res, 200, await familyDashboard(session));
+    }
+    if (method === 'POST' && route === 'family/allowances') {
+      const session = await requireAppPermission(req, 'family.create');
+      return sendJson(res, 201, { allowance: await createAllowance(session, parseBody(req)) });
+    }
+    if (method === 'POST' && route === 'family/expenses') {
+      const session = await requireAppPermission(req, 'family.create');
+      return sendJson(res, 201, { movement: await createExpenseMovement(session, parseBody(req)) });
+    }
+    if (method === 'POST' && route === 'family/loans') {
+      const session = await requireAppPermission(req, 'family.create');
+      return sendJson(res, 201, { loan: await createLoan(session, parseBody(req)) });
+    }
+    const loanPayment = route.match(/^family\/loans\/(\d+)\/payments$/);
+    if (loanPayment && method === 'POST') {
+      const session = await requireAppPermission(req, 'family.create');
+      return sendJson(res, 201, { payment: await recordLoanPayment(session, Number(loanPayment[1]), parseBody(req)) });
+    }
+    if (method === 'POST' && route === 'family/generate-allowances') {
+      if (!process.env.CRON_SECRET || req.headers?.authorization !== `Bearer ${process.env.CRON_SECRET}`) return sendJson(res, 401, { error: 'Generación no autorizada.' });
+      return sendJson(res, 200, await generateAllowanceObligations());
+    }
+
+    if (method === 'GET' && route === 'provider-accounts') {
+      await requireAppPermission(req, 'credentials.manage');
+      return sendJson(res, 200, { sites: await listProviderAccounts() });
+    }
+
+    if (method === 'GET' && route === 'providers/catalog') {
+      await requireAppViewIfEnabled(req);
+      return sendJson(res, 200, { sites: await publicProviderCatalog(), defaultProvider: 'isolar' });
+    }
+
+    const providerCredentials = route.match(/^sites\/(\d+)\/providers\/(isolar|watchpower)\/credentials$/);
+    if (providerCredentials && method === 'PUT') {
+      const actor = await requireAppPermission(req, 'credentials.manage');
+      const body = parseBody(req);
+      const account = await saveProviderCredentials({ siteId: Number(providerCredentials[1]), provider: providerCredentials[2], username: body.username, password: body.password, actorUserId: actor.user.id });
+      return sendJson(res, 200, { account });
+    }
+    if (providerCredentials && method === 'DELETE') {
+      const actor = await requireAppPermission(req, 'credentials.manage');
+      return sendJson(res, 200, await disconnectProvider({ siteId: Number(providerCredentials[1]), provider: providerCredentials[2], actorUserId: actor.user.id }));
+    }
+
+    const providerTest = route.match(/^sites\/(\d+)\/providers\/(isolar|watchpower)\/test$/);
+    if (providerTest && method === 'POST') {
+      await requireAppPermission(req, 'credentials.manage');
+      return sendJson(res, 200, await testProviderConnection({ siteId: Number(providerTest[1]), provider: providerTest[2] }));
+    }
+
+    const providerSync = route.match(/^sites\/(\d+)\/providers\/(isolar|watchpower)\/sync$/);
+    if (providerSync && method === 'POST') {
+      await requireAppPermission(req, 'credentials.manage');
+      return sendJson(res, 200, await syncProviderNow({ siteId: Number(providerSync[1]), provider: providerSync[2] }));
+    }
+
+    const providerLatest = route.match(/^sites\/(\d+)\/providers\/(isolar|watchpower)\/latest$/);
+    if (providerLatest && method === 'GET') {
+      await requireAppViewIfEnabled(req);
+      const sample = await latestCanonical(Number(providerLatest[1]), providerLatest[2]);
+      return sendJson(res, 200, { sample, legacy: sample?.canonical ? canonicalToLegacy(sample.canonical) : null, provider: providerLatest[2] });
+    }
+
+    const providerHistoryRoute = route.match(/^sites\/(\d+)\/providers\/(isolar|watchpower)\/history$/);
+    if (providerHistoryRoute && method === 'GET') {
+      await requireAppViewIfEnabled(req);
+      const from = String(req.query?.from || '');
+      const to = String(req.query?.to || '');
+      if (!from || !to || !Number.isFinite(Date.parse(from)) || !Number.isFinite(Date.parse(to))) return sendJson(res, 400, { error: 'Rango histórico inválido.' });
+      const samples = await providerHistory(Number(providerHistoryRoute[1]), providerHistoryRoute[2], from, to);
+      return sendJson(res, 200, { samples: samples.map((sample) => ({ ...sample, legacy: canonicalToLegacy(sample.canonical) })), provider: providerHistoryRoute[2] });
+    }
+
+    if (method === 'POST' && route === 'providers/sync') {
+      if (!process.env.CRON_SECRET || req.headers?.authorization !== `Bearer ${process.env.CRON_SECRET}`) return sendJson(res, 401, { error: 'Sincronización no autorizada.' });
+      const sites = await listProviderAccounts();
+      const results = [];
+      for (const site of sites) for (const account of site.providers.filter((item) => item.enabled)) {
+        try { results.push(await syncProviderNow({ siteId: site.id, provider: account.provider })); }
+        catch (error) { results.push({ siteId: site.id, provider: account.provider, error: String(error?.message || 'Error de proveedor') }); }
+      }
+      return sendJson(res, 200, { results, synchronizedAt: new Date().toISOString() });
+    }
+
     if (method === 'GET' && route === 'health') {
       const push = pushConfiguration();
       let archiveAuthorized = false;
@@ -173,7 +313,7 @@ export default async function handler(req, res) {
       } catch (cause) {
         archiveError = cause instanceof Error ? cause.message : 'No fue posible comprobar el archivo permanente.';
       }
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.26.3', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.27.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -243,14 +383,6 @@ export default async function handler(req, res) {
 
     if (method === 'GET' && route === 'session') {
       const session = openSession(cookieHeader(req));
-      if (session?.token && session?.vrtKey && String(req.query?.validate || '') === '1') {
-        try {
-          await listAllDevices(session);
-          return sendJson(res, 200, { authenticated: true, user: { username: session.username, nickname: session.nickname }, expiresAt: session.expiresAt || null, idleTimeoutMs: SESSION_IDLE_MS }, { 'Set-Cookie': sessionCookie(session) });
-        } catch {
-          return sendJson(res, 200, { authenticated: false, user: null, expiresAt: null, idleTimeoutMs: SESSION_IDLE_MS }, { 'Set-Cookie': clearCookie() });
-        }
-      }
       return sendJson(res, 200, {
         authenticated: Boolean(session?.token && session?.vrtKey),
         user: session ? { username: session.username, nickname: session.nickname } : null,
@@ -906,7 +1038,7 @@ export default async function handler(req, res) {
 
     return sendJson(res, 404, { error: `Ruta no encontrada: ${route}` });
   } catch (error) {
-    console.error('Vercel API error:', error);
+    console.error('Vercel API error:', { route, method, code: error?.code || error?.tumCode || error?.tuyaCode || 'INTERNAL', status: Number(error?.status) || 500, message: String(error?.message || 'Error interno.').slice(0, 240) });
     const status = Number(error.status) || 500;
     return sendJson(res, status, {
       error: error.message || 'Error interno.',
