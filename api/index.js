@@ -1,6 +1,6 @@
 import { md5, tumRequest } from '../server/tumcapp.js';
 import { clearCookie, openSession, sessionCookie, SESSION_IDLE_MS } from '../server/session.js';
-import { archiveRows, readArchive, readArchiveSeries, rest } from '../server/archive.js';
+import { archiveRows, readArchive, readArchiveSeries, rest, validDeviceReference } from '../server/archive.js';
 import { getTuyaDevice, getTuyaDeviceProfile, listTuyaDevices, sendTuyaCommand, tuyaConfiguration } from '../server/tuya.js';
 import { parseInverterSettings } from '../server/isolarSettings.js';
 import {
@@ -66,6 +66,10 @@ function requireSession(req) {
     throw error;
   }
   return session;
+}
+
+async function authorizeStoredData(req, write = false) {
+  return write ? await requireAppPermission(req, 'solar.view') : await requireAppViewIfEnabled(req);
 }
 
 async function listAllDevices(session) {
@@ -313,7 +317,7 @@ export default async function handler(req, res) {
       } catch (cause) {
         archiveError = cause instanceof Error ? cause.message : 'No fue posible comprobar el archivo permanente.';
       }
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.27.1', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.27.2', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -402,34 +406,34 @@ export default async function handler(req, res) {
     }
 
     if (method === 'GET' && route === 'tuya/status') {
-      requireSession(req);
+      await requireAppViewIfEnabled(req);
       const config = tuyaConfiguration();
       return sendJson(res, 200, { configured: config.configured, region: config.region || null, uidHint: config.uid ? `${config.uid.slice(0, 4)}••••${config.uid.slice(-4)}` : null });
     }
 
     if (method === 'GET' && route === 'tuya/devices') {
-      requireSession(req);
+      await requireAppViewIfEnabled(req);
       const devices = await listTuyaDevices();
       return sendJson(res, 200, { devices, total: devices.length, updatedAt: new Date().toISOString() });
     }
 
     const tuyaDevice = route.match(/^tuya\/devices\/([^/]+)$/);
     if (method === 'GET' && tuyaDevice) {
-      requireSession(req);
+      await requireAppViewIfEnabled(req);
       const device = await getTuyaDevice(decodeURIComponent(tuyaDevice[1]));
       return sendJson(res, 200, { device, updatedAt: new Date().toISOString() });
     }
 
     const tuyaProfile = route.match(/^tuya\/devices\/([^/]+)\/profile$/);
     if (method === 'GET' && tuyaProfile) {
-      requireSession(req);
+      await requireAppViewIfEnabled(req);
       const profile = await getTuyaDeviceProfile(decodeURIComponent(tuyaProfile[1]));
       return sendJson(res, 200, { ...profile, updatedAt: new Date().toISOString() });
     }
 
     const tuyaCommand = route.match(/^tuya\/devices\/([^/]+)\/commands$/);
     if (method === 'POST' && tuyaCommand) {
-      requireSession(req);
+      await requireAppPermission(req, 'solar.view');
       const { code, value } = parseBody(req);
       if (!String(code || '')) return sendJson(res, 400, { error: 'Falta el código de la función.' });
       const success = await sendTuyaCommand(decodeURIComponent(tuyaCommand[1]), String(code), value);
@@ -461,9 +465,9 @@ export default async function handler(req, res) {
 
     const automation = route.match(/^devices\/([^/]+)\/automation$/);
     if ((method === 'GET' || method === 'PUT') && automation) {
-      requireSession(req);
+      await authorizeStoredData(req, method === 'PUT');
       const sn = decodeURIComponent(automation[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       if (method === 'GET') return sendJson(res, 200, await readAutomationRule(sn));
       const body = parseBody(req);
       const current = await readAutomationRule(sn);
@@ -544,7 +548,7 @@ export default async function handler(req, res) {
     }
 
     if (method === 'GET' && route === 'push/public-key') {
-      requireSession(req);
+      await requireAppViewIfEnabled(req);
       const publicKey = pushPublicKey();
       if (!publicKey || !pushConfiguration().valid) return sendJson(res, 503, { error: 'Las llaves de notificaciones del servidor no son válidas.' });
       return sendJson(res, 200, { publicKey });
@@ -552,10 +556,10 @@ export default async function handler(req, res) {
 
     const pushSubscription = route.match(/^devices\/([^/]+)\/push-subscription$/);
     if ((method === 'POST' || method === 'DELETE') && pushSubscription) {
-      requireSession(req);
+      await authorizeStoredData(req, true);
       const sn = decodeURIComponent(pushSubscription[1]);
       const body = parseBody(req);
-      if (!/^\d{8,20}$/.test(sn) || !body.endpoint) return sendJson(res, 400, { error: 'Suscripción de notificaciones inválida.' });
+      if (!validDeviceReference(sn) || !body.endpoint) return sendJson(res, 400, { error: 'Suscripción de notificaciones inválida.' });
       if (method === 'DELETE') return sendJson(res, 200, await removePushSubscription(sn, String(body.endpoint)));
       if (!body.keys?.p256dh || !body.keys?.auth) return sendJson(res, 400, { error: 'La suscripción no contiene sus llaves públicas.' });
       return sendJson(res, 200, await savePushSubscription(sn, body));
@@ -563,17 +567,17 @@ export default async function handler(req, res) {
 
     const pushStatus = route.match(/^devices\/([^/]+)\/push-status$/);
     if (method === 'GET' && pushStatus) {
-      requireSession(req);
+      await authorizeStoredData(req);
       const sn = decodeURIComponent(pushStatus[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       return sendJson(res, 200, { ...(await pushSubscriptionStatus(sn)), serverConfigured: Boolean(pushPublicKey()) });
     }
 
     const pushTest = route.match(/^devices\/([^/]+)\/push-test$/);
     if (method === 'POST' && pushTest) {
-      requireSession(req);
+      await authorizeStoredData(req, true);
       const sn = decodeURIComponent(pushTest[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       const siteId = await ensureSite(sn);
       const result = await sendAutomationPush(siteId, 'Mi Solar · prueba', 'Las notificaciones están funcionando correctamente en este celular.', { url: '/?page=programming', test: true });
       if (!result.configured) return sendJson(res, 503, { error: 'El servidor de notificaciones no está configurado.' });
@@ -583,9 +587,9 @@ export default async function handler(req, res) {
 
     const equipment = route.match(/^devices\/([^/]+)\/equipment(?:\/([^/]+))?$/);
     if (equipment && ['GET','POST','PUT','DELETE'].includes(method)) {
-      requireSession(req);
+      await authorizeStoredData(req, method !== 'GET');
       const sn = decodeURIComponent(equipment[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       if (method === 'GET') return sendJson(res, 200, { assets: await listEquipment(sn) });
       const body = parseBody(req);
       if (method === 'DELETE') return sendJson(res, 200, await deleteEquipment(sn, equipment[2]));
@@ -728,9 +732,9 @@ export default async function handler(req, res) {
 
     const archive = route.match(/^devices\/([^/]+)\/archive$/);
     if (method === 'GET' && archive) {
-      requireSession(req);
+      await authorizeStoredData(req);
       const sn = decodeURIComponent(archive[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       const start = String(req.query?.start || '');
       const end = String(req.query?.end || '');
       if (!start || !end || !Number.isFinite(Date.parse(start)) || !Number.isFinite(Date.parse(end))) return sendJson(res, 400, { error: 'Rango de archivo inválido.' });
@@ -740,9 +744,9 @@ export default async function handler(req, res) {
 
     const archiveSeries = route.match(/^devices\/([^/]+)\/archive-series$/);
     if (method === 'GET' && archiveSeries) {
-      requireSession(req);
+      await authorizeStoredData(req);
       const sn = decodeURIComponent(archiveSeries[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       const start = String(req.query?.start || '');
       const end = String(req.query?.end || '');
       const resolution = req.query?.resolution === 'day' ? 'day' : 'hour';
@@ -753,9 +757,9 @@ export default async function handler(req, res) {
 
     const utilityBillDocument = route.match(/^devices\/([^/]+)\/utility-bills\/documents\/(\d+)$/);
     if (method === 'GET' && utilityBillDocument) {
-      requireSession(req);
+      await authorizeStoredData(req);
       const sn = decodeURIComponent(utilityBillDocument[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       const document = await readUtilityBillDocument(sn, utilityBillDocument[2]);
       res.statusCode = 200;
       res.setHeader('Content-Type', document.mimeType);
@@ -766,18 +770,18 @@ export default async function handler(req, res) {
 
     const utilityBillExtract = route.match(/^devices\/([^/]+)\/utility-bills\/extract$/);
     if (method === 'POST' && utilityBillExtract) {
-      requireSession(req);
+      await authorizeStoredData(req, true);
       const sn = decodeURIComponent(utilityBillExtract[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       const images = validateBillImages(parseBody(req).images);
       return sendJson(res, 200, await extractUtilityBill(images));
     }
 
     const utilityBill = route.match(/^devices\/([^/]+)\/utility-bills\/(\d+)$/);
     if ((method === 'PATCH' || method === 'DELETE') && utilityBill) {
-      requireSession(req);
+      await authorizeStoredData(req, true);
       const sn = decodeURIComponent(utilityBill[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       if (method === 'DELETE') return sendJson(res, 200, { deleted: await deleteUtilityBill(sn, utilityBill[2]) });
       const body = parseBody(req);
       const date = (name) => /^\d{4}-\d{2}-\d{2}$/.test(String(body[name] || '')) ? String(body[name]) : null;
@@ -809,9 +813,9 @@ export default async function handler(req, res) {
 
     const utilityBills = route.match(/^devices\/([^/]+)\/utility-bills$/);
     if (utilityBills && (method === 'GET' || method === 'POST')) {
-      requireSession(req);
+      await authorizeStoredData(req, method === 'POST');
       const sn = decodeURIComponent(utilityBills[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       if (method === 'GET') {
         const list = await listUtilityBills(sn);
         const [projection, reminder, meterTracking] = await Promise.all([projectUtilityBill(sn, list), utilityBillReminder(sn), utilityMeterTracking(sn, list)]);
@@ -850,26 +854,26 @@ export default async function handler(req, res) {
 
     const utilityMeterReadings = route.match(/^devices\/([^/]+)\/utility-meter-readings$/);
     if (method === 'POST' && utilityMeterReadings) {
-      requireSession(req);
+      await authorizeStoredData(req, true);
       const sn = decodeURIComponent(utilityMeterReadings[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       const body = parseBody(req);
       return sendJson(res, 201, await saveUtilityMeterReading(sn, { readingKwh: body.readingKwh, readingAt: body.readingAt, notes: body.notes }));
     }
 
     const utilityReminder = route.match(/^devices\/([^/]+)\/utility-reading-reminder$/);
     if (method === 'PATCH' && utilityReminder) {
-      requireSession(req);
+      await authorizeStoredData(req, true);
       const sn = decodeURIComponent(utilityReminder[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       return sendJson(res, 200, { reminder: await updateUtilityBillReminder(sn, parseBody(req)) });
     }
 
     const waterBillDocument = route.match(/^devices\/([^/]+)\/water-bills\/documents\/(\d+)$/);
     if (method === 'GET' && waterBillDocument) {
-      requireSession(req);
+      await authorizeStoredData(req);
       const sn = decodeURIComponent(waterBillDocument[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       const document = await readWaterBillDocument(sn, waterBillDocument[2]);
       res.statusCode = 200;
       res.setHeader('Content-Type', document.mimeType);
@@ -880,9 +884,9 @@ export default async function handler(req, res) {
 
     const waterReadingPhoto = route.match(/^devices\/([^/]+)\/water-meter\/readings\/(\d+)\/photo$/);
     if (method === 'GET' && waterReadingPhoto) {
-      requireSession(req);
+      await authorizeStoredData(req);
       const sn = decodeURIComponent(waterReadingPhoto[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       const document = await readWaterReadingPhoto(sn, waterReadingPhoto[2]);
       res.statusCode = 200;
       res.setHeader('Content-Type', document.mimeType);
@@ -893,35 +897,35 @@ export default async function handler(req, res) {
 
     const waterBillExtract = route.match(/^devices\/([^/]+)\/water-bills\/extract$/);
     if (method === 'POST' && waterBillExtract) {
-      requireSession(req);
+      await authorizeStoredData(req, true);
       const sn = decodeURIComponent(waterBillExtract[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       const images = validateWaterImages(parseBody(req).images, 4);
       return sendJson(res, 200, await extractWaterBill(images));
     }
 
     const waterMeterExtract = route.match(/^devices\/([^/]+)\/water-meter\/extract$/);
     if (method === 'POST' && waterMeterExtract) {
-      requireSession(req);
+      await authorizeStoredData(req, true);
       const sn = decodeURIComponent(waterMeterExtract[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       const images = validateWaterImages(parseBody(req).images, 1);
       return sendJson(res, 200, await extractWaterMeterReading(images[0]));
     }
 
     const waterBill = route.match(/^devices\/([^/]+)\/water-bills\/(\d+)$/);
     if (method === 'DELETE' && waterBill) {
-      requireSession(req);
+      await authorizeStoredData(req, true);
       const sn = decodeURIComponent(waterBill[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       return sendJson(res, 200, { deleted: await deleteWaterBill(sn, waterBill[2]) });
     }
 
     const waterBills = route.match(/^devices\/([^/]+)\/water-bills$/);
     if (method === 'POST' && waterBills) {
-      requireSession(req);
+      await authorizeStoredData(req, true);
       const sn = decodeURIComponent(waterBills[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       const body = parseBody(req);
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
       const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) ? String(value) : null;
@@ -951,9 +955,9 @@ export default async function handler(req, res) {
 
     const waterReading = route.match(/^devices\/([^/]+)\/water-meter\/readings$/);
     if (method === 'POST' && waterReading) {
-      requireSession(req);
+      await authorizeStoredData(req, true);
       const sn = decodeURIComponent(waterReading[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       const body = parseBody(req);
       const readingM3 = Number(body.readingM3);
       if (!Number.isFinite(readingM3) || readingM3 < 0) return sendJson(res, 400, { error: 'Lectura de agua inválida.' });
@@ -964,59 +968,59 @@ export default async function handler(req, res) {
 
     const waterReadingRecord = route.match(/^devices\/([^/]+)\/water-meter\/readings\/(\d+)$/);
     if (method === 'DELETE' && waterReadingRecord) {
-      requireSession(req);
+      await authorizeStoredData(req, true);
       const sn = decodeURIComponent(waterReadingRecord[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       return sendJson(res, 200, { deleted: await deleteWaterReading(sn, waterReadingRecord[2]) });
     }
 
     const waterPeriodOpen = route.match(/^devices\/([^/]+)\/water-periods\/open$/);
     if (method === 'POST' && waterPeriodOpen) {
-      requireSession(req);
+      await authorizeStoredData(req, true);
       const sn = decodeURIComponent(waterPeriodOpen[1]);
       const body = parseBody(req);
-      if (!/^\d{8,20}$/.test(sn) || !/^\d{4}-\d{2}-\d{2}$/.test(String(body.periodStart || '')) || !/^\d{4}-\d{2}-\d{2}$/.test(String(body.expectedCloseDate || ''))) return sendJson(res, 400, { error: 'Datos del período inválidos.' });
+      if (!validDeviceReference(sn) || !/^\d{4}-\d{2}-\d{2}$/.test(String(body.periodStart || '')) || !/^\d{4}-\d{2}-\d{2}$/.test(String(body.expectedCloseDate || ''))) return sendJson(res, 400, { error: 'Datos del período inválidos.' });
       return sendJson(res, 200, { period: await openWaterPeriod(sn, body) });
     }
 
     const waterPeriodClose = route.match(/^devices\/([^/]+)\/water-periods\/close$/);
     if (method === 'POST' && waterPeriodClose) {
-      requireSession(req);
+      await authorizeStoredData(req, true);
       const sn = decodeURIComponent(waterPeriodClose[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       return sendJson(res, 200, { period: await closeWaterPeriod(sn, parseBody(req)) });
     }
 
     const waterSettings = route.match(/^devices\/([^/]+)\/water-settings$/);
     if (method === 'PATCH' && waterSettings) {
-      requireSession(req);
+      await authorizeStoredData(req, true);
       const sn = decodeURIComponent(waterSettings[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       return sendJson(res, 200, { settings: await updateWaterSettings(sn, parseBody(req)) });
     }
 
     const waterReminderTest = route.match(/^devices\/([^/]+)\/water-reminder-test$/);
     if (method === 'POST' && waterReminderTest) {
-      requireSession(req);
+      await authorizeStoredData(req, true);
       const sn = decodeURIComponent(waterReminderTest[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       const siteId = await ensureSite(sn);
       return sendJson(res, 200, await sendSiteNotification(siteId, 'water_reading_reminder_test', '💧 Recordatorio de lectura listo', 'Mi Solar te avisará antes de la próxima fecha estimada de lectura de Aguas Andinas.', { url: '/?page=water' }, `water-test-${Date.now()}`));
     }
 
     const waterCosts = route.match(/^devices\/([^/]+)\/water-costs$/);
     if (method === 'GET' && waterCosts) {
-      requireSession(req);
+      await authorizeStoredData(req);
       const sn = decodeURIComponent(waterCosts[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       return sendJson(res, 200, await waterDashboard(sn));
     }
 
     const solarForecast = route.match(/^devices\/([^/]+)\/solar-forecast$/);
     if (method === 'GET' && solarForecast) {
-      requireSession(req);
+      await authorizeStoredData(req);
       const sn = decodeURIComponent(solarForecast[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
       const [year, month, day] = today.split('-').map(Number);
       const tomorrow = new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);

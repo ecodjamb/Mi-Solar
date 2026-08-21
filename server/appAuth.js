@@ -26,6 +26,9 @@ export async function ensureSuperadmin() {
   const username = String(process.env.MISOLAR_SUPERADMIN_USERNAME || '').trim();
   const password = String(process.env.MISOLAR_SUPERADMIN_PASSWORD || '');
   if (!username || !password) return { configured: false };
+  if (/^\[[^\]]+\]$/.test(username) || /sensitive/i.test(username)) {
+    throw new Error('El usuario superadministrador del entorno contiene un marcador reservado y no puede utilizarse.');
+  }
   const existing = await identityDb('user_by_username', { username });
   if (existing) return { configured: true, created: false };
   const role = await identityDb('role_by_key', { key: 'superadmin' });

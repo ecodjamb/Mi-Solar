@@ -5,6 +5,7 @@ import { normalizeISolar, normalizeWatchPower, NORMALIZER_VERSION } from './cano
 import { WatchPowerProvider } from './providers/watchPowerProvider.js';
 import { ISolarProvider } from './providers/isolarProvider.js';
 import { ProviderError } from './providers/ProviderAdapter.js';
+import { readEnergySamples, readLatestEnergySample } from './archive.js';
 
 const adapters = { isolar: new ISolarProvider(), watchpower: new WatchPowerProvider() };
 const PROVIDERS = new Set(Object.keys(adapters));
@@ -38,13 +39,14 @@ async function accountFor(siteId, provider) {
 
 function publicAccount(account, devices = []) {
   if (!account) return null;
+  const environmentUsername = account.provider === 'watchpower' ? process.env.WATCHPOWER_USERNAME : null;
   return {
     id: account.id,
     siteId: account.site_id,
     provider: account.provider,
     enabled: account.enabled,
     status: account.status,
-    usernameMasked: account.username_masked,
+    usernameMasked: account.username_masked || (environmentUsername ? maskIdentifier(environmentUsername) : null),
     passwordConfigured: Boolean(account.credentials_cipher || (account.provider === 'watchpower' && process.env.WATCHPOWER_USERNAME && process.env.WATCHPOWER_PASSWORD)),
     consecutiveFailures: account.consecutive_failures,
     blockedUntil: account.blocked_until,
@@ -290,10 +292,41 @@ export async function syncProviderNow({ siteId, provider }) {
 
 export async function latestCanonical(siteId, provider) {
   assertProvider(provider);
-  return await providerDb('latest', { site_id: siteId, provider });
+  const current = await providerDb('latest', { site_id: siteId, provider });
+  if (current || provider !== 'isolar') return current;
+  const archived = await readLatestEnergySample(siteId);
+  return archived ? archivedSample(archived) : null;
 }
 
 export async function providerHistory(siteId, provider, from, to, limit = 10_000) {
   assertProvider(provider);
-  return await providerDb('history', { site_id: siteId, provider, from, to, limit: Math.min(20_000, Math.max(1, Number(limit) || 10_000)) }) || [];
+  const boundedLimit = Math.min(20_000, Math.max(1, Number(limit) || 10_000));
+  const current = await providerDb('history', { site_id: siteId, provider, from, to, limit: boundedLimit }) || [];
+  if (current.length || provider !== 'isolar') return current;
+  return (await readEnergySamples(siteId, from, to, boundedLimit)).map(archivedSample);
+}
+
+function archivedSample(row) {
+  const gridActive = row.grid_active === true;
+  const raw = {
+    currentTime: row.sample_at,
+    pvInputPower1: Number(row.pv1_w || 0),
+    pvInputPower2: Number(row.pv2_w || 0),
+    acOutputActivePowerTotal: Number(row.load_w || 0),
+    gridPowerInputActiveTotal: gridActive ? Number(row.grid_w || 0) : 0,
+    statusGrid: gridActive ? 1 : 0,
+    batteryChargingPower: Number(row.battery_charge_w || 0),
+    batteryDischargingPower: Number(row.battery_discharge_w || 0),
+    batteryCapacity: row.battery_soc == null ? null : Number(row.battery_soc)
+  };
+  return {
+    id: `archive:${row.id}`,
+    site_id: row.site_id,
+    provider: 'isolar',
+    sampled_at: row.sample_at,
+    received_at: row.ingested_at || row.sample_at,
+    canonical: normalizeISolar(raw),
+    source: row.source || 'misolar-archive',
+    archived: true
+  };
 }
