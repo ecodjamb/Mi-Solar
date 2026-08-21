@@ -5,6 +5,12 @@ import path from 'node:path';
 process.env.PROVIDER_CREDENTIALS_KEY_V1 = Buffer.alloc(32, 7).toString('base64');
 const { decryptProviderSecret, encryptProviderSecret, sanitizeProviderPayload } = await import('../server/providerCrypto.js');
 const { appAuthRequired } = await import('../server/appAuth.js');
+const { validMiSolarPassword } = await import('../server/passwordPolicy.js');
+
+assert.equal(validMiSolarPassword('12345678'), true);
+assert.equal(validMiSolarPassword('a! b#c$d'), true);
+assert.equal(validMiSolarPassword('1234567'), false);
+assert.equal(validMiSolarPassword('123456789'), false);
 
 const packed = encryptProviderSecret({ username: 'fixture-user', password: 'fixture-password' });
 assert.equal(packed.version, 1);

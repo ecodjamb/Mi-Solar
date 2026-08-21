@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { privatePasswordChange, privateRpc } from './privateRpc.js';
+import { validMiSolarPassword } from './passwordPolicy.js';
 
 const SESSION_COOKIE = 'misolar_app_session';
 const CSRF_COOKIE = 'misolar_csrf';
@@ -135,8 +136,8 @@ export async function changeAppPassword(req, currentPassword, nextPassword) {
     error.status = 401;
     throw error;
   }
-  if (String(nextPassword || '').length < 12 || String(nextPassword) === String(currentPassword || '')) {
-    const error = new Error('La nueva contraseña debe tener al menos 12 caracteres y ser diferente.');
+  if (!validMiSolarPassword(nextPassword)) {
+    const error = new Error('La contraseña de Mi Solar debe tener exactamente 8 caracteres.');
     error.status = 400;
     throw error;
   }

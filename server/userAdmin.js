@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { privateRpc } from './privateRpc.js';
+import { validMiSolarPassword } from './passwordPolicy.js';
 
 const identityDb = (operation, payload = {}) => privateRpc('identity', operation, payload);
 
@@ -20,8 +21,8 @@ export async function createUser(input, actorUserId) {
   const username = String(input.username || '').trim();
   const displayName = String(input.displayName || '').trim();
   const password = String(input.password || '');
-  if (!/^[a-zA-Z0-9._-]{3,40}$/.test(username) || displayName.length < 2 || password.length < 10) {
-    const error = new Error('Usuario, nombre o contraseña no cumplen los requisitos. La contraseña debe tener al menos 10 caracteres.');error.status = 400;throw error;
+  if (!/^[a-zA-Z0-9._-]{3,40}$/.test(username) || displayName.length < 2 || !validMiSolarPassword(password)) {
+    const error = new Error('Usuario, nombre o contraseña no cumplen los requisitos. La contraseña debe tener exactamente 8 caracteres.');error.status = 400;throw error;
   }
   const role = await identityDb('role_by_key', { key: input.role || 'member' });
   if (!role) { const error = new Error('Rol no válido.');error.status = 400;throw error; }
@@ -58,7 +59,7 @@ export async function updateUser(userId, input, actorUserId) {
 }
 
 export async function resetUserPassword(userId, password, actorUserId) {
-  if (String(password || '').length < 10) { const error = new Error('La nueva contraseña debe tener al menos 10 caracteres.');error.status = 400;throw error; }
+  if (!validMiSolarPassword(password)) { const error = new Error('La nueva contraseña debe tener exactamente 8 caracteres.');error.status = 400;throw error; }
   const passwordHash = await bcrypt.hash(String(password), 12);
   await identityDb('password_reset', { user_id: userId, password_hash: passwordHash });
   await audit(actorUserId, 'user.password_reset', userId, null, { sessionsRevoked: true });
