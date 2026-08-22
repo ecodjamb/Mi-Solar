@@ -33,14 +33,17 @@ export async function familyDashboard(session) {
 
 export async function createAllowance(session, input) {
   if (!isAdmin(session) && input.responsibleUserId !== session.user.id) { const error = new Error('No puedes crear una mesada a nombre de otra persona.');error.status = 403;throw error; }
+  if (!input.beneficiaryUserId || !input.responsibleUserId || input.beneficiaryUserId === input.responsibleUserId) { const error = new Error('La mesada debe identificar a un beneficiario y a una persona pagadora diferentes.');error.status = 400;throw error; }
   const frequency = String(input.frequency || 'monthly');
   if (!['weekly','biweekly','monthly','custom'].includes(frequency)) { const error = new Error('Frecuencia no válida.');error.status = 400;throw error; }
   const payDay = Number(input.payDay);
   if (frequency === 'weekly' && (!Number.isInteger(payDay) || payDay < 1 || payDay > 7)) { const error = new Error('Selecciona un día de la semana.');error.status = 400;throw error; }
   if (frequency === 'monthly' && (!Number.isInteger(payDay) || payDay < 1 || payDay > 31)) { const error = new Error('Selecciona un día del mes entre 1 y 31.');error.status = 400;throw error; }
+  const allowanceAmount = money(input.amountMinor);
+  if (!allowanceAmount) { const error = new Error('La mesada debe ser mayor que cero.');error.status = 400;throw error; }
   const allowance = await familyDb('allowance_create', {
     beneficiary_user_id: input.beneficiaryUserId, responsible_user_id: input.responsibleUserId || session.user.id,
-    amount_minor: money(input.amountMinor), currency: input.currency || 'CLP', frequency, pay_day: payDay || null,
+    amount_minor: allowanceAmount, currency: input.currency || 'CLP', frequency, pay_day: payDay || null,
     custom_interval_days: input.customIntervalDays || null, starts_on: input.startsOn, ends_on: input.endsOn || null,
     status: input.status || 'active', notes: input.notes || null, created_by: session.user.id
   });
@@ -58,7 +61,7 @@ export async function generateAllowanceObligations() {
     if (!due) continue;
     const idempotencyKey = `allowance:${allowance.id}:${today}`;
     const result = await familyDb('obligation_create', { allowance_id: allowance.id, due_on: today, amount_minor: allowance.amount_minor, idempotency_key: idempotencyKey });
-    if (result?.inserted) { created += 1;await notify(allowance.beneficiary_user_id, 'allowance_generated', 'Mesada generada', 'Se generó la obligación programada de tu mesada.', 'allowance_obligation', result.row.id); }
+    if (result?.inserted) { created += 1;await notify(allowance.beneficiary_user_id, 'allowance_generated', 'Mesada cargada', 'La mesada programada se agregó como gasto en tu cuenta corriente.', 'allowance_obligation', result.row.id); }
   }
   return { date: today, created };
 }
@@ -75,9 +78,13 @@ export function dueToday(allowance, today) {
 
 export async function createExpenseMovement(session, input) {
   const account = await familyDb('account_get', { account_id: input.accountId });
-  if (!account || (!isAdmin(session) && account.user_id !== session.user.id)) { const error = new Error('Cuenta de rendición no autorizada.');error.status = 403;throw error; }
+  if (!account) { const error = new Error('Cuenta corriente no encontrada.');error.status = 404;throw error; }
   const income = money(input.incomeMinor || 0), expense = money(input.expenseMinor || 0);
   if ((income > 0) === (expense > 0)) { const error = new Error('El movimiento debe ser ingreso o gasto, pero no ambos.');error.status = 400;throw error; }
+  if (!input.depositorUserId || !input.recipientUserId || input.depositorUserId === input.recipientUserId) { const error = new Error('El movimiento debe identificar a dos usuarios distintos.');error.status = 400;throw error; }
+  if (!isAdmin(session) && ![input.depositorUserId,input.recipientUserId].includes(session.user.id)) { const error = new Error('Debes participar en el movimiento.');error.status = 403;throw error; }
+  const expectedAccountUser = income > 0 ? input.recipientUserId : input.depositorUserId;
+  if (account.user_id !== expectedAccountUser) { const error = new Error(income > 0 ? 'El depósito debe abonarse a la cuenta de quien recibe.' : 'El gasto debe cargarse a la cuenta de quien lo presenta.');error.status = 400;throw error; }
   if (!input.image) { const error = new Error('Adjunta una fotografía del comprobante.');error.status = 400;throw error; }
   const attachment = await uploadFinancialImage(session.user.id, 'movements', input.image);
   let created;
@@ -87,7 +94,8 @@ export async function createExpenseMovement(session, input) {
   const movementRow = created?.record || created;
   await audit(session.user.id, 'expense.created', 'expense_movement', movementRow?.id, null, created);
   const admins = await adminUsers();
-  await Promise.all(admins.map((user) => notify(user.id, 'expense_pending', 'Rendición pendiente', `${input.detail}: requiere revisión.`, 'expense_movement', movementRow?.id)));
+  const recipients = new Set([input.depositorUserId,input.recipientUserId,...admins.map((user) => user.id)]);
+  await Promise.all([...recipients].map((userId) => notify(userId, 'expense_pending', income > 0 ? 'Depósito pendiente' : 'Gasto pendiente', `${input.detail}: requiere revisión.`, 'expense_movement', movementRow?.id)));
   return created;
 }
 
