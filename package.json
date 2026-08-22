@@ -1,6 +1,6 @@
 {
   "name": "mi-solar-v8-vercel",
-  "version": "8.28.4",
+  "version": "8.28.5",
   "private": true,
   "type": "module",
   "scripts": {

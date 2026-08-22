@@ -54,7 +54,7 @@ export class ISolarProvider extends ProviderAdapter {
     // Mantener exactamente el endpoint ya probado por el flujo instantáneo.
     const params = { deviceSn: device.deviceSn || device.sn };
     const result = await this.requestWithSession('realData/getRealByDeviceSn', { params }, session);
-    return result.payload;
+    return result.payload.data || {};
   }
   async getHistory() { throw new ProviderError('Use el histórico persistente de MiSolar para i.Solar.', { code: 'USE_CANONICAL_HISTORY', status: 400 }); }
   async getAlarms(session, device) {

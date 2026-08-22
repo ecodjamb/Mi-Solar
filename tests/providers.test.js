@@ -16,11 +16,12 @@ const response = (payload, status = 200) => new Response(JSON.stringify(payload)
   } });
   const session = await provider.authenticate({ username: 'fixture', password: 'fixture' });
   const listed = await provider.listDevices(session);
-  await provider.getRealtimeData(listed.session, listed.devices[0]);
+  const realtime = await provider.getRealtimeData(listed.session, listed.devices[0]);
   assert.equal(calls[1].token, 'token-a');
   assert.equal(calls[1].params.pageSize, '20');
   assert.equal(calls[2].token, 'token-b');
   assert.equal(calls[2].path, 'realData/getRealByDeviceSn');
+  assert.equal(realtime.currentTime, '2026-08-21 21:00:00');
   assert.equal(session.token, 'token-c');
 }
 

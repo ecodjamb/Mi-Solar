@@ -1,4 +1,8 @@
-# Mi Solar v8.28.4
+# Mi Solar v8.28.5
+
+- La telemetría i.Solar se normaliza desde el contenido real de la respuesta y ya no desde su sobre de transporte.
+
+## v8.28.4
 
 - Corregida la lectura canónica de i.Solar: usa el endpoint real del flujo instantáneo y la paginación admitida por Tumcapp.
 - Los errores de i.Solar ahora conservan un código y mensaje sanitizados útiles para diagnóstico.
