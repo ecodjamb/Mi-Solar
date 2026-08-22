@@ -1,3 +1,7 @@
+# Mi Solar v8.28.2
+
+- Proveedores: la ejecución automática se marca exitosa después de persistir la muestra, sin invocar una operación de estado inexistente.
+
 # Mi Solar v8.28.1
 
 - WatchPower: se validó la respuesta real del inversor y se agregaron los nombres efectivos de PV1, PV2, frecuencia y modo instantáneo.

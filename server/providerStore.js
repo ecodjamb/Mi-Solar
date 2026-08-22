@@ -261,7 +261,6 @@ export async function testProviderConnection({ siteId, provider }) {
   if (!account) throw new ProviderError('El proveedor aún no está configurado.', { code: 'NOT_CONFIGURED', status: 409 });
   const session = await sessionFor(site, account);
   const health = await adapters[provider].healthCheck(session);
-  await providerDb('account_success', { account_id: account.id });
   return { ...health, provider, readOnly: adapters[provider].readOnly };
 }
 
@@ -288,7 +287,6 @@ export async function syncProviderNow({ siteId, provider }) {
       results.push({ device: { alias: saved?.alias || input.nickName || null, serialMasked: saved?.serial_masked || maskIdentifier(input.deviceSn) }, canonical, inserted: persisted.inserted });
     }
     if (!results.length) throw new ProviderError('El proveedor conectó, pero no devolvió el dispositivo de esta instalación.', { code: 'DEVICE_NOT_FOUND', status: 404 });
-    await providerDb('account_success', { account_id: account.id });
     if (runId) await providerDb('sync_finish', { run_id: runId, status: 'success', samples_received: results.length, samples_inserted: results.filter((item) => item.inserted).length, duplicates: results.filter((item) => !item.inserted).length, duration_ms: Date.now() - started, error_code: '', error_message: '' });
     return { provider, site: { id: site.id, name: site.name }, devices: results, readOnly: adapters[provider].readOnly, syncedAt: new Date().toISOString() };
   } catch (error) {
