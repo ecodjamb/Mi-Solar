@@ -29,7 +29,8 @@ import {
 } from '../server/providerStore.js';
 import { canonicalToLegacy } from '../server/canonicalTelemetry.js';
 import { createUser, listUsers, resetUserPassword, revokeUserSessions, updateUser } from '../server/userAdmin.js';
-import { createAllowance, createExpenseMovement, createLoan, familyDashboard, generateAllowanceObligations, recordLoanPayment } from '../server/familyFinance.js';
+import { createAllowance, createExpenseMovement, createLoan, familyDashboard, generateAllowanceObligations, readFinancialAttachment, recordLoanPayment, reviewExpenseMovement, reviewLoan, reviewLoanPayment } from '../server/familyFinance.js';
+import { extractFinancialReceipt } from '../server/financialReceiptAi.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
   res.statusCode = statusCode;
@@ -231,14 +232,43 @@ export default async function handler(req, res) {
       const session = await requireAppPermission(req, 'family.create');
       return sendJson(res, 201, { movement: await createExpenseMovement(session, parseBody(req)) });
     }
+    if (method === 'POST' && route === 'family/receipts/extract') {
+      await requireAppPermission(req, 'family.create');
+      return sendJson(res, 200, await extractFinancialReceipt(parseBody(req).image));
+    }
+    const expenseReview = route.match(/^family\/expenses\/(\d+)\/review$/);
+    if (expenseReview && method === 'POST') {
+      const session = await requireAppPermission(req, 'family.approve');
+      return sendJson(res, 200, { movement: await reviewExpenseMovement(session, Number(expenseReview[1]), parseBody(req)) });
+    }
     if (method === 'POST' && route === 'family/loans') {
       const session = await requireAppPermission(req, 'family.create');
       return sendJson(res, 201, { loan: await createLoan(session, parseBody(req)) });
+    }
+    const loanReview = route.match(/^family\/loans\/(\d+)\/review$/);
+    if (loanReview && method === 'POST') {
+      const session = await requireAppPermission(req, 'family.approve');
+      return sendJson(res, 200, { loan: await reviewLoan(session, Number(loanReview[1]), parseBody(req)) });
     }
     const loanPayment = route.match(/^family\/loans\/(\d+)\/payments$/);
     if (loanPayment && method === 'POST') {
       const session = await requireAppPermission(req, 'family.create');
       return sendJson(res, 201, { payment: await recordLoanPayment(session, Number(loanPayment[1]), parseBody(req)) });
+    }
+    const loanPaymentReview = route.match(/^family\/loan-payments\/(\d+)\/review$/);
+    if (loanPaymentReview && method === 'POST') {
+      const session = await requireAppPermission(req, 'family.approve');
+      return sendJson(res, 200, { loan: await reviewLoanPayment(session, Number(loanPaymentReview[1]), parseBody(req)) });
+    }
+    const familyAttachment = route.match(/^family\/attachments\/([0-9a-f-]+)$/i);
+    if (familyAttachment && method === 'GET') {
+      const session = await requireAppPermission(req, 'family.view');
+      const document = await readFinancialAttachment(session, familyAttachment[1]);
+      res.statusCode = 200;
+      res.setHeader('Content-Type', document.mimeType);
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.setHeader('Content-Disposition', `inline; filename="${String(document.originalName).replace(/[^a-zA-Z0-9._-]/g, '_')}"`);
+      return res.end(document.buffer);
     }
     if (method === 'POST' && route === 'family/generate-allowances') {
       if (!process.env.CRON_SECRET || req.headers?.authorization !== `Bearer ${process.env.CRON_SECRET}`) return sendJson(res, 401, { error: 'Generación no autorizada.' });
@@ -325,7 +355,7 @@ export default async function handler(req, res) {
       } catch (cause) {
         archiveError = cause instanceof Error ? cause.message : 'No fue posible comprobar el archivo permanente.';
       }
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.28.6', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.29.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {

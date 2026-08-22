@@ -1,4 +1,12 @@
-# Mi Solar v8.28.6
+# Mi Solar v8.29.0
+
+- Familia rediseñada con submenús superiores, indicadores y estadísticas por usuario.
+- Rendiciones, depósitos, préstamos y pagos exigen comprobante privado; OpenAI propone los campos y el usuario los valida antes de guardar.
+- Nuevo flujo de aprobación del superadministrador, auditoría y participantes explícitos en cada movimiento.
+- Mesadas semanales seleccionan día de la semana; las mensuales, día del mes.
+- El bootstrap antiguo queda desactivado y sin privilegios; `ecodjamb` es el único superadministrador activo.
+
+## v8.28.6
 
 - Restaurada la carga de boletas, comprobantes y lecturas de Agua al usar la referencia canónica `site:2` de El Arrayán.
 
