@@ -60,6 +60,7 @@ export function normalizeISolar(row = {}, summary = {}) {
   const batteryPower = chargePower != null || dischargePower != null ? (dischargePower || 0) - (chargePower || 0) : null;
   return {
     grid: {
+      active: merged.statusGrid == null ? null : Number(merged.statusGrid) === 1,
       voltage: read(merged,['gridVoltage','acInputVoltage']), current: read(merged,['gridCurrent','acInputCurrent']),
       frequency: read(merged,['gridFrequency','acInputFrequency']), power: read(merged,['gridPowerInputActiveTotal','gridActivePower','acInputActivePower','gridPower']),
       energy_today: read(merged,['gridEnergyToday','gridInputEnergyToday']), energy_total: read(merged,['gridEnergyTotal','gridInputEnergyTotal'])
@@ -98,6 +99,26 @@ function fieldMap(payload) {
   return Object.fromEntries(entries.filter((item) => item?.id).map((item) => [item.id, item.val]));
 }
 
+function watchPowerTimestamp(rawTimestamp) {
+  const original = timestampInfo(rawTimestamp, 'America/Santiago');
+  const numeric = Number(rawTimestamp);
+  const lagSeconds = Number.isFinite(numeric) ? Math.round((Date.now() - (numeric < 1e12 ? numeric * 1000 : numeric)) / 1000) : null;
+  // Este datalogger entrega gts como epoch exactamente 12 horas detrás de la
+  // lectura que acaba de responder. Se corrige solo esa firma acotada y se
+  // conserva tanto el valor original como la transformación en quality.
+  if (lagSeconds != null && lagSeconds >= 11.5 * 3600 && lagSeconds <= 12.5 * 3600) {
+    const sourceMs = numeric < 1e12 ? numeric * 1000 : numeric;
+    const correctionSeconds = 12 * 3600;
+    const corrected = timestampInfo(new Date(sourceMs + correctionSeconds * 1000), 'America/Santiago');
+    return {
+      time: { ...corrected, provider_timestamp: String(rawTimestamp), provider_timezone: 'epoch del proveedor; corrección explícita +12 h' },
+      correctionSeconds,
+      originalSampledAtUtc: original.sampled_at_utc
+    };
+  }
+  return { time: original, correctionSeconds: 0, originalSampledAtUtc: original.sampled_at_utc };
+}
+
 export function normalizeWatchPower(payload = {}) {
   const values = fieldMap(payload);
   const batteryVoltage = read(values,['bt_battery_voltage']);
@@ -110,21 +131,29 @@ export function normalizeWatchPower(payload = {}) {
   const reactive = active != null && apparent != null && apparent >= Math.abs(active) ? Math.sqrt(apparent ** 2 - active ** 2) : null;
   const pv1Voltage = read(values,['bt_voltage_1','pv_input_voltage','pv1_voltage']);
   const pv1Current = read(values,['pv_input_current','bt_pv_input_current','pv1_current']);
-  const pv1Power = read(values,['bt_input_power','pv_input_power','pv1_power']) ?? (pv1Voltage != null && pv1Current != null ? pv1Voltage * pv1Current : null);
+  const pv1Power = read(values,['bt_input_power_1','bt_input_power','pv_input_power','pv1_power']) ?? (pv1Voltage != null && pv1Current != null ? pv1Voltage * pv1Current : null);
   const pv2Voltage = read(values,['bt_voltage_2','pv2_voltage']);
-  const pv2Current = read(values,['pv2_input_current','pv2_current']);
-  const pv2Power = read(values,['pv2_input_power','pv2_power']) ?? (pv2Voltage != null && pv2Current != null ? pv2Voltage * pv2Current : null);
+  const pv2Current = read(values,['pv_input_current2','pv2_input_current','pv2_current']);
+  const pv2Power = read(values,['bt_input_power_2','pv2_input_power','pv2_power']) ?? (pv2Voltage != null && pv2Current != null ? pv2Voltage * pv2Current : null);
+  const operatingMode = values.bc_model ?? values.sy_work_mode ?? values.bt_work_mode ?? null;
+  const gridActive = operatingMode == null ? null : /line|utility/i.test(String(operatingMode));
+  const directGridPower = read(values,['bt_grid_active_power']);
+  const derivedGridPower = directGridPower == null && gridActive === true && active != null
+    ? Math.max(0, active + Math.max(0, -(batteryPower || 0)) - (pv1Power || 0) - (pv2Power || 0) - Math.max(0, batteryPower || 0))
+    : null;
+  const gridPower = gridActive === false ? 0 : directGridPower ?? derivedGridPower;
+  const timestamp = watchPowerTimestamp(payload?.dat?.gts);
   return {
-    grid: { voltage: read(values,['bt_grid_voltage']), current: read(values,['bt_grid_current']), frequency: read(values,['bt_grid_frequency']), power: read(values,['bt_grid_active_power']), energy_today: read(values,['gd_grid_energy_today']), energy_total: read(values,['gd_grid_energy_total']) },
+    grid: { active: gridActive, voltage: read(values,['bt_grid_voltage']), current: read(values,['bt_grid_current']), frequency: read(values,['bt_grid_frequency']), power: gridPower, energy_today: read(values,['gd_grid_energy_today']), energy_total: read(values,['gd_grid_energy_total']) },
     pv: { total_power: pv1Power == null && pv2Power == null ? null : (pv1Power || 0) + (pv2Power || 0), mppt1_voltage: pv1Voltage, mppt1_current: pv1Current, mppt1_power: pv1Power, mppt2_voltage: pv2Voltage, mppt2_current: pv2Current, mppt2_power: pv2Power, energy_today: read(values,['gd_pv_energy_today','pv_energy_today']), energy_month: read(values,['gd_pv_energy_month']), energy_total: read(values,['gd_pv_energy_total']) },
     battery: { voltage: batteryVoltage, current: batteryCurrent, power: batteryPower, soc: read(values,['bt_battery_capacity']), direction: batteryCurrent == null ? null : batteryCurrent > 0 ? 'discharging' : batteryCurrent < 0 ? 'charging' : 'idle', charge_current: chargeCurrent, discharge_current: dischargeCurrent, temperature: read(values,['bt_battery_temperature']) },
-    output: { voltage: read(values,['bt_ac_output_voltage']), frequency: read(values,['bt_grid_AC_frequency','bt_ac_output_frequency']) },
+    output: { voltage: read(values,['bt_ac_output_voltage']), frequency: read(values,['bt_grid_ac_frequency','bt_grid_AC_frequency','bt_ac_output_frequency']) },
     load: { active_power: active, apparent_power: apparent, reactive_power: reactive, percent: read(values,['bt_output_load_percent']), energy_today: read(values,['gd_load_energy_today']), energy_total: read(values,['gd_load_energy_total']) },
-    inverter: { mode: values.sy_work_mode ?? values.bt_work_mode ?? null, output_priority: values.bse_output_source_priority ?? null, charging_priority: values.bse_charger_source_priority ?? null, status: values.sy_status ?? null, temperature: read(values,['bt_inverter_temperature']), warning_code: values.sy_warning_code ?? null, fault_code: values.sy_fault_code ?? null },
+    inverter: { mode: operatingMode, output_priority: values.bse_output_source_priority ?? null, charging_priority: values.bse_charger_source_priority ?? null, status: values.sy_status ?? values.bc_load_status ?? null, temperature: read(values,['bt_inverter_temperature']), warning_code: values.sy_warning_code ?? null, fault_code: values.sy_fault_code ?? null },
     device: { model: values.sy_model ?? null, serial: payload?.device?.sn ?? null, firmware_main: values.sy_main_cpu1_firmware_version ?? null, firmware_secondary: values.sy_main_cpu2_firmware_version ?? null },
     logger: { serial: payload?.device?.pn ?? null, status: values.logger_status ?? null, firmware: values.logger_firmware ?? null },
-    time: timestampInfo(payload?.dat?.gts, 'America/Santiago'),
-    quality: { derived: [batteryPower != null ? 'battery.power=voltage×current' : null, reactive != null ? 'load.reactive_power=sqrt(apparent²-active²)' : null].filter(Boolean), provider: 'watchpower', normalizer_version: NORMALIZER_VERSION, timestamp_assumption: 'America/Santiago assumed from the El Arrayán site; original provider timestamp is preserved for audit and comparison.' },
+    time: timestamp.time,
+    quality: { derived: [batteryPower != null ? 'battery.power=voltage×current' : null, reactive != null ? 'load.reactive_power=sqrt(apparent²-active²)' : null, derivedGridPower != null ? 'grid.power=load+charge-pv-discharge' : null].filter(Boolean), provider: 'watchpower', normalizer_version: NORMALIZER_VERSION, timestamp_assumption: timestamp.correctionSeconds ? 'Se detectó la firma real del datalogger: epoch 12 h detrás de la respuesta. Se aplicó +12 h; el epoch y la hora UTC original quedan conservados.' : 'America/Santiago assumed from the El Arrayán site; original provider timestamp is preserved for audit and comparison.', timestamp_correction_seconds: timestamp.correctionSeconds, original_sampled_at_utc: timestamp.originalSampledAtUtc },
     provider_fields: values
   };
 }
@@ -139,7 +168,7 @@ export function canonicalToLegacy(canonical = {}) {
     acOutputApparentPowerTotal: canonical.load?.apparent_power ?? 0,
     acOutputReactivePowerTotal: canonical.load?.reactive_power ?? 0,
     gridPowerInputActiveTotal: canonical.grid?.power ?? 0,
-    statusGrid: Math.abs(Number(canonical.grid?.power || 0)) > 10 ? 1 : 0,
+    statusGrid: canonical.grid?.active == null ? (Math.abs(Number(canonical.grid?.power || 0)) > 10 ? 1 : 0) : canonical.grid.active ? 1 : 0,
     batteryChargingPower: batteryPower < 0 ? Math.abs(batteryPower) : 0,
     batteryDischargingPower: batteryPower > 0 ? batteryPower : 0,
     batteryCapacity: canonical.battery?.soc,

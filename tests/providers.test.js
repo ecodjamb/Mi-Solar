@@ -49,6 +49,24 @@ const response = (payload, status = 200) => new Response(JSON.stringify(payload)
   assert.equal(missing.load.reactive_power, null);
 }
 
+{
+  const delayedEpoch = Date.now() - 12 * 60 * 60 * 1000;
+  const canonical = normalizeWatchPower({ dat: { gts: delayedEpoch, pars: { a: [
+    { id: 'bc_model', val: 'Battery Mode' }, { id: 'bt_input_power_1', val: '725' },
+    { id: 'bt_voltage_2', val: '80' }, { id: 'pv_input_current2', val: '5' },
+    { id: 'bt_load_active_power_sole', val: '1000' }, { id: 'bt_grid_ac_frequency', val: '50' }
+  ] } } });
+  assert.equal(canonical.pv.mppt1_power, 725);
+  assert.equal(canonical.pv.mppt2_power, 400);
+  assert.equal(canonical.pv.total_power, 1125);
+  assert.equal(canonical.grid.active, false);
+  assert.equal(canonical.grid.power, 0);
+  assert.equal(canonical.output.frequency, 50);
+  assert.equal(canonical.inverter.mode, 'Battery Mode');
+  assert.equal(canonical.quality.timestamp_correction_seconds, 43200);
+  assert.ok(Math.abs(Date.parse(canonical.time.sampled_at_utc) - Date.now()) < 5000);
+}
+
 assert.equal(WATCHPOWER_WRITES_ENABLED, false);
 const methodNames = Object.getOwnPropertyNames(WatchPowerProvider.prototype);
 assert.equal(methodNames.some((name) => /^(write|sendCommand|control|setParameter|updateSetting)/i.test(name)), false);

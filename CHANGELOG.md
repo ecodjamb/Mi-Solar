@@ -1,3 +1,9 @@
+# Mi Solar v8.28.1
+
+- WatchPower: se validó la respuesta real del inversor y se agregaron los nombres efectivos de PV1, PV2, frecuencia y modo instantáneo.
+- WatchPower: se documenta y corrige la desviación exacta de 12 horas del epoch del datalogger, conservando la marca original y la transformación aplicada.
+- WatchPower: “Battery Mode” determina red inactiva aunque exista voltaje; la potencia de red queda en cero en ese estado.
+
 # Mi Solar v8.28.0
 
 - Usuarios: validación visible de la contraseña exacta de 8 caracteres antes de enviar; menús traducidos y acciones explicadas.
