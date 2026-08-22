@@ -1,3 +1,11 @@
+# Mi Solar v8.30.0
+
+- Unifica mesadas, gastos y depósitos en una cuenta corriente por usuario.
+- Las mesadas recurrentes generan un único cargo negativo enlazado e idempotente.
+- Mantiene préstamos como módulo independiente y conserva aprobación, comprobantes e IA.
+- Impide movimientos o mesadas sin dos participantes distintos.
+- Pausa, sin borrar, configuraciones antiguas donde beneficiario y pagador son la misma persona.
+
 # Mi Solar v8.29.0
 
 - Familia rediseñada con submenús superiores, indicadores y estadísticas por usuario.
