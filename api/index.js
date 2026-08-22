@@ -25,7 +25,7 @@ import { extractWaterBill, extractWaterMeterReading, validateWaterImages } from 
 import { appSessionStatus, changeAppPassword, loginApp, logoutApp, requireAppPermission, requireAppViewIfEnabled } from '../server/appAuth.js';
 import {
   disconnectProvider, latestCanonical, listProviderAccounts, providerHistory, saveProviderCredentials,
-  syncProviderNow, testProviderConnection, publicProviderCatalog
+  syncProviderNow, syncEnabledProviders, testProviderConnection, publicProviderCatalog
 } from '../server/providerStore.js';
 import { canonicalToLegacy } from '../server/canonicalTelemetry.js';
 import { createUser, listUsers, resetUserPassword, revokeUserSessions, updateUser } from '../server/userAdmin.js';
@@ -260,7 +260,14 @@ export default async function handler(req, res) {
       const actor = await requireAppPermission(req, 'credentials.manage');
       const body = parseBody(req);
       const account = await saveProviderCredentials({ siteId: Number(providerCredentials[1]), provider: providerCredentials[2], username: body.username, password: body.password, actorUserId: actor.user.id });
-      return sendJson(res, 200, { account });
+      try {
+        const synchronization = await syncProviderNow({ siteId: Number(providerCredentials[1]), provider: providerCredentials[2] });
+        return sendJson(res, 200, { account, connection: { ok: true }, synchronization });
+      } catch (error) {
+        // Las credenciales quedan guardadas aunque el proveedor esté caído. El
+        // estado exacto y sanitizado queda visible para poder corregirlo.
+        return sendJson(res, 200, { account, connection: { ok: false, error: String(error?.message || 'No fue posible validar la conexión.') } });
+      }
     }
     if (providerCredentials && method === 'DELETE') {
       const actor = await requireAppPermission(req, 'credentials.manage');
@@ -298,12 +305,7 @@ export default async function handler(req, res) {
 
     if (method === 'POST' && route === 'providers/sync') {
       if (!process.env.CRON_SECRET || req.headers?.authorization !== `Bearer ${process.env.CRON_SECRET}`) return sendJson(res, 401, { error: 'Sincronización no autorizada.' });
-      const sites = await listProviderAccounts();
-      const results = [];
-      for (const site of sites) for (const account of site.providers.filter((item) => item.enabled)) {
-        try { results.push(await syncProviderNow({ siteId: site.id, provider: account.provider })); }
-        catch (error) { results.push({ siteId: site.id, provider: account.provider, error: String(error?.message || 'Error de proveedor') }); }
-      }
+      const results = await syncEnabledProviders();
       return sendJson(res, 200, { results, synchronizedAt: new Date().toISOString() });
     }
 
@@ -317,15 +319,15 @@ export default async function handler(req, res) {
       } catch (cause) {
         archiveError = cause instanceof Error ? cause.message : 'No fue posible comprobar el archivo permanente.';
       }
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.27.2', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.28.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
       if (!process.env.CRON_SECRET || req.headers?.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
         return sendJson(res, 401, { error: 'Ejecución programada no autorizada.' });
       }
-      const [automation, forecastLocks] = await Promise.all([runDueAutomations(), lockTomorrowForecasts()]);
-      return sendJson(res, 200, { automation, forecastLocks });
+      const [automation, forecastLocks, providers] = await Promise.all([runDueAutomations(), lockTomorrowForecasts(), syncEnabledProviders({ onlyProvider: 'watchpower' })]);
+      return sendJson(res, 200, { automation, forecastLocks, providers });
     }
 
     if (method === 'POST' && route === 'notifications/monitor') {

@@ -176,23 +176,28 @@ export default function App(){
     return api<{list:HistoryRow[];total:number;truncated?:boolean;pages?:number}>(`devices/${sn}/history?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&maxPages=${maxPages}`);
   }
 
-  function refreshRealtime(sn=selectedRef.current||selected){
+  function refreshRealtime(sn=selectedRef.current||selected,requestOrigin=false){
     if(!sn)return Promise.resolve();
-    const pending=liveRequestsRef.current.get(sn);
+    const requestedProvider=sourceRef.current;
+    const requestKey=`${sn}:${requestedProvider}`;
+    const pending=liveRequestsRef.current.get(requestKey);
     if(pending)return pending;
     const request=(async()=>{
       if(selectedRef.current===sn)setLoading(true);
       try{
-        const provider=sourceRef.current;
+        const provider=requestedProvider;
         const providerSite=providerSiteFor(sn);
-        const useCanonical=Boolean(providerSite&&(provider==='watchpower'||!legacyAuth));
+        if(requestOrigin&&providerSite&&appIdentity?.authenticated){
+          try{await api(`sites/${providerSite.id}/providers/${provider}/sync`,{method:'POST'})}catch{/* Se conserva la última muestra respaldada y se informa por su antigüedad. */}
+        }
+        const useCanonical=Boolean(providerSite);
         const result:LiveResponse=useCanonical&&providerSite
           ? await apiLive<{legacy:Realtime|null;sample?:{received_at?:string}}>(`sites/${providerSite.id}/providers/${provider}/latest`).then(value=>({realtime:value.legacy||{},summary:value.legacy||{},receivedAt:value.sample?.received_at,source:provider}))
           : await apiLive<LiveResponse>(`devices/${sn}/live`);
         const value=result.realtime||{};
         const summaryValue=result.summary||{};
         writeSiteCache(sn,{realtime:value,summary:summaryValue});
-        if(selectedRef.current!==sn)return;
+        if(selectedRef.current!==sn||sourceRef.current!==provider)return;
         setRealtime(value);
         setSummary(summaryValue);
         const receivedAt=result.receivedAt&&Number.isFinite(Date.parse(result.receivedAt))?new Date(result.receivedAt):new Date();
@@ -202,11 +207,11 @@ export default function App(){
       }catch{
         if(selectedRef.current===sn)setSyncMessage('No se pudo actualizar ahora. La app conserva el último dato identificado como anterior y reintentará en 30 segundos.');
       }finally{
-        liveRequestsRef.current.delete(sn);
+        liveRequestsRef.current.delete(requestKey);
         if(selectedRef.current===sn)setLoading(false);
       }
     })();
-    liveRequestsRef.current.set(sn,request);
+    liveRequestsRef.current.set(requestKey,request);
     return request;
   }
 
@@ -216,14 +221,6 @@ export default function App(){
     const rows:HistoryRow[]=[];
     const warnings:string[]=[];
     try{
-      const provider=sourceRef.current;
-      const providerSite=providerSiteFor(sn);
-      if(providerSite&&(provider==='watchpower'||!legacyAuth)){
-        const range=siteRangeUtc(siteDate,addDays(siteDate,1));
-        const response=await api<{samples:{legacy:HistoryRow}[]}>(`sites/${providerSite.id}/providers/${provider}/history?from=${encodeURIComponent(range.start)}&to=${encodeURIComponent(range.end)}`);
-        const providerRows=(response.samples||[]).map(item=>item.legacy);
-        setRawDayRows(providerRows);markUpdated('day');setHistoryMessage(`Día cargado desde el respaldo ${provider==='watchpower'?'WatchPower':'i.Solar'} de Mi Solar · ${providerRows.length} muestras.`);return;
-      }
       const archiveRange=siteRangeUtc(siteDate,addDays(siteDate,1));
       try{
         const archived=await api<{list:HistoryRow[]}>(`devices/${sn}/archive?start=${encodeURIComponent(archiveRange.start)}&end=${encodeURIComponent(archiveRange.end)}`);
@@ -268,12 +265,6 @@ export default function App(){
     if(!sn)return;
     try{
       const utc=siteRangeUtc(weekRange.siteStart,weekRange.siteEnd);
-      const provider=sourceRef.current;
-      const providerSite=providerSiteFor(sn);
-      if(providerSite&&(provider==='watchpower'||!legacyAuth)){
-        const response=await api<{samples:{legacy:HistoryRow}[]}>(`sites/${providerSite.id}/providers/${provider}/history?from=${encodeURIComponent(utc.start)}&to=${encodeURIComponent(utc.end)}`);
-        const providerRows=(response.samples||[]).map(item=>item.legacy);setRawWeekRows(providerRows);markUpdated('week');return;
-      }
       try{
         const archived=await api<{list:HistoryRow[]}>(`devices/${sn}/archive-series?start=${encodeURIComponent(utc.start)}&end=${encodeURIComponent(utc.end)}&resolution=hour`);
         if(archived.list?.length){setRawWeekRows(archived.list);writeSiteCache(sn,{weekRows:archived.list});markUpdated('week');return}
@@ -292,11 +283,6 @@ export default function App(){
     if(!sn)return;
     const chunks=monthChunkRanges(siteDate,4);
     const archiveRange=siteRangeUtc(chunks[0].siteStart,chunks[chunks.length-1].siteEnd);
-    const provider=sourceRef.current;
-    const providerSite=providerSiteFor(sn);
-    if(providerSite&&(provider==='watchpower'||!legacyAuth)){
-      try{const response=await api<{samples:{legacy:HistoryRow}[]}>(`sites/${providerSite.id}/providers/${provider}/history?from=${encodeURIComponent(archiveRange.start)}&to=${encodeURIComponent(archiveRange.end)}`);const providerRows=(response.samples||[]).map(item=>item.legacy);setRawMonthRows(providerRows);markUpdated('month');setHistoryMessage(`Mes cargado desde el respaldo ${provider==='watchpower'?'WatchPower':'i.Solar'} de Mi Solar.`)}catch(error){setHistoryMessage(`Histórico ${provider==='watchpower'?'WatchPower':'i.Solar'} temporalmente no disponible: ${error instanceof Error?error.message:'error'}`)}finally{setHistoryProgress('')}return;
-    }
     try{
       const archived=await api<{list:HistoryRow[]}>(`devices/${sn}/archive-series?start=${encodeURIComponent(archiveRange.start)}&end=${encodeURIComponent(archiveRange.end)}&resolution=hour`);
       if(archived.list?.length){setRawMonthRows(archived.list);writeSiteCache(sn,{monthRows:archived.list});markUpdated('month');setHistoryMessage('Mes cargado desde el respaldo permanente de Mi Solar.');return}
@@ -351,7 +337,7 @@ export default function App(){
   function switchProvider(provider:ProviderName){
     if(provider===sourceRef.current)return;
     sourceRef.current=provider;setSource(provider);localStorage.setItem(`misolar-provider:${selected}`,provider);
-    setRealtime({});setSummary({});setRawDayRows([]);setRawWeekRows([]);setRawMonthRows([]);setTimelineIndex(null);
+    setRealtime({});setSummary({});setTimelineIndex(null);
     setSyncMessage(provider==='watchpower'?'Cargando exclusivamente datos de WatchPower…':'Cargando exclusivamente datos de i.Solar…');
     void refreshAll(selected);
   }
@@ -430,7 +416,10 @@ export default function App(){
     if(cached)setPeerSolar({deviceSn:peerDevice.deviceSn,siteLabel,power:pvPower(cached,1)+pvPower(cached,2),updatedAt:null});
     const loadPeerSolar=async()=>{
       try{
-        const result=await api<{data:Realtime}>(`devices/${peerDevice.deviceSn}/realtime`);
+        const peerProviderSite=providerSiteFor(peerDevice.deviceSn);
+        const result=peerProviderSite
+          ? await api<{legacy:Realtime|null}>(`sites/${peerProviderSite.id}/providers/isolar/latest`).then(value=>({data:value.legacy||{}}))
+          : await api<{data:Realtime}>(`devices/${peerDevice.deviceSn}/realtime`);
         if(!active)return;
         const value=result.data||{};
         writeSiteCache(peerDevice.deviceSn,{realtime:value});
@@ -473,11 +462,11 @@ export default function App(){
     <Sidebar page={page} setPage={setPage} site={device?.nickName||'Mi instalación'} waterEnabled={waterEnabled} showUsers={showUsers} showFamily={showFamily} onLogout={async()=>{await Promise.allSettled([api('logout',{method:'POST'}),api('app-auth/logout',{method:'POST'})]);setAuth(false);setAppIdentity(null)}}/>
     <main className="content">
       <header className="topbar">
-        <div className="source-controls"><label><small>Instalación</small><select value={selected} onChange={e=>switchDevice(e.target.value)}>{devices.map(d=><option key={d.deviceSn} value={d.deviceSn}>{d.nickName||d.deviceSn}</option>)}</select></label><label><small>Fuente</small><select value={source} onChange={e=>switchProvider(e.target.value as ProviderName)}><option value="isolar">i.Solar</option><option value="watchpower" disabled={!selectedProviderSite?.providers.find(item=>item.provider==='watchpower')?.enabled}>WatchPower{!selectedProviderSite?.providers.find(item=>item.provider==='watchpower')?.enabled?' · pendiente':''}</option></select></label><span className={`online ${liveFresh?'is-fresh':'is-stale'}`}>● {selectedProviderStatus?.status==='temporarily_blocked'?'Bloqueado temporalmente':liveStatus}</span>{source==='watchpower'&&<em className="read-only-chip">Solo lectura</em>}</div>
+        <div className="source-controls"><label><small>Instalación</small><select value={selected} onChange={e=>switchDevice(e.target.value)}>{devices.map(d=><option key={d.deviceSn} value={d.deviceSn}>{d.nickName||d.deviceSn}</option>)}</select></label><label><small>Fuente instantánea</small><select value={source} onChange={e=>switchProvider(e.target.value as ProviderName)}><option value="isolar">i.Solar</option><option value="watchpower" disabled={!selectedProviderSite?.providers.find(item=>item.provider==='watchpower')?.enabled}>WatchPower{!selectedProviderSite?.providers.find(item=>item.provider==='watchpower')?.enabled?' · pendiente':''}</option></select></label><span className={`online ${liveFresh?'is-fresh':'is-stale'}`}>● {selectedProviderStatus?.status==='temporarily_blocked'?'Bloqueado temporalmente':liveStatus}</span>{source==='watchpower'&&<em className="read-only-chip">Solo lectura</em>}</div>
         <div className="time-box"><strong>{clock}</strong><small>Hora de Chile</small><small>Último dato: {formatDate(realtime.currentTime||realtime.createTime)}</small><small>Consulta: {lastFetch?lastFetch.toLocaleTimeString('es-CL',{timeZone:'America/Santiago',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}):'—'} · v{APP_VERSION}</small></div>
         {appIdentity?.authenticated&&<button className="account-chip" onClick={()=>setPage('integrations')} title="Ver sesión y credenciales"><ShieldCheck/><span><b>{appIdentity.user?.displayName||'Mi Solar'}</b><small>@{appIdentity.user?.username}</small></span></button>}
         {page!=='water'&&<FunModeToggle value={funMode} onChange={v=>{setFunMode(v);localStorage.setItem('funMode',v?'on':'off')}}/>}
-        <button className="refresh-button" onClick={()=>void refreshRealtime()} disabled={loading} title="Traer el último dato del flujo instantáneo"><RefreshCw className={loading?'spin':''}/><span>{loading?'Actualizando flujo…':'Actualizar'}</span></button>
+        <button className="refresh-button" onClick={()=>void refreshRealtime(undefined,true)} disabled={loading} title="Consultar el proveedor y guardar el último dato del flujo instantáneo"><RefreshCw className={loading?'spin':''}/><span>{loading?'Actualizando flujo…':'Actualizar'}</span></button>
       </header>
       {syncMessage&&<div className="data-warning-banner">{syncMessage}</div>}
       {historyMessage&&<div className={`data-warning-banner ${historyMessage.startsWith('Mes completo')?'history-status-ok':'history-status-warn'}`}>{historyMessage}</div>}
@@ -514,6 +503,7 @@ export default function App(){
       </>}
 
       {page==='charts'&&<section className="analytics-page">
+        <div className="data-warning-banner history-status-ok">Históricos desde la base permanente de Mi Solar · independientes de la sesión activa del proveedor.</div>
         <header className="analytics-title"><div><small>Análisis energético</small><h1>Gráficos y acumulados</h1><p>Todos los cortes pertenecen exclusivamente a la instalación seleccionada y usan el día calendario de Chile.</p></div><section className="instant-gauge-grid two-gauges"><article className="panel gauge-card"><small>Demanda actual</small><PowerGauge value={load} label="Consumo instantáneo"/><div className="gauge-note"><span className="safe-dot"/>normal <span className="danger-dot"/>carga alta</div></article><article className="panel gauge-card solar-gauge"><small>{pvCount===2?'Producción instantánea · PV1 y PV2':'Producción instantánea · PV1'}</small>{pvCount===2?<DualSolarGauge pv1={pvPower(realtime,1)} pv2={pvPower(realtime,2)} max={Math.max(3000,installedWp/2)}/>:<PowerGauge value={pvPower(realtime,1)} max={Math.max(3000,installedWp)} label="PV1 instantáneo" color="#efbd34"/>}</article></section></header>
         {pvCount===2&&<PvStringComparisonChart deviceSn={selected} siteLabel={siteLabel}/>}
         <EnergyRangeChart deviceSn={selected} siteLabel={siteLabel} gridLabel={gridSourceLabel}/>

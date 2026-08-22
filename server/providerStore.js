@@ -93,6 +93,10 @@ export async function saveProviderCredentials({ siteId, provider, username, pass
     throw error;
   }
   const existing = await accountFor(site.id, provider);
+  // Una credencial reemplazada nunca debe reutilizar la sesión de la clave
+  // anterior. La operación de desconexión revoca solo la sesión externa y no
+  // toca ninguna muestra histórica.
+  if (existing?.id) await providerDb('disconnect', { account_id: existing.id });
   const row = {
     site_id: site.id,
     provider,
@@ -257,6 +261,7 @@ export async function testProviderConnection({ siteId, provider }) {
   if (!account) throw new ProviderError('El proveedor aún no está configurado.', { code: 'NOT_CONFIGURED', status: 409 });
   const session = await sessionFor(site, account);
   const health = await adapters[provider].healthCheck(session);
+  await providerDb('account_success', { account_id: account.id });
   return { ...health, provider, readOnly: adapters[provider].readOnly };
 }
 
@@ -282,12 +287,29 @@ export async function syncProviderNow({ siteId, provider }) {
       if (saved) await providerDb('device_update', { device_id: saved.id, model: canonical.device.model || '', firmware_main: canonical.device.firmware_main || '', firmware_secondary: canonical.device.firmware_secondary || '', last_reading_at: canonical.time.sampled_at_utc });
       results.push({ device: { alias: saved?.alias || input.nickName || null, serialMasked: saved?.serial_masked || maskIdentifier(input.deviceSn) }, canonical, inserted: persisted.inserted });
     }
+    if (!results.length) throw new ProviderError('El proveedor conectó, pero no devolvió el dispositivo de esta instalación.', { code: 'DEVICE_NOT_FOUND', status: 404 });
+    await providerDb('account_success', { account_id: account.id });
     if (runId) await providerDb('sync_finish', { run_id: runId, status: 'success', samples_received: results.length, samples_inserted: results.filter((item) => item.inserted).length, duplicates: results.filter((item) => !item.inserted).length, duration_ms: Date.now() - started, error_code: '', error_message: '' });
     return { provider, site: { id: site.id, name: site.name }, devices: results, readOnly: adapters[provider].readOnly, syncedAt: new Date().toISOString() };
   } catch (error) {
     if (runId) await providerDb('sync_finish', { run_id: runId, status: 'failed', samples_received: 0, samples_inserted: 0, duplicates: 0, error_code: String(error?.code || 'SYNC_ERROR').slice(0, 80), error_message: String(error?.message || 'Error de sincronización').slice(0, 240), duration_ms: Date.now() - started });
     throw error;
   }
+}
+
+export async function syncEnabledProviders({ onlyProvider = null } = {}) {
+  const sites = await listProviderAccounts();
+  const results = [];
+  for (const site of sites) {
+    for (const account of site.providers.filter((item) => item.enabled && (!onlyProvider || item.provider === onlyProvider))) {
+      try {
+        results.push(await syncProviderNow({ siteId: site.id, provider: account.provider }));
+      } catch (error) {
+        results.push({ siteId: site.id, provider: account.provider, error: String(error?.message || 'Error de proveedor') });
+      }
+    }
+  }
+  return results;
 }
 
 export async function latestCanonical(siteId, provider) {

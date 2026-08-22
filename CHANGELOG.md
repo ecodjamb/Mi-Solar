@@ -1,3 +1,15 @@
+# Mi Solar v8.28.0
+
+- Usuarios: validación visible de la contraseña exacta de 8 caracteres antes de enviar; menús traducidos y acciones explicadas.
+- Usuarios: la cuenta accidental desactivada `[SENSITIVE]` deja de mostrarse sin borrar su registro ni su auditoría.
+- Acceso: credenciales y domótica quedan agrupadas en dos secciones desplegables.
+- Proveedores: al guardar credenciales se revoca la sesión anterior, se valida la conexión y se guarda inmediatamente la primera lectura.
+- Proveedores: los estados cambian a conectado solo después de una comprobación real exitosa.
+- WatchPower: sincronización controlada cada cinco minutos mediante el proceso automático existente, con muestras separadas por proveedor.
+- Datos: Inicio consulta la última muestra persistida de la fuente seleccionada; Actualizar fuerza una lectura nueva del proveedor.
+- Datos: gráficos, radiación, costos y demás históricos vuelven a leer el archivo permanente de Mi Solar y ya no muestran ceros por seleccionar WatchPower.
+- Seguridad: se conserva WatchPower exclusivamente en modo lectura y no se modificó ningún dato histórico.
+
 # Mi Solar v8.24.5
 
 - Agua: el icono de fotografía y el icono de ingreso manual comparten una primera columna fija y quedan exactamente alineados en celular y web.
