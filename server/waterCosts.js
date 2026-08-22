@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { ensureSite as ensureSolarSite, rest } from './archive.js';
+import { ensureSite as ensureSolarSite, resolveDeviceReference, rest } from './archive.js';
 import { calculateUtilityReminderSchedule } from './utilityBills.js';
 
 const TZ = 'America/Santiago';
@@ -7,7 +7,11 @@ const BUCKET = 'water-cost-documents';
 const ARRAYAN_DEVICE_SN = '96342509120972';
 
 async function ensureSite(deviceSn) {
-  if (String(deviceSn) !== ARRAYAN_DEVICE_SN) throw Object.assign(new Error('Los costos de agua solo están habilitados para El Arrayán.'), { status: 404 });
+  // El selector canónico nuevo entrega `site:2`, mientras el módulo de Agua
+  // conservaba la validación contra el número de serie antiguo. Resolvemos
+  // primero la referencia sin relajar la restricción a El Arrayán.
+  const resolvedDeviceSn = await resolveDeviceReference(deviceSn);
+  if (String(resolvedDeviceSn || '') !== ARRAYAN_DEVICE_SN) throw Object.assign(new Error('Los costos de agua solo están habilitados para El Arrayán.'), { status: 404 });
   return ensureSolarSite(deviceSn, 'El Arrayán');
 }
 

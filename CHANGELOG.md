@@ -1,4 +1,8 @@
-# Mi Solar v8.28.5
+# Mi Solar v8.28.6
+
+- Restaurada la carga de boletas, comprobantes y lecturas de Agua al usar la referencia canónica `site:2` de El Arrayán.
+
+## v8.28.5
 
 - La telemetría i.Solar se normaliza desde el contenido real de la respuesta y ya no desde su sobre de transporte.
 
