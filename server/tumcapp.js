@@ -78,9 +78,11 @@ export async function tumRequest(path, { params = {}, token = '', vrtKey = '', m
       }
 
       if (!response.ok || Number(payload.code) !== 0) {
-        const error = new Error(payload.message || `Tumcapp respondió ${response.status}`);
+        const providerMessage = payload.message || payload.msg || payload.error || payload.errorMessage;
+        const error = new Error(providerMessage || `Tumcapp rechazó la solicitud (código ${String(payload.code ?? response.status)}).`);
         error.status = response.status >= 400 ? response.status : 502;
         error.tumCode = payload.code;
+        error.code = payload.code == null ? 'ISOLAR_HTTP_ERROR' : `ISOLAR_${String(payload.code).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40)}`;
         throw error;
       }
 

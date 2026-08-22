@@ -8,16 +8,19 @@ const response = (payload, status = 200) => new Response(JSON.stringify(payload)
 {
   const calls = [];
   const provider = new ISolarProvider({ request: async (path, options = {}) => {
-    calls.push({ path, token: options.token || '' });
+    calls.push({ path, token: options.token || '', params: options.params || {} });
     if (path === 'user/login') return { payload: { data: { token: 'token-a', vrtKey: 'vrt-a' } }, token: 'token-a' };
-    if (path === 'deviceUser/getMyDevice') return { payload: { data: { list: [{ deviceSn: '12345678' }] } }, token: 'token-b' };
-    return { payload: { code: 0, data: { currentTime: '2026-08-21 21:00:00' } }, token: 'token-c' };
+    if (path === 'deviceUser/getMyDevice') return { payload: { data: { list: [{ deviceSn: '12345678' }], total: 1 } }, token: 'token-b' };
+    if (path === 'realData/getRealByDeviceSn') return { payload: { code: 0, data: { currentTime: '2026-08-21 21:00:00' } }, token: 'token-c' };
+    throw new Error(`Endpoint inesperado: ${path}`);
   } });
   const session = await provider.authenticate({ username: 'fixture', password: 'fixture' });
   const listed = await provider.listDevices(session);
   await provider.getRealtimeData(listed.session, listed.devices[0]);
   assert.equal(calls[1].token, 'token-a');
+  assert.equal(calls[1].params.pageSize, '20');
   assert.equal(calls[2].token, 'token-b');
+  assert.equal(calls[2].path, 'realData/getRealByDeviceSn');
   assert.equal(session.token, 'token-c');
 }
 

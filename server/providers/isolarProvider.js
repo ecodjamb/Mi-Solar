@@ -29,12 +29,31 @@ export class ISolarProvider extends ProviderAdapter {
   async refreshSession(session) { return session; }
   async listSites() { return { sites: [] }; }
   async listDevices(session) {
-    const result = await this.requestWithSession('deviceUser/getMyDevice', { params: { openPage: '1', pageNum: '1', pageSize: '100', groupId: '0' } }, session);
-    return { payload: result.payload, devices: result.payload.data?.list || [], session };
+    const devices = [];
+    let pageNum = 1;
+    let total = Infinity;
+    let payload = null;
+    // i.Solar acepta páginas de 20 elementos. Pedir 100 hace que Tumcapp
+    // rechace la consulta aun cuando el login haya sido válido.
+    while (devices.length < total && pageNum <= 50) {
+      const result = await this.requestWithSession('deviceUser/getMyDevice', {
+        params: { openPage: '1', pageNum: String(pageNum), pageSize: '20', groupId: '0' }
+      }, session);
+      payload = result.payload;
+      const data = result.payload.data || {};
+      const list = Array.isArray(data.list) ? data.list : [];
+      devices.push(...list);
+      total = Number(data.total ?? devices.length);
+      const hasNext = data.hasNextPage === true || data.hasNextPage === 1 || data.hasNextPage === '1' || data.hasNextPage === 'true';
+      if (!list.length || (!hasNext && (!Number.isFinite(total) || devices.length >= total))) break;
+      pageNum += 1;
+    }
+    return { payload, devices, session };
   }
   async getRealtimeData(session, device) {
-    const params = { deviceSn: device.deviceSn || device.sn, type: '0' };
-    const result = await this.requestWithSession('device/getDeviceRealTimeData', { params }, session);
+    // Mantener exactamente el endpoint ya probado por el flujo instantáneo.
+    const params = { deviceSn: device.deviceSn || device.sn };
+    const result = await this.requestWithSession('realData/getRealByDeviceSn', { params }, session);
     return result.payload;
   }
   async getHistory() { throw new ProviderError('Use el histórico persistente de MiSolar para i.Solar.', { code: 'USE_CANONICAL_HISTORY', status: 400 }); }

@@ -1,4 +1,9 @@
-# Mi Solar v8.28.3
+# Mi Solar v8.28.4
+
+- Corregida la lectura canónica de i.Solar: usa el endpoint real del flujo instantáneo y la paginación admitida por Tumcapp.
+- Los errores de i.Solar ahora conservan un código y mensaje sanitizados útiles para diagnóstico.
+
+## v8.28.3
 
 - i.Solar: se conserva y persiste el token renovado que devuelve cada consulta, evitando el estado conectado con lecturas posteriores fallidas.
 - i.Solar: una sesión antigua inválida se renueva una sola vez, sin bucles ni ráfagas de login.
