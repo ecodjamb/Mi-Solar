@@ -47,6 +47,8 @@ const SESSION_IDLE_MS=SESSION_POLICY.idleMs;
 const ACTIVITY_PING_MS=SESSION_POLICY.activityPingMs;
 const LAST_ACTIVITY_KEY=SESSION_POLICY.storageKey;
 const REFRESH_MS=REFRESH_POLICY;
+const PROVIDER_ACTIVE_REFRESH_MS=2*60_000;
+type RealtimeRefreshMode='cache'|'if-stale'|'force';
 const requestedPage=()=>{const value=new URLSearchParams(window.location.search).get('page');return(['home','charts','solar','costs','equipment','programming','integrations','technical','water','users','family'] as PageKey[]).includes(value as PageKey)?value as PageKey:'home'};
 const emptyEnergy:DailyEnergy={date:'',solar:0,pv1:0,pv2:0,load:0,grid:0,gridImport:0,gridExport:0,gridToLoad:0,charge:0,discharge:0,solarToLoad:0,batteryToLoad:0,solarToBattery:0,samples:0};
 type StoredSolarForecast={date:string;forecastKwh:number;radiationKwhM2:number;locked:boolean;lockedAt:string|null};
@@ -176,7 +178,7 @@ export default function App(){
     return api<{list:HistoryRow[];total:number;truncated?:boolean;pages?:number}>(`devices/${sn}/history?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&maxPages=${maxPages}`);
   }
 
-  function refreshRealtime(sn=selectedRef.current||selected,requestOrigin=false){
+  function refreshRealtime(sn=selectedRef.current||selected,refreshMode:RealtimeRefreshMode='cache'){
     if(!sn)return Promise.resolve();
     const requestedProvider=sourceRef.current;
     const requestKey=`${sn}:${requestedProvider}`;
@@ -187,8 +189,11 @@ export default function App(){
       try{
         const provider=requestedProvider;
         const providerSite=providerSiteFor(sn);
-        if(requestOrigin&&providerSite&&appIdentity?.authenticated){
-          try{await api(`sites/${providerSite.id}/providers/${provider}/sync`,{method:'POST'})}catch{/* Se conserva la última muestra respaldada y se informa por su antigüedad. */}
+        let originError='';
+        if(refreshMode!=='cache'&&providerSite&&appIdentity?.authenticated){
+          const action=refreshMode==='force'?'sync':'refresh';
+          try{await apiLive(`sites/${providerSite.id}/providers/${provider}/${action}`,{method:'POST'})}
+          catch(cause){originError=cause instanceof Error?cause.message:'El proveedor no respondió.'}
         }
         const useCanonical=Boolean(providerSite);
         const result:LiveResponse=useCanonical&&providerSite
@@ -200,10 +205,9 @@ export default function App(){
         if(selectedRef.current!==sn||sourceRef.current!==provider)return;
         setRealtime(value);
         setSummary(summaryValue);
-        const receivedAt=result.receivedAt&&Number.isFinite(Date.parse(result.receivedAt))?new Date(result.receivedAt):new Date();
-        setLastFetch(receivedAt);
+        setLastFetch(new Date());
         markUpdated('realtime');
-        setSyncMessage(result.partial?'Datos instantáneos actualizados; el resumen del equipo se completará en el próximo ciclo.':'');
+        setSyncMessage(originError?`No se pudo consultar ${provider==='isolar'?'i.Solar':'WatchPower'} ahora: ${originError}. Se conserva la última muestra respaldada.`:result.partial?'Datos instantáneos actualizados; el resumen del equipo se completará en el próximo ciclo.':'');
       }catch{
         if(selectedRef.current===sn)setSyncMessage('No se pudo actualizar ahora. La app conserva el último dato identificado como anterior y reintentará en 30 segundos.');
       }finally{
@@ -321,14 +325,14 @@ export default function App(){
     setTimelineIndex(null);
     setProjectionHistory([]);
     setHomeDate(formatSiteDate());setHistoricalDayRows([]);
-    void refreshAll(sn);
+    void refreshAll(sn,appIdentity?.authenticated?'if-stale':'cache');
   }
 
-  async function refreshAll(sn=selected){
+  async function refreshAll(sn=selected,refreshMode:RealtimeRefreshMode='cache'){
     if(!sn)return;
     setSyncMessage('');
     // La lectura viva se atiende primero; el histórico queda en segundo plano.
-    await refreshRealtime(sn);
+    await refreshRealtime(sn,refreshMode);
     await refreshDayHistory(sn);
     await refreshWeekHistory(sn);
     void refreshMonthHistory(sn);
@@ -339,7 +343,7 @@ export default function App(){
     sourceRef.current=provider;setSource(provider);localStorage.setItem(`misolar-provider:${selected}`,provider);
     setRealtime({});setSummary({});setTimelineIndex(null);
     setSyncMessage(provider==='watchpower'?'Cargando exclusivamente datos de WatchPower…':'Cargando exclusivamente datos de i.Solar…');
-    void refreshAll(selected);
+    void refreshAll(selected,appIdentity?.authenticated?'if-stale':'cache');
   }
 
   useEffect(()=>{const timer=setInterval(()=>setClock(formatClock()),1000);return()=>clearInterval(timer)},[]);
@@ -386,7 +390,7 @@ export default function App(){
       ['scroll',registerActivity,{passive:true}]
     ];
     events.forEach(([name,handler,options])=>window.addEventListener(name,handler,options));
-    const refreshOnResume=()=>{const sn=selectedRef.current;if(sn)void refreshRealtime(sn)};
+    const refreshOnResume=()=>{const sn=selectedRef.current;if(sn)void refreshRealtime(sn,appIdentity?.authenticated?'if-stale':'cache')};
     const onVisibility=()=>{if(document.visibilityState==='visible'){registerActivity();void apiFast<{authenticated:boolean}>('session').then(value=>{setLegacyAuth(value.authenticated);refreshOnResume()}).catch(()=>refreshOnResume())}};
     const onOnline=()=>refreshOnResume();
     const onPageShow=()=>refreshOnResume();
@@ -405,6 +409,11 @@ export default function App(){
   useEffect(()=>{if(!auth||!providerCatalog)return;const fallback=()=>{const list=providerCatalog.sites.map(site=>({deviceSn:site.siteKey,nickName:site.name,onlineStatus:site.providers.some(item=>item.status==='connected')?1:0}));setDevices(list);if(!selected&&list[0])switchDevice(list[0].deviceSn)};if(!legacyAuth){fallback();return}api<{devices:Device[]}>('devices').then(x=>{const list=x.devices||[];if(!list.length){fallback();return}setDevices(list);const sn=list[0]?.deviceSn||'';if(sn&&!selected)switchDevice(sn)}).catch(fallback)},[auth,legacyAuth,providerCatalog]);
   useEffect(()=>{if(!device)return;setTariff(Number(localStorage.getItem(siteStorageKey('tariffCLP',device.nickName||'')))||profile.defaultTariff)},[device?.deviceSn]);
   useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>void refreshRealtime(selected),REFRESH_MS.realtime);return()=>clearInterval(t)},[auth,selected]);
+  useEffect(()=>{
+    if(!auth||!selected||page!=='home'||!appIdentity?.authenticated)return;
+    const t=setInterval(()=>void refreshRealtime(selected,'if-stale'),PROVIDER_ACTIVE_REFRESH_MS);
+    return()=>clearInterval(t);
+  },[auth,selected,source,page,appIdentity?.authenticated]);
   useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>void refreshDayHistory(selected),REFRESH_MS.day);return()=>clearInterval(t)},[auth,selected]);
   useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>void refreshWeekHistory(selected),REFRESH_MS.week);return()=>clearInterval(t)},[auth,selected,weekRange.siteStart,weekRange.siteEnd]);
   useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>void refreshMonthHistory(selected),REFRESH_MS.month);return()=>clearInterval(t)},[auth,selected,siteDate]);
@@ -466,7 +475,7 @@ export default function App(){
         <div className="time-box"><strong>{clock}</strong><small>Hora de Chile</small><small>Último dato: {formatDate(realtime.currentTime||realtime.createTime)}</small><small>Consulta: {lastFetch?lastFetch.toLocaleTimeString('es-CL',{timeZone:'America/Santiago',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}):'—'} · v{APP_VERSION}</small></div>
         {appIdentity?.authenticated&&<button className="account-chip" onClick={()=>setPage('integrations')} title="Ver sesión y credenciales"><ShieldCheck/><span><b>{appIdentity.user?.displayName||'Mi Solar'}</b><small>@{appIdentity.user?.username}</small></span></button>}
         {page!=='water'&&<FunModeToggle value={funMode} onChange={v=>{setFunMode(v);localStorage.setItem('funMode',v?'on':'off')}}/>}
-        <button className="refresh-button" onClick={()=>void refreshRealtime(undefined,true)} disabled={loading} title="Consultar el proveedor y guardar el último dato del flujo instantáneo"><RefreshCw className={loading?'spin':''}/><span>{loading?'Actualizando flujo…':'Actualizar'}</span></button>
+        <button className="refresh-button" onClick={()=>void refreshRealtime(undefined,'force')} disabled={loading} title="Consultar el proveedor y guardar el último dato del flujo instantáneo"><RefreshCw className={loading?'spin':''}/><span>{loading?'Actualizando flujo…':'Actualizar'}</span></button>
       </header>
       {syncMessage&&<div className="data-warning-banner">{syncMessage}</div>}
       {historyMessage&&<div className={`data-warning-banner ${historyMessage.startsWith('Mes completo')?'history-status-ok':'history-status-warn'}`}>{historyMessage}</div>}

@@ -458,3 +458,48 @@
   .current-session-card{align-items:flex-start;padding:14px}.current-session-card>b{font-size:9px}
   .provider-site-section{padding:10px}.provider-site-section>header{align-items:flex-start}.provider-site-section>header span{display:none}
 }
+
+/* v8.28.3 · Acceso compacto y sin desbordes en iPhone */
+@media(max-width:620px){
+  .settings-page{width:100%;min-width:0;overflow:hidden}
+  .settings-page>.page-heading{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;min-width:0}
+  .settings-page>.page-heading>div{min-width:0}
+  .settings-page>.page-heading h1{font-size:clamp(23px,7.5vw,29px);line-height:1.05;overflow-wrap:anywhere}
+  .settings-page>.page-heading p{margin:7px 0 0;font-size:11px;line-height:1.4}
+  .settings-page>.page-heading .refresh-button{width:44px;height:44px;padding:9px!important}
+  .settings-page>.page-heading .refresh-button span{display:none}
+  .integration-supersection{width:100%;min-width:0;border-radius:16px}
+  .integration-supersection>summary{min-width:0;padding:13px 14px}
+  .integration-supersection>summary>span{min-width:0;grid-template-columns:22px minmax(0,1fr);column-gap:8px}
+  .integration-supersection>summary b{min-width:0;font-size:15px;line-height:1.15;overflow-wrap:anywhere}
+  .integration-supersection>summary small{min-width:0;font-size:9px;line-height:1.25;overflow-wrap:anywhere}
+  .integration-supersection>summary>svg{flex:0 0 auto;width:18px}
+  .integration-supersection-body{min-width:0;padding:0 8px 8px}
+  .provider-sites-list,.provider-account-grid{min-width:0;gap:9px}
+  .provider-site-section{width:100%;min-width:0;padding:7px;border-radius:15px}
+  .provider-site-section>header{padding:3px 6px}
+  .provider-site-section>header h2{font-size:18px}
+  .provider-account-card{width:100%;min-width:0;overflow:hidden;padding:13px;border-radius:15px}
+  .provider-account-card>header{display:grid;grid-template-columns:40px minmax(0,1fr);gap:9px;min-width:0}
+  .provider-account-card>header>div{min-width:0}
+  .provider-logo{width:40px;height:40px;border-radius:12px}
+  .provider-status{grid-column:1/-1;justify-self:start;margin:0;padding:5px 8px;font-size:10px}
+  .provider-readonly-banner{margin-top:9px;padding:5px 8px;font-size:10px}
+  .provider-account-card dl{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:10px 0}
+  .provider-account-card dl div{padding:8px;border-radius:9px}
+  .provider-account-card dt{font-size:9px}
+  .provider-account-card dd{font-size:11px}
+  .provider-actions{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  .provider-actions button{min-width:0;padding:9px 6px;font-size:10px;line-height:1.2}
+  .provider-credentials-form{min-width:0}
+  .provider-credentials-form input{width:100%;min-width:0}
+  .provider-credentials-form>div{display:grid;grid-template-columns:1fr 1fr}
+  .current-session-card{display:grid;grid-template-columns:24px minmax(0,1fr);gap:9px;min-width:0}
+  .current-session-card>div{min-width:0}
+  .current-session-card h2{font-size:16px;overflow-wrap:anywhere}
+  .current-session-card h2 span{display:block;margin-top:3px;font-size:11px}
+  .current-session-card>b{grid-column:2;margin:0;justify-self:start}
+}
+@media(max-width:360px){
+  .provider-account-card dl,.provider-actions{grid-template-columns:1fr}
+}

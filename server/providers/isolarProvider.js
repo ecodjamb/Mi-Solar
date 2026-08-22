@@ -2,11 +2,20 @@ import { md5, tumRequest } from '../tumcapp.js';
 import { ProviderAdapter, ProviderError } from './ProviderAdapter.js';
 
 export class ISolarProvider extends ProviderAdapter {
-  constructor() { super('isolar', { readOnly: false }); }
+  constructor({ request = tumRequest } = {}) {
+    super('isolar', { readOnly: false });
+    this.request = request;
+  }
+
+  async requestWithSession(path, options, session) {
+    const result = await this.request(path, { ...options, token: session?.token || '', vrtKey: session?.vrtKey || '' });
+    if (session && result.token) session.token = result.token;
+    return result;
+  }
 
   async authenticate({ username, password }) {
     try {
-      const result = await tumRequest('user/login', { params: { username: String(username || '').trim(), password: md5(password || '') } });
+      const result = await this.request('user/login', { params: { username: String(username || '').trim(), password: md5(password || '') } });
       const data = result.payload.data || {};
       const token = data.token || result.token;
       const vrtKey = data.vrtKey || data.userInfo?.vrtKey;
@@ -20,17 +29,17 @@ export class ISolarProvider extends ProviderAdapter {
   async refreshSession(session) { return session; }
   async listSites() { return { sites: [] }; }
   async listDevices(session) {
-    const result = await tumRequest('deviceUser/getMyDevice', { params: { openPage: '1', pageNum: '1', pageSize: '100', groupId: '0' }, token: session.token, vrtKey: session.vrtKey });
-    return { payload: result.payload, devices: result.payload.data?.list || [], session: { ...session, token: result.token } };
+    const result = await this.requestWithSession('deviceUser/getMyDevice', { params: { openPage: '1', pageNum: '1', pageSize: '100', groupId: '0' } }, session);
+    return { payload: result.payload, devices: result.payload.data?.list || [], session };
   }
   async getRealtimeData(session, device) {
     const params = { deviceSn: device.deviceSn || device.sn, type: '0' };
-    const result = await tumRequest('device/getDeviceRealTimeData', { params, token: session.token, vrtKey: session.vrtKey });
+    const result = await this.requestWithSession('device/getDeviceRealTimeData', { params }, session);
     return result.payload;
   }
   async getHistory() { throw new ProviderError('Use el histórico persistente de MiSolar para i.Solar.', { code: 'USE_CANONICAL_HISTORY', status: 400 }); }
   async getAlarms(session, device) {
-    const result = await tumRequest('device/getDeviceAlarmRecord', { params: { deviceSn: device.deviceSn || device.sn, pageNum: '1', pageSize: '100' }, token: session.token, vrtKey: session.vrtKey });
+    const result = await this.requestWithSession('device/getDeviceAlarmRecord', { params: { deviceSn: device.deviceSn || device.sn, pageNum: '1', pageSize: '100' } }, session);
     return result.payload;
   }
   async getDeviceInfo(session, device) { return this.getRealtimeData(session, device); }

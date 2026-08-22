@@ -1,4 +1,4 @@
-export const APP_VERSION = '8.28.2';
+export const APP_VERSION = '8.28.3';
 
 export const SESSION_POLICY = {
   idleMs: 24 * 60 * 60_000,

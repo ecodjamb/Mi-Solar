@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { privateRpc } from './privateRpc.js';
+import { privateProviderSyncClaim, privateRpc } from './privateRpc.js';
 import { decryptProviderSecret, encryptProviderSecret, maskIdentifier, sanitizeProviderPayload, sha256Json } from './providerCrypto.js';
 import { normalizeISolar, normalizeWatchPower, NORMALIZER_VERSION } from './canonicalTelemetry.js';
 import { WatchPowerProvider } from './providers/watchPowerProvider.js';
@@ -170,15 +170,26 @@ async function sessionFor(site, account) {
   const credentials = await credentialsFor(account, site);
   if (!credentials) throw new ProviderError('El proveedor no tiene credenciales configuradas.', { code: 'CREDENTIALS_MISSING', status: 409 });
   try {
-    const session = await adapters[account.provider].authenticate(credentials);
-    const packed = encryptProviderSecret(session);
-    const expiresAt = new Date(Date.now() + Math.max(300, Number(session.expiresInSeconds || 600)) * 1000).toISOString();
-    await providerDb('session_replace', { account_id: account.id, session_cipher: packed.cipher, encryption_version: packed.version, expires_at: expiresAt });
-    return session;
+    return await authenticateFreshSession(site, account);
   } catch (error) {
     await markFailure(account, error);
+    if (error && typeof error === 'object') error.providerFailureRecorded = true;
     throw error;
   }
+}
+
+async function authenticateFreshSession(site, account) {
+  const credentials = await credentialsFor(account, site);
+  if (!credentials) throw new ProviderError('El proveedor no tiene credenciales configuradas.', { code: 'CREDENTIALS_MISSING', status: 409 });
+  const session = await adapters[account.provider].authenticate(credentials);
+  await storeSession(account, session);
+  return session;
+}
+
+async function storeSession(account, session) {
+  const packed = encryptProviderSecret(session);
+  const expiresAt = new Date(Date.now() + Math.max(300, Number(session.expiresInSeconds || 600)) * 1000).toISOString();
+  await providerDb('session_replace', { account_id: account.id, session_cipher: packed.cipher, encryption_version: packed.version, expires_at: expiresAt });
 }
 
 async function recordRaw(siteId, providerDeviceId, provider, payloadType, payload, canonical) {
@@ -261,6 +272,7 @@ export async function testProviderConnection({ siteId, provider }) {
   if (!account) throw new ProviderError('El proveedor aún no está configurado.', { code: 'NOT_CONFIGURED', status: 409 });
   const session = await sessionFor(site, account);
   const health = await adapters[provider].healthCheck(session);
+  if (provider === 'isolar') await storeSession(account, session);
   return { ...health, provider, readOnly: adapters[provider].readOnly };
 }
 
@@ -272,27 +284,52 @@ export async function syncProviderNow({ siteId, provider }) {
   const runId = run?.id;
   const started = Date.now();
   try {
-    const session = await sessionFor(site, account);
-    const listed = await adapters[provider].listDevices(session);
-    const inputDevices = provider === 'isolar'
-      ? (listed.devices || []).filter((device) => String(device.deviceSn || device.sn || '') === String(site.device_sn || ''))
-      : (listed.devices || []);
-    const results = [];
-    for (const input of inputDevices) {
-      const saved = provider === 'watchpower' ? await saveDiscoveredDevice(account, input) : await saveISolarDevice(account, input);
-      const payload = await adapters[provider].getRealtimeData(session, input);
-      const persisted = await persistTelemetry({ site, account, providerDevice: saved, payload });
-      const canonical = persisted.canonical;
-      if (saved) await providerDb('device_update', { device_id: saved.id, model: canonical.device.model || '', firmware_main: canonical.device.firmware_main || '', firmware_secondary: canonical.device.firmware_secondary || '', last_reading_at: canonical.time.sampled_at_utc });
-      results.push({ device: { alias: saved?.alias || input.nickName || null, serialMasked: saved?.serial_masked || maskIdentifier(input.deviceSn) }, canonical, inserted: persisted.inserted });
+    let session = await sessionFor(site, account);
+    let results;
+    try {
+      results = await synchronizeWithSession({ site, account, provider, session });
+    } catch (firstError) {
+      // i.Solar rota el token en sus respuestas. Una sesión guardada antes de
+      // esta corrección puede haber quedado inválida: se renueva una sola vez,
+      // sin bucles ni intentos consecutivos ilimitados.
+      if (provider !== 'isolar' || firstError?.code === 'DEVICE_NOT_FOUND' || firstError?.code === 'CREDENTIALS_MISSING') throw firstError;
+      session = await authenticateFreshSession(site, account);
+      results = await synchronizeWithSession({ site, account, provider, session });
     }
-    if (!results.length) throw new ProviderError('El proveedor conectó, pero no devolvió el dispositivo de esta instalación.', { code: 'DEVICE_NOT_FOUND', status: 404 });
     if (runId) await providerDb('sync_finish', { run_id: runId, status: 'success', samples_received: results.length, samples_inserted: results.filter((item) => item.inserted).length, duplicates: results.filter((item) => !item.inserted).length, duration_ms: Date.now() - started, error_code: '', error_message: '' });
     return { provider, site: { id: site.id, name: site.name }, devices: results, readOnly: adapters[provider].readOnly, syncedAt: new Date().toISOString() };
   } catch (error) {
     if (runId) await providerDb('sync_finish', { run_id: runId, status: 'failed', samples_received: 0, samples_inserted: 0, duplicates: 0, error_code: String(error?.code || 'SYNC_ERROR').slice(0, 80), error_message: String(error?.message || 'Error de sincronización').slice(0, 240), duration_ms: Date.now() - started });
+    if (!error?.providerFailureRecorded) await markFailure(account, error);
     throw error;
   }
+}
+
+async function synchronizeWithSession({ site, account, provider, session }) {
+  const listed = await adapters[provider].listDevices(session);
+  const activeSession = listed.session || session;
+  const inputDevices = provider === 'isolar'
+    ? (listed.devices || []).filter((device) => String(device.deviceSn || device.sn || '') === String(site.device_sn || ''))
+    : (listed.devices || []);
+  const results = [];
+  for (const input of inputDevices) {
+    const saved = provider === 'watchpower' ? await saveDiscoveredDevice(account, input) : await saveISolarDevice(account, input);
+    const payload = await adapters[provider].getRealtimeData(activeSession, input);
+    const persisted = await persistTelemetry({ site, account, providerDevice: saved, payload });
+    const canonical = persisted.canonical;
+    if (saved) await providerDb('device_update', { device_id: saved.id, model: canonical.device.model || '', firmware_main: canonical.device.firmware_main || '', firmware_secondary: canonical.device.firmware_secondary || '', last_reading_at: canonical.time.sampled_at_utc });
+    results.push({ device: { alias: saved?.alias || input.nickName || null, serialMasked: saved?.serial_masked || maskIdentifier(input.deviceSn) }, canonical, inserted: persisted.inserted });
+  }
+  if (!results.length) throw new ProviderError('El proveedor conectó, pero no devolvió el dispositivo de esta instalación.', { code: 'DEVICE_NOT_FOUND', status: 404 });
+  if (provider === 'isolar') await storeSession(account, activeSession);
+  return results;
+}
+
+export async function syncProviderIfDue({ siteId, provider, minimumSeconds = 90 }) {
+  assertProvider(provider);
+  const claimed = await privateProviderSyncClaim({ siteId, provider, minimumSeconds });
+  if (!claimed) return { provider, siteId: Number(siteId), skipped: true, reason: 'recent_or_running' };
+  return await syncProviderNow({ siteId, provider });
 }
 
 export async function syncEnabledProviders({ onlyProvider = null } = {}) {
@@ -301,7 +338,7 @@ export async function syncEnabledProviders({ onlyProvider = null } = {}) {
   for (const site of sites) {
     for (const account of site.providers.filter((item) => item.enabled && (!onlyProvider || item.provider === onlyProvider))) {
       try {
-        results.push(await syncProviderNow({ siteId: site.id, provider: account.provider }));
+        results.push(await syncProviderIfDue({ siteId: site.id, provider: account.provider }));
       } catch (error) {
         results.push({ siteId: site.id, provider: account.provider, error: String(error?.message || 'Error de proveedor') });
       }

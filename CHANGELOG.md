@@ -1,3 +1,12 @@
+# Mi Solar v8.28.3
+
+- i.Solar: se conserva y persiste el token renovado que devuelve cada consulta, evitando el estado conectado con lecturas posteriores fallidas.
+- i.Solar: una sesión antigua inválida se renueva una sola vez, sin bucles ni ráfagas de login.
+- Sincronización: i.Solar y WatchPower se actualizan en el proceso automático; con Inicio abierto, la lectura del proveedor se solicita cada dos minutos y el botón Actualizar fuerza una consulta inmediata.
+- Sincronización: un reclamo atómico en la base de datos impide consultas simultáneas del cron y de varios teléfonos.
+- Inicio: “Consulta” refleja la hora real en que el teléfono comprobó el respaldo, mientras “Último dato” mantiene la hora efectiva de la muestra.
+- Acceso: tarjetas, estados, botones y formularios se reorganizan sin desbordes en iPhone.
+
 # Mi Solar v8.28.2
 
 - Proveedores: la ejecución automática se marca exitosa después de persistir la muestra, sin invocar una operación de estado inexistente.

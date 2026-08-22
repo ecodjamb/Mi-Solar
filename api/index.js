@@ -25,7 +25,7 @@ import { extractWaterBill, extractWaterMeterReading, validateWaterImages } from 
 import { appSessionStatus, changeAppPassword, loginApp, logoutApp, requireAppPermission, requireAppViewIfEnabled } from '../server/appAuth.js';
 import {
   disconnectProvider, latestCanonical, listProviderAccounts, providerHistory, saveProviderCredentials,
-  syncProviderNow, syncEnabledProviders, testProviderConnection, publicProviderCatalog
+  syncProviderNow, syncProviderIfDue, syncEnabledProviders, testProviderConnection, publicProviderCatalog
 } from '../server/providerStore.js';
 import { canonicalToLegacy } from '../server/canonicalTelemetry.js';
 import { createUser, listUsers, resetUserPassword, revokeUserSessions, updateUser } from '../server/userAdmin.js';
@@ -286,6 +286,12 @@ export default async function handler(req, res) {
       return sendJson(res, 200, await syncProviderNow({ siteId: Number(providerSync[1]), provider: providerSync[2] }));
     }
 
+    const providerRefresh = route.match(/^sites\/(\d+)\/providers\/(isolar|watchpower)\/refresh$/);
+    if (providerRefresh && method === 'POST') {
+      await requireAppPermission(req, 'credentials.manage');
+      return sendJson(res, 200, await syncProviderIfDue({ siteId: Number(providerRefresh[1]), provider: providerRefresh[2], minimumSeconds: 90 }));
+    }
+
     const providerLatest = route.match(/^sites\/(\d+)\/providers\/(isolar|watchpower)\/latest$/);
     if (providerLatest && method === 'GET') {
       await requireAppViewIfEnabled(req);
@@ -319,14 +325,14 @@ export default async function handler(req, res) {
       } catch (cause) {
         archiveError = cause instanceof Error ? cause.message : 'No fue posible comprobar el archivo permanente.';
       }
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.28.2', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.28.3', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
       if (!process.env.CRON_SECRET || req.headers?.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
         return sendJson(res, 401, { error: 'Ejecución programada no autorizada.' });
       }
-      const [automation, forecastLocks, providers] = await Promise.all([runDueAutomations(), lockTomorrowForecasts(), syncEnabledProviders({ onlyProvider: 'watchpower' })]);
+      const [automation, forecastLocks, providers] = await Promise.all([runDueAutomations(), lockTomorrowForecasts(), syncEnabledProviders()]);
       return sendJson(res, 200, { automation, forecastLocks, providers });
     }
 

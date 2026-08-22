@@ -16,3 +16,15 @@ export async function privatePasswordChange(payload) {
     body: JSON.stringify({ p_payload: payload })
   });
 }
+
+export async function privateProviderSyncClaim({ siteId, provider, minimumSeconds = 90, force = false }) {
+  return await rest('rpc/misolar_provider_sync_claim_backend', {
+    method: 'POST',
+    body: JSON.stringify({
+      p_site_id: Number(siteId),
+      p_provider: String(provider || ''),
+      p_minimum_seconds: Math.max(30, Number(minimumSeconds) || 90),
+      p_force: Boolean(force)
+    })
+  });
+}

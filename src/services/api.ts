@@ -15,7 +15,7 @@ function requiresMiSolarSession(path: string) {
   if (path.startsWith('admin/')) return true;
   if (path === 'app-auth/change-password') return true;
   if (path === 'provider-accounts') return true;
-  return /^sites\/\d+\/providers\/(isolar|watchpower)\/(credentials|test|sync)$/.test(path);
+  return /^sites\/\d+\/providers\/(isolar|watchpower)\/(credentials|test|sync|refresh)$/.test(path);
 }
 
 function sleep(ms: number) {

@@ -1,8 +1,25 @@
 import assert from 'node:assert/strict';
 import { normalizeWatchPower } from '../server/canonicalTelemetry.js';
+import { ISolarProvider } from '../server/providers/isolarProvider.js';
 import { WatchPowerProvider, WATCHPOWER_WRITES_ENABLED } from '../server/providers/watchPowerProvider.js';
 
 const response = (payload, status = 200) => new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json' } });
+
+{
+  const calls = [];
+  const provider = new ISolarProvider({ request: async (path, options = {}) => {
+    calls.push({ path, token: options.token || '' });
+    if (path === 'user/login') return { payload: { data: { token: 'token-a', vrtKey: 'vrt-a' } }, token: 'token-a' };
+    if (path === 'deviceUser/getMyDevice') return { payload: { data: { list: [{ deviceSn: '12345678' }] } }, token: 'token-b' };
+    return { payload: { code: 0, data: { currentTime: '2026-08-21 21:00:00' } }, token: 'token-c' };
+  } });
+  const session = await provider.authenticate({ username: 'fixture', password: 'fixture' });
+  const listed = await provider.listDevices(session);
+  await provider.getRealtimeData(listed.session, listed.devices[0]);
+  assert.equal(calls[1].token, 'token-a');
+  assert.equal(calls[2].token, 'token-b');
+  assert.equal(session.token, 'token-c');
+}
 
 {
   let requested = '';
