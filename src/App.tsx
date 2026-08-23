@@ -466,20 +466,23 @@ export default function App(){
   const rawUnknown=[...new Set([...Object.keys(summary),...Object.keys(realtime)])].filter(k=>!used.has(k)).sort();
   const showUsers=appIdentity?.authenticated===true&&appIdentity.access.role==='superadmin';
   const showFamily=appIdentity?.authenticated===true&&(appIdentity.access.role==='superadmin'||appIdentity.access.permissions.includes('family.view')||appIdentity.access.menus.family===true);
+  const solarChrome=page!=='family'&&page!=='users'&&page!=='water';
 
   return <div className="shell">
     <Sidebar page={page} setPage={setPage} site={device?.nickName||'Mi instalación'} waterEnabled={waterEnabled} showUsers={showUsers} showFamily={showFamily} onLogout={async()=>{await Promise.allSettled([api('logout',{method:'POST'}),api('app-auth/logout',{method:'POST'})]);setAuth(false);setAppIdentity(null)}}/>
     <main className="content">
-      <header className="topbar">
+      {solarChrome&&<header className="topbar">
         <div className="source-controls"><label><small>Instalación</small><select value={selected} onChange={e=>switchDevice(e.target.value)}>{devices.map(d=><option key={d.deviceSn} value={d.deviceSn}>{d.nickName||d.deviceSn}</option>)}</select></label><label><small>Fuente instantánea</small><select value={source} onChange={e=>switchProvider(e.target.value as ProviderName)}><option value="isolar">i.Solar</option><option value="watchpower" disabled={!selectedProviderSite?.providers.find(item=>item.provider==='watchpower')?.enabled}>WatchPower{!selectedProviderSite?.providers.find(item=>item.provider==='watchpower')?.enabled?' · pendiente':''}</option></select></label><span className={`online ${liveFresh?'is-fresh':'is-stale'}`}>● {selectedProviderStatus?.status==='temporarily_blocked'?'Bloqueado temporalmente':liveStatus}</span>{source==='watchpower'&&<em className="read-only-chip">Solo lectura</em>}</div>
         <div className="time-box"><strong>{clock}</strong><small>Hora de Chile</small><small>Último dato: {formatDate(realtime.currentTime||realtime.createTime)}</small><small>Consulta: {lastFetch?lastFetch.toLocaleTimeString('es-CL',{timeZone:'America/Santiago',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}):'—'} · v{APP_VERSION}</small></div>
         {appIdentity?.authenticated&&<button className="account-chip" onClick={()=>setPage('integrations')} title="Ver sesión y credenciales"><ShieldCheck/><span><b>{appIdentity.user?.displayName||'Mi Solar'}</b><small>@{appIdentity.user?.username}</small></span></button>}
-        {page!=='water'&&<FunModeToggle value={funMode} onChange={v=>{setFunMode(v);localStorage.setItem('funMode',v?'on':'off')}}/>}
+        <FunModeToggle value={funMode} onChange={v=>{setFunMode(v);localStorage.setItem('funMode',v?'on':'off')}}/>
         <button className="refresh-button" onClick={()=>void refreshRealtime(undefined,'force')} disabled={loading} title="Consultar el proveedor y guardar el último dato del flujo instantáneo"><RefreshCw className={loading?'spin':''}/><span>{loading?'Actualizando flujo…':'Actualizar'}</span></button>
-      </header>
-      {syncMessage&&<div className="data-warning-banner">{syncMessage}</div>}
-      {historyMessage&&<div className={`data-warning-banner ${historyMessage.startsWith('Mes completo')?'history-status-ok':'history-status-warn'}`}>{historyMessage}</div>}
-      {historyProgress&&<div className="history-progress">{historyProgress}</div>}
+      </header>}
+      {page==='family'&&appIdentity?.authenticated&&<header className="non-solar-context"><button className="account-chip" onClick={()=>setPage('integrations')} title="Ver mi sesión"><ShieldCheck/><span><b>{appIdentity.user?.displayName||'Superadministrador'}</b><small>@{appIdentity.user?.username}</small></span></button></header>}
+      {page==='water'&&<header className="non-solar-context water-context"><span><small>Instalación</small><b>El Arrayán</b></span></header>}
+      {solarChrome&&syncMessage&&<div className="data-warning-banner">{syncMessage}</div>}
+      {solarChrome&&historyMessage&&<div className={`data-warning-banner ${historyMessage.startsWith('Mes completo')?'history-status-ok':'history-status-warn'}`}>{historyMessage}</div>}
+      {solarChrome&&historyProgress&&<div className="history-progress">{historyProgress}</div>}
 
       {page==='home'&&<>
         {peerDevice&&<aside className="peer-solar-strip" aria-live="polite">
