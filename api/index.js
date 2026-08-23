@@ -2,6 +2,7 @@ import { md5, tumRequest } from '../server/tumcapp.js';
 import { clearCookie, openSession, sessionCookie, SESSION_IDLE_MS } from '../server/session.js';
 import { archiveRows, readArchive, readArchiveSeries, rest, validDeviceReference } from '../server/archive.js';
 import { getTuyaDevice, getTuyaDeviceProfile, listTuyaDevices, sendTuyaCommand, tuyaConfiguration } from '../server/tuya.js';
+import { archiveTuyaRule, createTuyaRule, listTuyaRules, runDueTuyaRules, updateTuyaRule } from '../server/tuyaRules.js';
 import { parseInverterSettings } from '../server/isolarSettings.js';
 import {
   deleteEquipment, listEquipment, pushSubscriptionStatus, readAutomationRule, recordConfigurationEvent, removePushSubscription, saveAutomationCredentials,
@@ -29,7 +30,7 @@ import {
 } from '../server/providerStore.js';
 import { canonicalToLegacy } from '../server/canonicalTelemetry.js';
 import { createUser, listUsers, resetUserPassword, revokeUserSessions, updateUser } from '../server/userAdmin.js';
-import { createAllowance, createExpenseMovement, createLoan, endAllowance, familyDashboard, generateAllowanceObligations, readFinancialAttachment, recordLoanPayment, reviewExpenseMovement, reviewLoan, reviewLoanPayment, shareExpenseAccount, updateAllowance, voidExpenseMovement } from '../server/familyFinance.js';
+import { createAllowance, createExpenseMovement, createLoan, endAllowance, familyDashboard, generateAllowanceObligations, readFinancialAttachment, recordLoanPayment, reviewExpenseMovement, reviewLoan, reviewLoanPayment, shareExpenseAccount, updateAllowance, updateExpenseMovement, voidExpenseMovement } from '../server/familyFinance.js';
 import { extractFinancialReceipt } from '../server/financialReceiptAi.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
@@ -256,6 +257,10 @@ export default async function handler(req, res) {
       return sendJson(res, 200, { movement: await reviewExpenseMovement(session, Number(expenseReview[1]), parseBody(req)) });
     }
     const familyExpense = route.match(/^family\/expenses\/(\d+)$/);
+    if (familyExpense && method === 'PATCH') {
+      const session = await requireAppPermission(req, 'family.approve');
+      return sendJson(res, 200, { movement: await updateExpenseMovement(session, Number(familyExpense[1]), parseBody(req)) });
+    }
     if (familyExpense && method === 'DELETE') {
       const session = await requireAppPermission(req, 'family.create');
       return sendJson(res, 200, { movement: await voidExpenseMovement(session, Number(familyExpense[1])) });
@@ -374,7 +379,7 @@ export default async function handler(req, res) {
       } catch (cause) {
         archiveError = cause instanceof Error ? cause.message : 'No fue posible comprobar el archivo permanente.';
       }
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.32.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.33.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -495,6 +500,28 @@ export default async function handler(req, res) {
       if (!String(code || '')) return sendJson(res, 400, { error: 'Falta el código de la función.' });
       const success = await sendTuyaCommand(decodeURIComponent(tuyaCommand[1]), String(code), value);
       return sendJson(res, 200, { success, updatedAt: new Date().toISOString() });
+    }
+
+    if (method === 'GET' && route === 'tuya/rules') {
+      await requireAppPermission(req, 'solar.view');
+      return sendJson(res, 200, { rules: await listTuyaRules() });
+    }
+    if (method === 'POST' && route === 'tuya/rules') {
+      const session = await requireAppPermission(req, 'solar.view');
+      return sendJson(res, 201, { rule: await createTuyaRule(session, parseBody(req)) });
+    }
+    const tuyaRule = route.match(/^tuya\/rules\/(\d+)$/);
+    if (tuyaRule && method === 'PATCH') {
+      const session = await requireAppPermission(req, 'solar.view');
+      return sendJson(res, 200, { rule: await updateTuyaRule(session, Number(tuyaRule[1]), parseBody(req)) });
+    }
+    if (tuyaRule && method === 'DELETE') {
+      const session = await requireAppPermission(req, 'solar.view');
+      return sendJson(res, 200, { rule: await archiveTuyaRule(session, Number(tuyaRule[1])) });
+    }
+    if (method === 'GET' && route === 'tuya/run-rules') {
+      if (!process.env.CRON_SECRET || req.headers?.authorization !== `Bearer ${process.env.CRON_SECRET}`) return sendJson(res, 401, { error: 'Ejecución no autorizada.' });
+      return sendJson(res, 200, await runDueTuyaRules());
     }
 
     if (method === 'GET' && route === 'devices') {

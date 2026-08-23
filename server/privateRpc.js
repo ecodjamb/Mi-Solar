@@ -1,6 +1,6 @@
 import { rest } from './archive.js';
 
-const ALLOWED = new Set(['provider','identity','family','family_access','family_mutations']);
+const ALLOWED = new Set(['provider','identity','family','family_access','family_mutations','tuya_rules']);
 
 export async function privateRpc(namespace, operation, payload = {}) {
   if (!ALLOWED.has(namespace)) throw new Error('RPC privado no permitido.');
@@ -14,6 +14,17 @@ export async function privatePasswordChange(payload) {
   return await rest('rpc/misolar_password_change_backend', {
     method: 'POST',
     body: JSON.stringify({ p_payload: payload })
+  });
+}
+
+export async function privateFamilyMovementUpdate(payload) {
+  return await rest('rpc/misolar_family_movement_update_backend', {
+    method: 'POST',
+    body: JSON.stringify({
+      p_movement_id: Number(payload.movement_id), p_movement_date: payload.movement_date,
+      p_detail: payload.detail, p_income_minor: Number(payload.income_minor),
+      p_expense_minor: Number(payload.expense_minor), p_merchant_name: payload.merchant_name || null
+    })
   });
 }
 

@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { privateRpc } from './privateRpc.js';
+import { privateFamilyMovementUpdate, privateRpc } from './privateRpc.js';
 import { validateFinancialImage } from './financialReceiptAi.js';
 
 const BUCKET = 'family-finance-documents';
@@ -157,6 +157,28 @@ export async function voidExpenseMovement(session, movementId) {
   const isExpense = Number(current.expense_minor) > 0;
   await Promise.all([...counterparties].filter(Boolean).map((userId) => notify(userId,'movement_voided',isExpense?'Gasto eliminado':'Ingreso eliminado',`${current.detail} fue anulado por ${session.user.display_name || session.user.username}.`, 'expense_movement',current.id)).concat(audit(session.user.id,'expense.voided','expense_movement',current.id,result.before,result.after)));
   return result.after;
+}
+
+export async function updateExpenseMovement(session, movementId, input) {
+  if (!isAdmin(session)) { const error = new Error('Solo el superadministrador puede editar movimientos contabilizados.');error.status = 403;throw error; }
+  const current = await familyMutationsDb('movement_get', { movement_id: Number(movementId) });
+  if (!current || current.status === 'void') { const error = new Error('Movimiento no encontrado o eliminado.');error.status = 404;throw error; }
+  const isIncome = Number(current.income_minor) > 0;
+  const amount = money(input.amountMinor);
+  if (!amount) { const error = new Error('El monto debe ser mayor que cero.');error.status = 400;throw error; }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(input.date || ''))) { const error = new Error('Selecciona una fecha válida.');error.status = 400;throw error; }
+  const detail = String(input.detail || '').trim();
+  if (!detail) { const error = new Error('Escribe una descripción.');error.status = 400;throw error; }
+  const updated = await privateFamilyMovementUpdate({
+    movement_id: Number(movementId), movement_date: input.date, detail,
+    income_minor: isIncome ? amount : 0, expense_minor: isIncome ? 0 : amount,
+    merchant_name: String(input.merchant || '').trim()
+  });
+  if (!updated) { const error = new Error('No fue posible actualizar el movimiento.');error.status = 409;throw error; }
+  const counterparties = new Set([current.depositor_user_id,current.recipient_user_id]);
+  counterparties.delete(session.user.id);
+  await Promise.all([...counterparties].filter(Boolean).map((userId) => notify(userId,'movement_updated',isIncome?'Ingreso modificado':'Gasto modificado',`${current.detail} fue actualizado por ${session.user.display_name || session.user.username}.`,'expense_movement',current.id)).concat(audit(session.user.id,'expense.updated','expense_movement',current.id,current,updated)));
+  return updated;
 }
 
 export async function shareExpenseAccount(session, accountId, input) {
