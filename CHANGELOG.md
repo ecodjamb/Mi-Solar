@@ -1,3 +1,9 @@
+# Mi Solar v8.31.1
+
+- Permite editar y eliminar gastos recurrentes conservando su historial.
+- Permite anular movimientos y notifica a las contrapartes involucradas.
+- Confirma fotografías opcionales para ingresos y gastos, con extracción por IA.
+
 # Mi Solar v8.31.0
 
 - Reduce Familia a dos menús: cuenta corriente y préstamos.

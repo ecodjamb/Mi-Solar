@@ -1,6 +1,6 @@
 import { rest } from './archive.js';
 
-const ALLOWED = new Set(['provider','identity','family','family_access']);
+const ALLOWED = new Set(['provider','identity','family','family_access','family_mutations']);
 
 export async function privateRpc(namespace, operation, payload = {}) {
   if (!ALLOWED.has(namespace)) throw new Error('RPC privado no permitido.');

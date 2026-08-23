@@ -6,12 +6,27 @@ const BUCKET = 'family-finance-documents';
 
 const familyDb = (operation, payload = {}) => privateRpc('family', operation, payload);
 const familyAccessDb = (operation, payload = {}) => privateRpc('family_access', operation, payload);
+const familyMutationsDb = (operation, payload = {}) => privateRpc('family_mutations', operation, payload);
 const isAdmin = (session) => session.access.role === 'superadmin' || session.access.permissions.includes('family.approve');
 
 function money(value) {
   const amount = Number(value);
   if (!Number.isSafeInteger(amount) || amount < 0) { const error = new Error('El monto debe expresarse como un entero en la unidad mínima de la moneda.');error.status = 400;throw error; }
   return amount;
+}
+
+function recurringSchedule(input) {
+  const frequency = String(input.frequency || 'monthly');
+  if (!['weekly','biweekly','monthly','custom'].includes(frequency)) { const error = new Error('Frecuencia no válida.');error.status = 400;throw error; }
+  const amount = money(input.amountMinor);
+  if (!amount) { const error = new Error('El gasto recurrente debe ser mayor que cero.');error.status = 400;throw error; }
+  const payDay = Number(input.payDay);
+  if (frequency === 'weekly' && (!Number.isInteger(payDay) || payDay < 1 || payDay > 7)) { const error = new Error('Selecciona un día de la semana.');error.status = 400;throw error; }
+  if (frequency === 'monthly' && (!Number.isInteger(payDay) || payDay < 1 || payDay > 31)) { const error = new Error('Selecciona un día del mes entre 1 y 31.');error.status = 400;throw error; }
+  const customIntervalDays = Number(input.customIntervalDays);
+  if (frequency === 'custom' && (!Number.isInteger(customIntervalDays) || customIntervalDays < 1 || customIntervalDays > 365)) { const error = new Error('El intervalo personalizado debe estar entre 1 y 365 días.');error.status = 400;throw error; }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(input.startsOn || ''))) { const error = new Error('Selecciona la fecha inicial.');error.status = 400;throw error; }
+  return { amount, frequency, payDay: ['weekly','monthly'].includes(frequency) ? payDay : null, customIntervalDays: frequency === 'custom' ? customIntervalDays : null };
 }
 
 function visibleUserIds(session) { return [session.user.id]; }
@@ -40,22 +55,44 @@ export async function familyDashboard(session) {
 export async function createAllowance(session, input) {
   if (!isAdmin(session) && ![input.beneficiaryUserId,input.responsibleUserId].includes(session.user.id)) { const error = new Error('Debes participar en el gasto recurrente.');error.status = 403;throw error; }
   if (!input.beneficiaryUserId || !input.responsibleUserId || input.beneficiaryUserId === input.responsibleUserId) { const error = new Error('La mesada debe identificar a un beneficiario y a una persona pagadora diferentes.');error.status = 400;throw error; }
-  const frequency = String(input.frequency || 'monthly');
-  if (!['weekly','biweekly','monthly','custom'].includes(frequency)) { const error = new Error('Frecuencia no válida.');error.status = 400;throw error; }
-  const payDay = Number(input.payDay);
-  if (frequency === 'weekly' && (!Number.isInteger(payDay) || payDay < 1 || payDay > 7)) { const error = new Error('Selecciona un día de la semana.');error.status = 400;throw error; }
-  if (frequency === 'monthly' && (!Number.isInteger(payDay) || payDay < 1 || payDay > 31)) { const error = new Error('Selecciona un día del mes entre 1 y 31.');error.status = 400;throw error; }
-  const allowanceAmount = money(input.amountMinor);
-  if (!allowanceAmount) { const error = new Error('La mesada debe ser mayor que cero.');error.status = 400;throw error; }
+  const schedule = recurringSchedule(input);
   const allowance = await familyDb('allowance_create', {
     beneficiary_user_id: input.beneficiaryUserId, responsible_user_id: input.responsibleUserId || session.user.id,
-    amount_minor: allowanceAmount, currency: input.currency || 'CLP', frequency, pay_day: payDay || null,
-    custom_interval_days: input.customIntervalDays || null, starts_on: input.startsOn, ends_on: input.endsOn || null,
+    amount_minor: schedule.amount, currency: input.currency || 'CLP', frequency: schedule.frequency, pay_day: schedule.payDay,
+    custom_interval_days: schedule.customIntervalDays, starts_on: input.startsOn, ends_on: input.endsOn || null,
     status: input.status || 'active', notes: input.notes || null, created_by: session.user.id
   });
   await notify(input.beneficiaryUserId, 'allowance_created', 'Mesada configurada', 'Se configuró una nueva mesada en MiSolar.', 'allowance', allowance?.id);
   await audit(session.user.id, 'allowance.created', 'allowance', allowance?.id, null, allowance);
   return allowance;
+}
+
+export async function updateAllowance(session, allowanceId, input) {
+  const current = await familyMutationsDb('allowance_get', { allowance_id: Number(allowanceId) });
+  if (!current) { const error = new Error('Gasto recurrente no encontrado.');error.status = 404;throw error; }
+  const responsibleUserId = input.responsibleUserId || current.responsible_user_id;
+  if (!isAdmin(session) && ![current.beneficiary_user_id,current.responsible_user_id].includes(session.user.id)) { const error = new Error('No puedes editar este gasto recurrente.');error.status = 403;throw error; }
+  if (!isAdmin(session) && ![current.beneficiary_user_id,responsibleUserId].includes(session.user.id)) { const error = new Error('Debes seguir participando en este gasto recurrente.');error.status = 403;throw error; }
+  if (responsibleUserId === current.beneficiary_user_id) { const error = new Error('La persona pagadora debe ser distinta del titular.');error.status = 400;throw error; }
+  const schedule = recurringSchedule(input);
+  const updated = await familyMutationsDb('allowance_update', { allowance_id: Number(allowanceId), responsible_user_id: responsibleUserId, amount_minor: schedule.amount, frequency: schedule.frequency, pay_day: schedule.payDay, custom_interval_days: schedule.customIntervalDays, starts_on: input.startsOn, notes: input.notes || '' });
+  if (!updated) { const error = new Error('El gasto recurrente ya estaba eliminado.');error.status = 409;throw error; }
+  const notified = new Set([current.beneficiary_user_id,current.responsible_user_id,responsibleUserId]);
+  notified.delete(session.user.id);
+  await Promise.all([...notified].map((userId) => notify(userId,'allowance_updated','Gasto recurrente actualizado',`${updated.notes || 'Gasto recurrente'} fue modificado.`, 'allowance',updated.id)).concat(audit(session.user.id,'allowance.updated','allowance',updated.id,current,updated)));
+  return updated;
+}
+
+export async function endAllowance(session, allowanceId) {
+  const current = await familyMutationsDb('allowance_get', { allowance_id: Number(allowanceId) });
+  if (!current) { const error = new Error('Gasto recurrente no encontrado.');error.status = 404;throw error; }
+  if (!isAdmin(session) && ![current.beneficiary_user_id,current.responsible_user_id].includes(session.user.id)) { const error = new Error('No puedes eliminar este gasto recurrente.');error.status = 403;throw error; }
+  const ended = await familyMutationsDb('allowance_end', { allowance_id: Number(allowanceId) });
+  if (!ended) { const error = new Error('El gasto recurrente ya estaba eliminado.');error.status = 409;throw error; }
+  const counterparties = new Set([current.beneficiary_user_id,current.responsible_user_id]);
+  counterparties.delete(session.user.id);
+  await Promise.all([...counterparties].map((userId) => notify(userId,'allowance_ended','Gasto recurrente eliminado',`${current.notes || 'Gasto recurrente'} dejó de estar programado.`, 'allowance',current.id)).concat(audit(session.user.id,'allowance.ended','allowance',current.id,current,ended)));
+  return ended;
 }
 
 export async function generateAllowanceObligations() {
@@ -105,6 +142,21 @@ export async function createExpenseMovement(session, input) {
   const recipients = new Set([input.depositorUserId,input.recipientUserId,...admins.map((user) => user.id)]);
   await Promise.all([...recipients].map((userId) => notify(userId, 'expense_pending', income > 0 ? 'Depósito pendiente' : 'Gasto pendiente', `${input.detail}: requiere revisión.`, 'expense_movement', movementRow?.id)));
   return created;
+}
+
+export async function voidExpenseMovement(session, movementId) {
+  const current = await familyMutationsDb('movement_get', { movement_id: Number(movementId) });
+  if (!current) { const error = new Error('Movimiento no encontrado.');error.status = 404;throw error; }
+  if (current.status === 'void') { const error = new Error('El movimiento ya estaba eliminado.');error.status = 409;throw error; }
+  const account = await familyDb('account_get', { account_id: current.account_id });
+  if (!isAdmin(session) && account?.user_id !== session.user.id && current.created_by !== session.user.id) { const error = new Error('Solo el titular, quien registró el movimiento o el superadministrador pueden eliminarlo.');error.status = 403;throw error; }
+  const result = await familyMutationsDb('movement_void', { movement_id: Number(movementId), reason: 'Anulado desde Mi Solar' });
+  if (!result) { const error = new Error('Movimiento no encontrado.');error.status = 404;throw error; }
+  const counterparties = new Set([current.depositor_user_id,current.recipient_user_id]);
+  counterparties.delete(session.user.id);
+  const isExpense = Number(current.expense_minor) > 0;
+  await Promise.all([...counterparties].filter(Boolean).map((userId) => notify(userId,'movement_voided',isExpense?'Gasto eliminado':'Ingreso eliminado',`${current.detail} fue anulado por ${session.user.display_name || session.user.username}.`, 'expense_movement',current.id)).concat(audit(session.user.id,'expense.voided','expense_movement',current.id,result.before,result.after)));
+  return result.after;
 }
 
 export async function shareExpenseAccount(session, accountId, input) {

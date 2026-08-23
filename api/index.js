@@ -29,7 +29,7 @@ import {
 } from '../server/providerStore.js';
 import { canonicalToLegacy } from '../server/canonicalTelemetry.js';
 import { createUser, listUsers, resetUserPassword, revokeUserSessions, updateUser } from '../server/userAdmin.js';
-import { createAllowance, createExpenseMovement, createLoan, familyDashboard, generateAllowanceObligations, readFinancialAttachment, recordLoanPayment, reviewExpenseMovement, reviewLoan, reviewLoanPayment, shareExpenseAccount } from '../server/familyFinance.js';
+import { createAllowance, createExpenseMovement, createLoan, endAllowance, familyDashboard, generateAllowanceObligations, readFinancialAttachment, recordLoanPayment, reviewExpenseMovement, reviewLoan, reviewLoanPayment, shareExpenseAccount, updateAllowance, voidExpenseMovement } from '../server/familyFinance.js';
 import { extractFinancialReceipt } from '../server/financialReceiptAi.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
@@ -228,6 +228,15 @@ export default async function handler(req, res) {
       const session = await requireAppPermission(req, 'family.create');
       return sendJson(res, 201, { allowance: await createAllowance(session, parseBody(req)) });
     }
+    const familyAllowance = route.match(/^family\/allowances\/(\d+)$/);
+    if (familyAllowance && method === 'PATCH') {
+      const session = await requireAppPermission(req, 'family.create');
+      return sendJson(res, 200, { allowance: await updateAllowance(session, Number(familyAllowance[1]), parseBody(req)) });
+    }
+    if (familyAllowance && method === 'DELETE') {
+      const session = await requireAppPermission(req, 'family.create');
+      return sendJson(res, 200, { allowance: await endAllowance(session, Number(familyAllowance[1])) });
+    }
     if (method === 'POST' && route === 'family/expenses') {
       const session = await requireAppPermission(req, 'family.create');
       return sendJson(res, 201, { movement: await createExpenseMovement(session, parseBody(req)) });
@@ -245,6 +254,11 @@ export default async function handler(req, res) {
     if (expenseReview && method === 'POST') {
       const session = await requireAppPermission(req, 'family.approve');
       return sendJson(res, 200, { movement: await reviewExpenseMovement(session, Number(expenseReview[1]), parseBody(req)) });
+    }
+    const familyExpense = route.match(/^family\/expenses\/(\d+)$/);
+    if (familyExpense && method === 'DELETE') {
+      const session = await requireAppPermission(req, 'family.create');
+      return sendJson(res, 200, { movement: await voidExpenseMovement(session, Number(familyExpense[1])) });
     }
     if (method === 'POST' && route === 'family/loans') {
       const session = await requireAppPermission(req, 'family.create');
@@ -360,7 +374,7 @@ export default async function handler(req, res) {
       } catch (cause) {
         archiveError = cause instanceof Error ? cause.message : 'No fue posible comprobar el archivo permanente.';
       }
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.31.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.31.1', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
