@@ -1,3 +1,11 @@
+# Mi Solar v8.32.0
+
+- Cuenta corriente familiar con formato bancario, saldo corrido y cierres por año.
+- Gastos recurrentes integrados en “Agregar gasto” y administrados en un panel separado.
+- Préstamos pendientes arrastrados al año siguiente y préstamos pagados archivados en verde.
+- Familia, Agua y Usuarios separados del encabezado de telemetría solar.
+- Usuarios más compactos y responsivos.
+
 # Mi Solar v8.31.1
 
 - Permite editar y eliminar gastos recurrentes conservando su historial.
