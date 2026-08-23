@@ -21,4 +21,8 @@ assert.match(migration,/run_key/);
 assert.match(migration,/archived_at/);
 const manifest=JSON.parse(fs.readFileSync(new URL('../pwa/manifest.webmanifest',import.meta.url),'utf8'));
 assert.equal(manifest.shortcuts[0].url,'/?page=home&live=1');
+const cronMigration=fs.readFileSync(new URL('../supabase/migrations/20260823161500_schedule_tuya_rules_with_pg_cron.sql',import.meta.url),'utf8');
+assert.match(cronMigration,/misolar-tuya-rules-5m/);
+assert.match(cronMigration,/vault\.decrypted_secrets/);
+assert.doesNotMatch(cronMigration,/Bearer [A-Za-z0-9_-]{16,}/);
 console.log('tuya schedule and PWA shortcut tests: ok');

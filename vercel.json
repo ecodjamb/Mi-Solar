@@ -12,10 +12,6 @@
     {
       "path": "/api/family/generate-allowances",
       "schedule": "5 4 * * *"
-    },
-    {
-      "path": "/api/tuya/run-rules",
-      "schedule": "*/5 * * * *"
     }
   ],
   "rewrites": [
