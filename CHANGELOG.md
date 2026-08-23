@@ -1,3 +1,10 @@
+# Mi Solar v8.31.0
+
+- Reduce Familia a dos menús: cuenta corriente y préstamos.
+- Agrega saldo permanente, historial ilimitado, fotos opcionales y gastos recurrentes.
+- Permite compartir cuentas familiares con autorización validada en backend.
+- Admite préstamos con integrantes externos y una línea cronológica de pagos por préstamo.
+
 # Mi Solar v8.30.0
 
 - Unifica mesadas, gastos y depósitos en una cuenta corriente por usuario.

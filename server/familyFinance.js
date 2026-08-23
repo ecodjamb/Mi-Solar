@@ -5,6 +5,7 @@ import { validateFinancialImage } from './financialReceiptAi.js';
 const BUCKET = 'family-finance-documents';
 
 const familyDb = (operation, payload = {}) => privateRpc('family', operation, payload);
+const familyAccessDb = (operation, payload = {}) => privateRpc('family_access', operation, payload);
 const isAdmin = (session) => session.access.role === 'superadmin' || session.access.permissions.includes('family.approve');
 
 function money(value) {
@@ -17,7 +18,11 @@ function visibleUserIds(session) { return [session.user.id]; }
 
 export async function familyDashboard(session) {
   const admin = isAdmin(session);
-  const { users = [], allowances = [], obligations = [], allowance_payments: allowancePayments = [], loans = [], payments = [], accounts = [], movements = [], attachments = [], notifications = [] } = await familyDb('dashboard', { user_id: session.user.id, admin }) || {};
+  const [main,shared] = await Promise.all([familyDb('dashboard', { user_id: session.user.id, admin }),familyAccessDb('dashboard', { user_id: session.user.id, admin })]);
+  const { users = [], allowances = [], obligations = [], allowance_payments: allowancePayments = [], loans = [], payments = [], accounts: ownedAccounts = [], movements: ownedMovements = [], attachments: ownedAttachments = [], notifications = [] } = main || {};
+  const accounts = mergeRows(ownedAccounts,shared?.accounts);
+  const movements = mergeRows(ownedMovements,shared?.movements);
+  const attachments = mergeRows(ownedAttachments,shared?.attachments);
   const allowedAllowanceIds = new Set((allowances || []).map((row) => row.id));
   const allowedLoanIds = new Set((loans || []).map((row) => row.id));
   const allowedAccountIds = new Set((accounts || []).map((row) => row.id));
@@ -26,13 +31,14 @@ export async function familyDashboard(session) {
     allowances: (allowances || []).map((row) => ({ ...row, obligations: (obligations || []).filter((item) => item.allowance_id === row.id).map((item) => ({ ...item, payments: allowancePayments.filter((payment) => payment.obligation_id === item.id) })) })),
     loans: (loans || []).map((row) => ({ ...row, attachments: entityAttachments(attachments, 'family_loan', row.id), payments: (payments || []).filter((item) => item.loan_id === row.id).map((item) => ({ ...item, attachments: entityAttachments(attachments, 'loan_payment', item.id) })) })),
     expenseAccounts: (accounts || []).map((row) => ({ ...row, movements: (movements || []).filter((item) => item.account_id === row.id).map((item) => ({ ...item, attachments: entityAttachments(attachments, 'expense_movement', item.id) })) })),
+    accountMemberships: shared?.memberships || [],
     notifications: notifications || [],
-    scope: { admin, userIds: admin ? (users || []).map((row) => row.id) : visibleUserIds(session), allowanceIds: [...allowedAllowanceIds], loanIds: [...allowedLoanIds], accountIds: [...allowedAccountIds] }
+    scope: { admin, currentUserId: session.user.id, userIds: admin ? (users || []).map((row) => row.id) : visibleUserIds(session), allowanceIds: [...allowedAllowanceIds], loanIds: [...allowedLoanIds], accountIds: [...allowedAccountIds] }
   };
 }
 
 export async function createAllowance(session, input) {
-  if (!isAdmin(session) && input.responsibleUserId !== session.user.id) { const error = new Error('No puedes crear una mesada a nombre de otra persona.');error.status = 403;throw error; }
+  if (!isAdmin(session) && ![input.beneficiaryUserId,input.responsibleUserId].includes(session.user.id)) { const error = new Error('Debes participar en el gasto recurrente.');error.status = 403;throw error; }
   if (!input.beneficiaryUserId || !input.responsibleUserId || input.beneficiaryUserId === input.responsibleUserId) { const error = new Error('La mesada debe identificar a un beneficiario y a una persona pagadora diferentes.');error.status = 400;throw error; }
   const frequency = String(input.frequency || 'monthly');
   if (!['weekly','biweekly','monthly','custom'].includes(frequency)) { const error = new Error('Frecuencia no válida.');error.status = 400;throw error; }
@@ -79,18 +85,20 @@ export function dueToday(allowance, today) {
 export async function createExpenseMovement(session, input) {
   const account = await familyDb('account_get', { account_id: input.accountId });
   if (!account) { const error = new Error('Cuenta corriente no encontrada.');error.status = 404;throw error; }
+  const access = await familyAccessDb('access_check', { account_id: account.id, user_id: session.user.id });
   const income = money(input.incomeMinor || 0), expense = money(input.expenseMinor || 0);
   if ((income > 0) === (expense > 0)) { const error = new Error('El movimiento debe ser ingreso o gasto, pero no ambos.');error.status = 400;throw error; }
   if (!input.depositorUserId || !input.recipientUserId || input.depositorUserId === input.recipientUserId) { const error = new Error('El movimiento debe identificar a dos usuarios distintos.');error.status = 400;throw error; }
-  if (!isAdmin(session) && ![input.depositorUserId,input.recipientUserId].includes(session.user.id)) { const error = new Error('Debes participar en el movimiento.');error.status = 403;throw error; }
+  if (!isAdmin(session) && account.user_id !== session.user.id && !access?.member) { const error = new Error('Esta cuenta no está compartida contigo.');error.status = 403;throw error; }
   const expectedAccountUser = income > 0 ? input.recipientUserId : input.depositorUserId;
   if (account.user_id !== expectedAccountUser) { const error = new Error(income > 0 ? 'El depósito debe abonarse a la cuenta de quien recibe.' : 'El gasto debe cargarse a la cuenta de quien lo presenta.');error.status = 400;throw error; }
-  if (!input.image) { const error = new Error('Adjunta una fotografía del comprobante.');error.status = 400;throw error; }
-  const attachment = await uploadFinancialImage(session.user.id, 'movements', input.image);
+  const attachment = input.image ? await uploadFinancialImage(session.user.id, 'movements', input.image) : null;
   let created;
   try {
-    created = await familyDb('movement_create', { account_id: account.id, movement_date: input.date, detail: input.detail, income_minor: income, expense_minor: expense, currency: account.currency, movement_type: input.movementType || (expense ? 'expense_report' : 'deposit'), depositor_user_id: input.depositorUserId, recipient_user_id: input.recipientUserId, merchant_name: input.merchant || '', created_by: session.user.id, attachment, ai_proposal: input.aiProposal || undefined, ai_model: input.aiModel || '', corrected_values: input.correctedValues || {} });
-  } catch (error) { await removeStored(attachment.storage_path);throw error; }
+    const payload = { account_id: account.id, movement_date: input.date, detail: input.detail, income_minor: income, expense_minor: expense, currency: account.currency, movement_type: input.movementType || (expense ? 'expense_report' : 'deposit'), depositor_user_id: input.depositorUserId, recipient_user_id: input.recipientUserId, merchant_name: input.merchant || '', created_by: session.user.id, ai_proposal: input.aiProposal || undefined, ai_model: input.aiModel || '', corrected_values: input.correctedValues || {} };
+    if (attachment) payload.attachment = attachment;
+    created = await familyDb('movement_create', payload);
+  } catch (error) { if (attachment) await removeStored(attachment.storage_path);throw error; }
   const movementRow = created?.record || created;
   await audit(session.user.id, 'expense.created', 'expense_movement', movementRow?.id, null, created);
   const admins = await adminUsers();
@@ -99,18 +107,32 @@ export async function createExpenseMovement(session, input) {
   return created;
 }
 
+export async function shareExpenseAccount(session, accountId, input) {
+  const account = await familyDb('account_get', { account_id: Number(accountId) });
+  if (!account || (!isAdmin(session) && account.user_id !== session.user.id)) { const error = new Error('Solo el titular o el superadministrador pueden compartir esta cuenta.');error.status = 403;throw error; }
+  if (!input.userId || input.userId === account.user_id) { const error = new Error('Selecciona otro integrante de la familia.');error.status = 400;throw error; }
+  const membership = await familyAccessDb('account_share', { account_id: account.id, user_id: input.userId, added_by: session.user.id });
+  await Promise.all([notify(input.userId,'account_shared','Cuenta familiar compartida','Ahora puedes consultar y registrar movimientos en esta cuenta.','expense_account',account.id),audit(session.user.id,'expense_account.shared','expense_account',account.id,null,membership)]);
+  return membership;
+}
+
 export async function createLoan(session, input) {
-  if (!isAdmin(session) && input.lenderUserId !== session.user.id && input.borrowerUserId !== session.user.id) { const error = new Error('Debes participar en el préstamo.');error.status = 403;throw error; }
-  if (input.lenderUserId === input.borrowerUserId) { const error = new Error('Prestamista y deudor deben ser distintos.');error.status = 400;throw error; }
-  if (!input.image) { const error = new Error('Adjunta una fotografía del comprobante del préstamo.');error.status = 400;throw error; }
-  const attachment = await uploadFinancialImage(session.user.id, 'loans', input.image);
+  const lenderUserId = input.lenderUserId || null, borrowerUserId = input.borrowerUserId || null;
+  const lenderExternalName = String(input.lenderExternalName || '').trim(), borrowerExternalName = String(input.borrowerExternalName || '').trim();
+  if (Boolean(lenderUserId) === Boolean(lenderExternalName) || Boolean(borrowerUserId) === Boolean(borrowerExternalName)) { const error = new Error('Define cada participante como familiar o persona externa.');error.status = 400;throw error; }
+  if (!isAdmin(session) && ![lenderUserId,borrowerUserId].includes(session.user.id)) { const error = new Error('Debes participar en el préstamo.');error.status = 403;throw error; }
+  if (lenderUserId && lenderUserId === borrowerUserId) { const error = new Error('Prestamista y deudor deben ser distintos.');error.status = 400;throw error; }
+  const attachment = input.image ? await uploadFinancialImage(session.user.id, 'loans', input.image) : null;
   let loan;
-  try { loan = await familyDb('loan_create', { lender_user_id: input.lenderUserId, borrower_user_id: input.borrowerUserId, loan_date: input.date, original_amount_minor: money(input.amountMinor), currency: input.currency || 'CLP', detail: input.detail, due_date: input.dueDate || null, created_by: session.user.id, attachment, ai_proposal: input.aiProposal || undefined, ai_model: input.aiModel || '', corrected_values: input.correctedValues || {} }); }
-  catch (error) { await removeStored(attachment.storage_path);throw error; }
+  try {
+    const payload = { lender_user_id: lenderUserId || '', borrower_user_id: borrowerUserId || '', lender_external_name: lenderExternalName, borrower_external_name: borrowerExternalName, loan_date: input.date, original_amount_minor: money(input.amountMinor), currency: input.currency || 'CLP', detail: input.detail, due_date: input.dueDate || null, created_by: session.user.id, ai_proposal: input.aiProposal || undefined, ai_model: input.aiModel || '', corrected_values: input.correctedValues || {} };
+    if (attachment) payload.attachment = attachment;
+    loan = lenderExternalName || borrowerExternalName ? await familyAccessDb('loan_create_external', payload) : await familyDb('loan_create', payload);
+  } catch (error) { if (attachment) await removeStored(attachment.storage_path);throw error; }
   const loanRow = loan?.record || loan;
   await Promise.all([
-    notify(input.lenderUserId, 'loan_created', 'Préstamo por aprobar', 'Se registró un préstamo en el que participas.', 'family_loan', loanRow?.id),
-    notify(input.borrowerUserId, 'loan_created', 'Préstamo por aprobar', 'Se registró un préstamo en el que participas.', 'family_loan', loanRow?.id),
+    notify(lenderUserId, 'loan_created', 'Préstamo por aprobar', 'Se registró un préstamo en el que participas.', 'family_loan', loanRow?.id),
+    notify(borrowerUserId, 'loan_created', 'Préstamo por aprobar', 'Se registró un préstamo en el que participas.', 'family_loan', loanRow?.id),
     audit(session.user.id, 'loan.created', 'family_loan', loanRow?.id, null, loan)
   ]);
   return loan;
@@ -136,7 +158,7 @@ export async function recordLoanPayment(session, loanId, input) {
 }
 
 export async function reviewExpenseMovement(session, movementId, input) {
-  if (!isAdmin(session)) { const error = new Error('Solo el superadministrador puede aprobar rendiciones.');error.status = 403;throw error; }
+  if (!isAdmin(session)) { const error = new Error('Solo el superadministrador puede aprobar movimientos.');error.status = 403;throw error; }
   const decision = input.decision === 'approved' ? 'approved' : 'rejected';
   const result = await familyDb('movement_review', { movement_id: Number(movementId), decision, reviewed_by: session.user.id, note: input.note || '' });
   if (!result) { const error = new Error('El movimiento ya fue revisado o no existe.');error.status = 409;throw error; }
@@ -173,6 +195,7 @@ export async function readFinancialAttachment(session, attachmentId) {
 }
 
 function entityAttachments(rows, type, id) { return (rows || []).filter((row) => row.entity_type === type && String(row.entity_id) === String(id)); }
+function mergeRows(...groups) { const rows = new Map();for (const group of groups) for (const row of group || []) rows.set(String(row.id),row);return [...rows.values()]; }
 
 async function adminUsers() {
   const { users = [] } = await familyDb('dashboard', { user_id: '00000000-0000-0000-0000-000000000000', admin: true }) || {};
