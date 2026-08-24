@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { dueToday } from '../server/familyFinance.js';
+import { dueToday, pendingScheduleDates } from '../server/familyFinance.js';
 import { validateFinancialImage } from '../server/financialReceiptAi.js';
 
 const image = { name: 'comprobante.jpg', dataUrl: 'data:image/jpeg;base64,YQ==' };
@@ -10,6 +10,10 @@ assert.throws(() => validateFinancialImage({ dataUrl: 'data:text/plain;base64,YQ
 const weekly = { starts_on: '2026-08-01', frequency: 'weekly', pay_day: 5 };
 assert.equal(dueToday(weekly, '2026-08-21'), true, 'viernes debe activar una mesada configurada para viernes');
 assert.equal(dueToday(weekly, '2026-08-22'), false, 'sábado no debe activar una mesada configurada para viernes');
+const sunday = { starts_on: '2026-08-23', frequency: 'weekly', pay_day: 7 };
+assert.equal(dueToday(sunday, '2026-08-23'), true, 'domingo debe activar una mesada configurada para domingo');
+assert.deepEqual(pendingScheduleDates(sunday, '2026-08-24'), ['2026-08-23'], 'el lunes debe recuperar el cargo dominical omitido');
+assert.deepEqual(pendingScheduleDates(sunday, '2026-08-24'), ['2026-08-23'], 'la conciliación conserva la misma clave de fecha para ser idempotente');
 const monthly = { starts_on: '2026-08-01', frequency: 'monthly', pay_day: 21 };
 assert.equal(dueToday(monthly, '2026-08-21'), true);
 assert.equal(dueToday(monthly, '2026-08-20'), false);

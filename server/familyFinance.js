@@ -100,13 +100,26 @@ export async function generateAllowanceObligations() {
   const allowances = await familyDb('allowances_active', { today }) || [];
   let created = 0;
   for (const allowance of allowances || []) {
-    const due = dueToday(allowance, today);
-    if (!due) continue;
-    const idempotencyKey = `allowance:${allowance.id}:${today}`;
-    const result = await familyDb('obligation_create', { allowance_id: allowance.id, due_on: today, amount_minor: allowance.amount_minor, idempotency_key: idempotencyKey });
-    if (result?.inserted) { created += 1;await notify(allowance.beneficiary_user_id, 'allowance_generated', 'Mesada cargada', 'La mesada programada se agregó como gasto en tu cuenta corriente.', 'allowance_obligation', result.row.id); }
+    for (const dueOn of pendingScheduleDates(allowance, today)) {
+      const idempotencyKey = `allowance:${allowance.id}:${dueOn}`;
+      const result = await familyDb('obligation_create', { allowance_id: allowance.id, due_on: dueOn, amount_minor: allowance.amount_minor, idempotency_key: idempotencyKey });
+      if (result?.inserted) { created += 1;await notify(allowance.beneficiary_user_id, 'allowance_generated', 'Mesada cargada', `La mesada programada del ${dueOn} se agregó como gasto en tu cuenta corriente.`, 'allowance_obligation', result.row.id); }
+    }
   }
   return { date: today, created };
+}
+
+export function pendingScheduleDates(allowance, today, lookbackDays = 35) {
+  const dates = [];
+  const current = new Date(`${today}T12:00:00Z`);
+  const start = String(allowance.starts_on || today);
+  const end = allowance.ends_on ? String(allowance.ends_on) : today;
+  for (let offset = Math.max(0, Number(lookbackDays) || 0); offset >= 0; offset -= 1) {
+    const candidate = new Date(current.getTime() - offset * 86_400_000).toISOString().slice(0, 10);
+    if (candidate < start || candidate > end || !dueToday(allowance, candidate)) continue;
+    dates.push(candidate);
+  }
+  return dates;
 }
 
 export function dueToday(allowance, today) {

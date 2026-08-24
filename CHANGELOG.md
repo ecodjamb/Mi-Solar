@@ -1,3 +1,10 @@
+# Mi Solar v8.34.0
+
+- Las mesadas recuperan de forma idempotente fechas programadas omitidas por un despliegue o una caída del cron.
+- La apertura de Familia concilia los últimos 35 días y crea solamente los cargos que realmente falten.
+- Equipos incorpora especificaciones adicionales: tecnología, voltaje, corriente, conexión, serie y garantía.
+- Familia recibe iconos más lúdicos en su encabezado, navegación y gastos recurrentes.
+
 # Mi Solar v8.32.0
 
 - Cuenta corriente familiar con formato bancario, saldo corrido y cierres por año.

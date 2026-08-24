@@ -293,6 +293,7 @@ export async function saveEquipment(deviceSn, asset) {
     quantity: Number(asset.quantity || 1),
     unit_power_w: asset.unitPowerW == null || asset.unitPowerW === '' ? null : Number(asset.unitPowerW),
     capacity_kwh: asset.capacityKwh == null || asset.capacityKwh === '' ? null : Number(asset.capacityKwh),
+    extra_specs: asset.extraSpecs && typeof asset.extraSpecs === 'object' ? asset.extraSpecs : {},
     installed_at: asset.installedAt || null,
     notes: asset.notes || '',
     updated_at: new Date().toISOString()
