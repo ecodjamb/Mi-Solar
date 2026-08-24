@@ -225,7 +225,7 @@ export default async function handler(req, res) {
       const session = await requireAppPermission(req, 'family.view');
       // El cron sigue siendo la vía principal. Esta conciliación idempotente
       // recupera un cargo si el despliegue o una caída coincidieron con su hora.
-      await generateAllowanceObligations();
+      try { await generateAllowanceObligations(); } catch { /* La consulta familiar debe seguir disponible. */ }
       return sendJson(res, 200, await familyDashboard(session));
     }
     if (method === 'POST' && route === 'family/allowances') {
