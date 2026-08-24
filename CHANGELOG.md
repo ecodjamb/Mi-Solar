@@ -1,3 +1,9 @@
+# Mi Solar v8.34.1
+
+- Unifica Inicio y Costos usando como fuente prioritaria la importación de red acumulada exclusivamente con `statusGrid = 1`.
+- Corrige la asignación de origen: red efectiva primero, luego batería y finalmente solar directo.
+- El cuadro “Consumo cubierto por origen” muestra exactamente la misma red activa acumulada que el flujo superior.
+
 # Mi Solar v8.34.0
 
 - Las mesadas recuperan de forma idempotente fechas programadas omitidas por un despliegue o una caída del cron.

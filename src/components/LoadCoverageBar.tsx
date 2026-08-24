@@ -8,7 +8,9 @@ export default function LoadCoverageBar({today,month,lastUpdate,gridLabel='Red a
   const [period,setPeriod]=useState<Period>('day');
   const energy=period==='day'?today:month;
   const total=Math.max(0,energy.load);
-  const grid=Math.min(total,Math.max(0,energy.gridToLoad));
+  // La misma sumatoria statusGrid=1 que muestra el flujo superior gobierna
+  // este balance. No usar gridToLoad: esa estimación puede descontar batería.
+  const grid=Math.max(0,energy.gridImport);
   const local=Math.max(0,total-grid);
   const batteryToLoad=Math.min(local,Math.max(0,energy.batteryToLoad));
   const solarToLoad=Math.max(0,local-batteryToLoad);
@@ -35,6 +37,6 @@ export default function LoadCoverageBar({today,month,lastUpdate,gridLabel='Red a
       <article className="coverage-total"><div><small>Consumo total</small><strong>{kwh(total)}</strong><b>{total>0?'100%':'0%'}</b></div></article>
     </div>
     <div className="load-energy-destinations"><span><small>Producción solar total</small><strong>{kwh(energy.solar)}</strong></span><span><small>Solar estimado hacia batería</small><strong>{kwh(energy.solarToBattery)}</strong></span><span><small>{gridLabel} total</small><strong>{kwh(energy.gridImport)}</strong></span><span><small>Carga total de batería</small><strong>{kwh(energy.charge)}</strong></span></div>
-    <p className="load-coverage-note">{gridLabel==='Generador'?'En Puerto Montt, el parámetro grid representa exclusivamente el generador de respaldo.':'La red solo se integra cuando statusGrid = 1.'} El aporte solar directo se obtiene después de descontar la descarga real de batería.</p>
+    <p className="load-coverage-note">{gridLabel==='Generador'?'En Puerto Montt, el parámetro grid representa exclusivamente el generador de respaldo.':'La red solo se integra cuando statusGrid = 1 y esa sumatoria es prioritaria para cobertura y costos.'} El aporte solar directo se obtiene después de descontar la descarga real de batería.</p>
   </section>;
 }

@@ -53,7 +53,8 @@ export default function CostsPage({deviceSn,siteLabel,gridLabel='Red activa',tod
   const sampleParts=lastSample&&Number.isFinite(lastSample.getTime())?Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'America/Santiago',day:'numeric',hour:'numeric',minute:'numeric',hourCycle:'h23'}).formatToParts(lastSample).map(part=>[part.type,part.value])):null;
   const elapsedDays=sampleParts?Number(sampleParts.day)-1+(Number(sampleParts.hour)+Number(sampleParts.minute)/60)/24:localDay;
   const factor=closed?1:Math.max(1,bounds.days/Math.max(1,elapsedDays));
-  const grid=Math.max(0,selectedEnergy.gridToLoad);
+  // Costos usa el mismo acumulado de red efectiva (statusGrid=1) del Inicio.
+  const grid=Math.max(0,selectedEnergy.gridImport);
   const solar=Math.max(0,selectedEnergy.solarToLoad);
   const battery=Math.max(0,selectedEnergy.batteryToLoad);
   const total=grid+solar+battery;

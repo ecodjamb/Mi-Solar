@@ -62,10 +62,13 @@ export function powerAllocation(d:Record<string,unknown>){
   const grid=Math.max(0,effectiveGridPower(d));
   const discharge=Math.max(0,batteryDischargePower(d));
   const charge=Math.max(0,batteryChargePower(d));
-  const batteryToLoad=Math.min(load,discharge);
-  const remainingAfterBattery=Math.max(0,load-batteryToLoad);
-  const gridToLoad=Math.min(remainingAfterBattery,grid);
-  const solarToLoad=Math.max(0,remainingAfterBattery-gridToLoad);
+  // La medición de red con statusGrid=1 es la fuente autoritativa. Se asigna
+  // antes que batería/solar para que cobertura y costos coincidan con el
+  // acumulado importado y no resten una descarga simultánea dos veces.
+  const gridToLoad=Math.min(load,grid);
+  const remainingAfterGrid=Math.max(0,load-gridToLoad);
+  const batteryToLoad=Math.min(remainingAfterGrid,discharge);
+  const solarToLoad=Math.max(0,remainingAfterGrid-batteryToLoad);
   const solarToBattery=Math.min(charge,Math.max(0,solar-solarToLoad));
   return {load,solar,grid,batteryToLoad,gridToLoad,solarToLoad,solarToBattery};
 }
