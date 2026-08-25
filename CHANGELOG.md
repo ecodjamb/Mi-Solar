@@ -1,3 +1,9 @@
+# Mi Solar v8.36.0
+
+- Costos incorpora al inicio un gráfico diario comparativo de red activa (`statusGrid = 1`) y producción solar total.
+- El gráfico permite alternar entre mes calendario y período vigente entre boletas Enel, con promedio, acumulados, monto y proyección a 30 días.
+- Los resúmenes y proyecciones superiores de Costos ahora usan los rangos comerciales reales guardados en las boletas (por ejemplo, 20 de junio–22 de julio), manteniendo intacto el módulo de cuentas Enel.
+
 # Mi Solar v8.35.0
 
 - “Accesos” se convierte en el menú independiente “Domótica”, dedicado a portón, artefactos, sensores y horarios.
