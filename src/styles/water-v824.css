@@ -391,6 +391,15 @@
 .water-reading-difference.negative small {
   color: #ff9da8;
 }
+.water-reading-difference.meter-change {
+  padding: 6px 8px;
+  border: 1px solid rgba(87, 193, 255, 0.28);
+  border-radius: 9px;
+  background: rgba(42, 137, 202, 0.09);
+}
+.water-reading-difference.meter-change strong {
+  color: #78d5ff;
+}
 .water-current > header p {
   margin: 3px 0 0;
   color: #8ba4ab;

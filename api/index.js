@@ -1051,7 +1051,7 @@ export default async function handler(req, res) {
       const readingM3 = Number(body.readingM3);
       if (!Number.isFinite(readingM3) || readingM3 < 0) return sendJson(res, 400, { error: 'Lectura de agua inválida.' });
       const image = body.image ? validateWaterImages([body.image], 1)[0] : null;
-      const reading = await saveWaterReading(sn, { periodId: body.periodId, readingAt: body.readingAt, readingM3, notes: body.notes, source: image ? 'photo-ai' : 'manual' }, image, { extracted: body.aiExtraction && typeof body.aiExtraction === 'object' ? body.aiExtraction : {}, confidence: Number(body.aiConfidence), model: body.aiModel });
+      const reading = await saveWaterReading(sn, { periodId: body.periodId, readingAt: body.readingAt, readingM3, notes: body.notes, meterChange: body.meterChange === true, source: image ? 'photo-ai' : 'manual' }, image, { extracted: body.aiExtraction && typeof body.aiExtraction === 'object' ? body.aiExtraction : {}, confidence: Number(body.aiConfidence), model: body.aiModel });
       return sendJson(res, 200, { reading });
     }
 

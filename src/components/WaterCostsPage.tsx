@@ -100,6 +100,8 @@ type WaterReading = {
   hasPhoto: boolean;
   originalName?: string | null;
   aiConfidence?: number | null;
+  meterCycle: number;
+  isMeterChange: boolean;
 };
 type WaterProjection = {
   consumedM3: number;
@@ -1452,13 +1454,11 @@ export default function WaterCostsPage({
                 <div className="water-reading-history">
                   <h3>Lecturas del período</h3>
                   {readings.map((reading, index) => {
-                    const previousReadingM3 =
-                      readings[index + 1]?.readingM3 ??
-                      period.openingReadingM3;
-                    const previousReadingAt = readings[index + 1]?.readingAt;
-                    const differenceM3 = Number(
-                      (reading.readingM3 - previousReadingM3).toFixed(3),
-                    );
+                    const previousReading = readings[index + 1];
+                    const meterChanged = reading.isMeterChange || (previousReading != null && reading.meterCycle !== previousReading.meterCycle);
+                    const previousReadingM3 = previousReading?.readingM3 ?? period.openingReadingM3;
+                    const previousReadingAt = previousReading?.readingAt;
+                    const differenceM3 = meterChanged ? null : Number((reading.readingM3 - previousReadingM3).toFixed(3));
                     const previousTime = previousReadingAt
                       ? Date.parse(previousReadingAt)
                       : siteDayBoundsUtc(period.periodStart).start.getTime();
@@ -1467,7 +1467,7 @@ export default function WaterCostsPage({
                       (Date.parse(reading.readingAt) - previousTime) / 60_000,
                     );
                     const litersPerHour =
-                      differenceM3 >= 0 && elapsedMinutes > 0
+                      differenceM3 != null && differenceM3 >= 0 && elapsedMinutes > 0
                         ? (differenceM3 * 1000 * 60) / elapsedMinutes
                         : null;
                     return (
@@ -1504,25 +1504,33 @@ export default function WaterCostsPage({
                               ? "cierre"
                               : "manual"}
                         </small>
-                        <span
-                          className={`water-reading-difference ${differenceM3 < 0 ? "negative" : ""}`}
-                          title={`Diferencia respecto de ${m3(previousReadingM3, 3)}`}
-                        >
-                          <span>Diferencia con lectura anterior</span>
-                          <strong>
-                            {differenceM3 > 0 ? "+" : ""}
-                            {m3(differenceM3, 3)}
-                          </strong>
-                          <small>
-                            {differenceM3 > 0 ? "+" : ""}
-                            {litersFromM3(differenceM3)}
-                          </small>
-                          <small>{waterRateLabel(litersPerHour)}</small>
-                          <em>
-                            en {elapsedTimeLabel(elapsedMinutes)}
-                            {!previousReadingAt ? " · desde el inicio del período" : ""}
-                          </em>
-                        </span>
+                        {meterChanged ? (
+                          <span className="water-reading-difference meter-change">
+                            <span>Cambio de medidor</span>
+                            <strong>Nuevo contador · ciclo {reading.meterCycle}</strong>
+                            <small>Base {m3(reading.readingM3, 3)} · sin restar el medidor anterior</small>
+                          </span>
+                        ) : (
+                          <span
+                            className={`water-reading-difference ${differenceM3 != null && differenceM3 < 0 ? "negative" : ""}`}
+                            title={`Diferencia respecto de ${m3(previousReadingM3, 3)}`}
+                          >
+                            <span>Diferencia con lectura anterior</span>
+                            <strong>
+                              {differenceM3 != null && differenceM3 > 0 ? "+" : ""}
+                              {m3(differenceM3, 3)}
+                            </strong>
+                            <small>
+                              {differenceM3 != null && differenceM3 > 0 ? "+" : ""}
+                              {litersFromM3(differenceM3 || 0)}
+                            </small>
+                            <small>{waterRateLabel(litersPerHour)}</small>
+                            <em>
+                              en {elapsedTimeLabel(elapsedMinutes)}
+                              {!previousReadingAt ? " · desde el inicio del período" : ""}
+                            </em>
+                          </span>
+                        )}
                         {reading.notes &&
                         reading.notes !== "Lectura rápida desde fotografía" ? (
                           <em className="water-reading-note">

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { reconcileWaterBill } from '../server/waterBillAi.js';
-import { calculateWaterProjection, classifyWaterConsumption, deleteWaterReading, normalizeWaterReadingM3 } from '../server/waterCosts.js';
+import { calculateWaterConsumptionAcrossMeterCycles, calculateWaterProjection, classifyWaterConsumption, deleteWaterReading, normalizeWaterReadingM3 } from '../server/waterCosts.js';
 
 const bill = reconcileWaterBill({
   periodStart: '2026-08-07', periodEnd: '2026-08-11', amountClp: 784570,
@@ -72,6 +72,21 @@ assert.equal(currentPeriodProjection.elapsedDays, 7);
 assert.equal(currentPeriodProjection.averageDailyM3, 2.388);
 assert.equal(currentPeriodProjection.projectedM3, 69.24);
 assert.equal(currentPeriodProjection.projectedAmountClp, 103859);
+assert.equal(Number((7899.410 - 7897.593).toFixed(3)), 1.817);
+const replacementReadings = [
+  { readingAt: '2026-08-25T18:01:00.000Z', readingM3: 0, meterCycle: 2, isMeterChange: true },
+  { readingAt: '2026-08-25T17:52:10.807Z', readingM3: 7899.410, meterCycle: 1, isMeterChange: false },
+  { readingAt: '2026-08-22T21:04:15.778Z', readingM3: 7897.593, meterCycle: 1, isMeterChange: false }
+];
+assert.equal(calculateWaterConsumptionAcrossMeterCycles({ openingReadingM3: 7876 }, replacementReadings), 23.410);
+const replacementProjection = calculateWaterProjection({
+  periodStart: '2026-08-11', expectedCloseDate: '2026-09-09', openingReadingM3: 7876
+}, replacementReadings, [], new Date('2026-08-25T18:02:00.000Z'));
+assert.equal(replacementProjection.consumedM3, 23.410);
+assert.equal(calculateWaterConsumptionAcrossMeterCycles({ openingReadingM3: 7876 }, [
+  { readingAt: '2026-08-25T19:01:00.000Z', readingM3: 0.125, meterCycle: 2, isMeterChange: false },
+  ...replacementReadings
+]), 23.535);
 assert.equal(normalizeWaterReadingM3('7893,125'), 7893.125);
 assert.equal(normalizeWaterReadingM3(7893.1254), 7893.125);
 assert.ok(Number.isNaN(normalizeWaterReadingM3('lectura')));

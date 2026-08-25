@@ -1,3 +1,10 @@
+# Mi Solar v8.37.1
+
+- Corrige la lectura del 22 de agosto de 2026 a 7.897,593 m³ y muestra una diferencia exacta de 1,817 m³ frente a 7.899,410 m³.
+- Detecta automáticamente el reemplazo o reinicio del medidor cuando la lectura acumulada baja.
+- Inicia un nuevo ciclo de contador sin restarlo contra el medidor anterior y mantiene acumulado el consumo válido de ambos medidores.
+- Identifica visualmente la primera lectura del nuevo medidor y evita saltos negativos o consumos artificiales.
+
 # Mi Solar v8.37.0
 
 - Costos conserva un corte diario de la proyección Mi Solar y de la proyección por lecturas reales para cada período Enel.

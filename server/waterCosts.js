@@ -154,7 +154,8 @@ function normalizeReading(row) {
   return {
     id: Number(row.id), periodId: row.period_id == null ? null : Number(row.period_id), readingAt: row.reading_at, readingM3: Number(row.reading_m3),
     source: row.source, notes: row.notes, hasPhoto: Boolean(row.storage_path), originalName: row.original_name, mimeType: row.mime_type,
-    aiConfidence: nullableNumber(row.ai_confidence), createdAt: row.created_at
+    aiConfidence: nullableNumber(row.ai_confidence), meterCycle: Math.max(1, Number(row.meter_cycle || 1)),
+    isMeterChange: row.is_meter_change === true, createdAt: row.created_at
   };
 }
 
@@ -387,7 +388,7 @@ export async function closeWaterPeriod(deviceSn, input) {
   const period = rows[0];
   if (!period) throw Object.assign(new Error('El período abierto no existe.'), { status: 404 });
   const closing = Number(input.closingReadingM3);
-  if (!Number.isFinite(closing) || closing < Number(period.opening_reading_m3)) throw Object.assign(new Error('La lectura de cierre debe ser igual o mayor a la inicial.'), { status: 400 });
+  if (!Number.isFinite(closing) || closing < 0) throw Object.assign(new Error('La lectura de cierre no es válida.'), { status: 400 });
   const readingAt = input.readingAt || new Date().toISOString();
   if (!Number.isFinite(Date.parse(readingAt))) throw Object.assign(new Error('La fecha de cierre no es válida.'), { status: 400 });
   await saveWaterReading(deviceSn, { periodId: period.id, readingAt, readingM3: closing, source: 'closing', notes: 'Lectura de cierre del período' });
@@ -397,15 +398,19 @@ export async function closeWaterPeriod(deviceSn, input) {
   const month = billingMonth(closedDate, closedDate);
   const existingBill = await rest(`water_bills?site_id=eq.${siteId}&billing_month=eq.${month}&select=id,source&limit=1`) || [];
   if (!existingBill[0]) {
-    const consumed = Math.max(0, closing - Number(period.opening_reading_m3));
+    const periodReadingRows = await rest(`water_meter_readings?site_id=eq.${siteId}&period_id=eq.${period.id}&select=*&order=reading_at.desc&limit=500`) || [];
+    const normalizedPeriod = normalizePeriod(period);
+    const normalizedReadings = periodReadingRows.map(normalizeReading);
+    const consumed = calculateWaterConsumptionAcrossMeterCycles(normalizedPeriod, normalizedReadings);
+    const meterWasReplaced = normalizedReadings.some((reading) => reading.isMeterChange);
     await rest('water_bills?on_conflict=site_id,billing_month', {
       method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
       body: JSON.stringify({
         site_id: siteId, billing_month: month, period_start: period.period_start, period_end: closedDate,
-        previous_reading_m3: Number(period.opening_reading_m3), current_reading_m3: closing,
+        previous_reading_m3: meterWasReplaced ? null : Number(period.opening_reading_m3), current_reading_m3: meterWasReplaced ? null : closing,
         reading_difference_m3: consumed, deductible_m3: null, billed_m3: consumed,
         consumption_status: 'actual', estimate_method: 'meter-period-readings', amount_clp: 0,
-        charge_items: [], source: 'meter-period', ai_extraction: { classification: { status: 'actual', method: 'meter-period-readings', reason: 'Período cerrado con lecturas inicial y final guardadas en Mi Solar.' } },
+        charge_items: [], source: 'meter-period', ai_extraction: { meterWasReplaced, closingReadingM3: closing, classification: { status: 'actual', method: 'meter-period-readings', reason: meterWasReplaced ? 'Período consolidado sumando ambos medidores sin mezclar sus contadores.' : 'Período cerrado con lecturas inicial y final guardadas en Mi Solar.' } },
         updated_at: new Date().toISOString()
       })
     });
@@ -429,11 +434,17 @@ export async function saveWaterReading(deviceSn, reading, image = null, ai = nul
   if (!Number.isFinite(readingM3) || readingM3 < 0) throw Object.assign(new Error('Ingresa una lectura válida en m³.'), { status: 400 });
   const readingAt = reading.readingAt || new Date().toISOString();
   if (!Number.isFinite(Date.parse(readingAt))) throw Object.assign(new Error('La fecha de la lectura no es válida.'), { status: 400 });
+  const latestRows = period?.id ? await rest(`water_meter_readings?site_id=eq.${siteId}&period_id=eq.${period.id}&reading_at=lt.${encodeURIComponent(readingAt)}&select=reading_m3,meter_cycle&order=reading_at.desc&limit=1`) || [] : [];
+  const latest = latestRows[0];
+  const latestReadingM3 = nullableNumber(latest?.reading_m3);
+  const latestCycle = Math.max(1, Number(latest?.meter_cycle || 1));
+  const isMeterChange = reading.meterChange === true || (latestReadingM3 != null && readingM3 < latestReadingM3);
+  const meterCycle = isMeterChange ? latestCycle + 1 : latestCycle;
   let uploaded = null;
   if (image) uploaded = await uploadImage(`${siteId}/readings/${Date.now()}`, image);
   const rows = await rest('water_meter_readings', {
     method: 'POST', headers: { Prefer: 'return=representation' },
-    body: JSON.stringify({ site_id: siteId, period_id: period?.id || null, reading_at: readingAt, reading_m3: readingM3, source: image ? 'photo-ai' : reading.source || 'manual', notes: reading.notes || null, storage_path: uploaded?.storagePath || null, original_name: uploaded?.originalName || null, mime_type: uploaded?.mimeType || null, bytes: uploaded?.bytes || null, sha256: uploaded?.sha256 || null, ai_confidence: nullableNumber(ai?.confidence), ai_model: ai?.model || null, ai_extraction: ai?.extracted || {} })
+    body: JSON.stringify({ site_id: siteId, period_id: period?.id || null, reading_at: readingAt, reading_m3: readingM3, meter_cycle: meterCycle, is_meter_change: isMeterChange, source: image ? 'photo-ai' : reading.source || 'manual', notes: reading.notes || (isMeterChange ? 'Inicio de nuevo medidor' : null), storage_path: uploaded?.storagePath || null, original_name: uploaded?.originalName || null, mime_type: uploaded?.mimeType || null, bytes: uploaded?.bytes || null, sha256: uploaded?.sha256 || null, ai_confidence: nullableNumber(ai?.confidence), ai_model: ai?.model || null, ai_extraction: ai?.extracted || {} })
   });
   return normalizeReading(rows?.[0]);
 }
@@ -457,6 +468,27 @@ export function normalizeWaterReadingM3(value) {
   return Number.isFinite(parsed) && parsed >= 0 ? Number(parsed.toFixed(3)) : NaN;
 }
 
+export function calculateWaterConsumptionAcrossMeterCycles(period, readings) {
+  if (!period) return 0;
+  const ordered = [...(readings || [])].sort((a, b) => Date.parse(a.readingAt) - Date.parse(b.readingAt));
+  let consumed = 0;
+  let previous = Number(period.openingReadingM3);
+  let cycle = 1;
+  for (const reading of ordered) {
+    const readingCycle = Math.max(1, Number(reading.meterCycle || cycle));
+    const changed = reading.isMeterChange === true || readingCycle !== cycle || Number(reading.readingM3) < previous;
+    if (changed) {
+      cycle = readingCycle > cycle ? readingCycle : cycle + 1;
+      previous = Number(reading.readingM3);
+      continue;
+    }
+    consumed += Math.max(0, Number(reading.readingM3) - previous);
+    previous = Number(reading.readingM3);
+    cycle = readingCycle;
+  }
+  return Number(consumed.toFixed(3));
+}
+
 export async function readWaterReadingPhoto(deviceSn, readingId) {
   const siteId = await ensureSite(deviceSn);
   const rows = await rest(`water_meter_readings?id=eq.${Number(readingId)}&site_id=eq.${siteId}&storage_path=not.is.null&select=storage_path,original_name,mime_type&limit=1`) || [];
@@ -467,7 +499,7 @@ export async function readWaterReadingPhoto(deviceSn, readingId) {
 export function calculateWaterProjection(period, readings, bills, now = new Date()) {
   if (!period) return null;
   const latest = readings[0];
-  const consumed = latest ? Math.max(0, latest.readingM3 - period.openingReadingM3) : 0;
+  const consumed = calculateWaterConsumptionAcrossMeterCycles(period, readings);
   const latestDateChile = latest ? todayChile(new Date(latest.readingAt)) : period.periodStart;
   const elapsedDays = periodDays(period.periodStart, latestDateChile);
   const totalDays = periodDays(period.periodStart, period.expectedCloseDate);
