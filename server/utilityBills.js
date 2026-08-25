@@ -193,6 +193,9 @@ function normalize(row, theoretical = null, documents = []) {
     theoreticalGridKwh,
     archiveCoveragePct: theoretical?.coveragePct ?? Number(row.archive_coverage_pct || 0),
     differenceKwh: Number((billedKwh - theoreticalGridKwh).toFixed(3)),
+    misolarProjection: row.misolar_projection && typeof row.misolar_projection === 'object' ? row.misolar_projection : null,
+    meterProjection: row.meter_projection && typeof row.meter_projection === 'object' ? row.meter_projection : null,
+    projectionSnapshotAt: row.projection_snapshot_at || null,
     issueDate: row.issue_date,
     dueDate: row.due_date,
     customerNumber: row.customer_number,
@@ -376,6 +379,31 @@ export async function projectUtilityBill(deviceSn, bills = null, unitRateClp = 2
   };
 }
 
+function projectionMatchesPeriod(projection, periodStart, periodEnd) {
+  return projection?.periodStart === periodStart && projection?.periodEnd === periodEnd;
+}
+
+export async function captureUtilityProjectionSnapshots(deviceSn, projection, meterTracking) {
+  const siteId = await ensureSite(deviceSn);
+  const snapshotDate = todayChile();
+  const entries = [];
+  if (projection?.projectedGridKwh != null) entries.push({
+    site_id: siteId, period_start: projection.periodStart, period_end: projection.periodEnd, snapshot_date: snapshotDate,
+    source: 'misolar', projected_kwh: projection.projectedGridKwh, projected_amount_clp: projection.projectedAmountClp,
+    calculated_at: projection.calculatedAt || new Date().toISOString(), payload: projection
+  });
+  const meter = meterTracking?.projection;
+  if (meter?.latestReadingKwh != null) entries.push({
+    site_id: siteId, period_start: meterTracking.periodStart, period_end: meterTracking.periodEnd, snapshot_date: snapshotDate,
+    source: 'meter', projected_kwh: meter.projectedKwh, projected_amount_clp: meter.projectedAmountClp,
+    calculated_at: meter.latestReadingAt || new Date().toISOString(), payload: { ...meter, periodStart: meterTracking.periodStart, periodEnd: meterTracking.periodEnd }
+  });
+  for (const entry of entries) await rest('utility_projection_snapshots?on_conflict=site_id,period_start,period_end,snapshot_date,source', {
+    method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(entry)
+  });
+  return entries.length;
+}
+
 export async function readUtilityBillDocument(deviceSn, documentId) {
   const siteId = await ensureSite(deviceSn);
   const documents = await rest(`utility_bill_documents?id=eq.${Number(documentId)}&select=id,bill_id,storage_path,original_name,mime_type&limit=1`) || [];
@@ -454,6 +482,17 @@ async function removeOlderBillsForMonth(deviceSn, siteId, savedId, periodEnd) {
 
 export async function saveUtilityBill(deviceSn, bill, images = [], ai = null) {
   const siteId = await ensureSite(deviceSn);
+  const priorBills = await listUtilityBills(deviceSn);
+  const [currentProjection, currentMeterTracking] = await Promise.all([
+    projectUtilityBill(deviceSn, priorBills), utilityMeterTracking(deviceSn, priorBills)
+  ]);
+  await captureUtilityProjectionSnapshots(deviceSn, currentProjection, currentMeterTracking);
+  const existingBill = priorBills.find((item) => item.periodStart === bill.periodStart && item.periodEnd === bill.periodEnd);
+  const frozenMisolarProjection = projectionMatchesPeriod(currentProjection, bill.periodStart, bill.periodEnd) ? currentProjection : existingBill?.misolarProjection || null;
+  const frozenMeterProjection = projectionMatchesPeriod(currentMeterTracking, bill.periodStart, bill.periodEnd)
+    ? { ...currentMeterTracking.projection, periodStart: currentMeterTracking.periodStart, periodEnd: currentMeterTracking.periodEnd }
+    : existingBill?.meterProjection || null;
+  const projectionSnapshotAt = frozenMisolarProjection || frozenMeterProjection ? existingBill?.projectionSnapshotAt || new Date().toISOString() : null;
   const theoretical = await theoreticalGrid(deviceSn, bill.periodStart, bill.periodEnd);
   const readingKwh = bill.previousReading != null && bill.currentReading != null ? Math.max(0, Number(bill.currentReading) - Number(bill.previousReading)) : null;
   const reportedKwh = Number(bill.billedKwh) > 0 ? Number(bill.billedKwh) : readingKwh && readingKwh > 0 ? readingKwh : null;
@@ -500,6 +539,9 @@ export async function saveUtilityBill(deviceSn, bill, images = [], ai = null) {
       ai_model: ai?.model || null,
       theoretical_grid_kwh: theoretical.kwh,
       archive_coverage_pct: theoretical.coveragePct,
+      misolar_projection: frozenMisolarProjection || {},
+      meter_projection: frozenMeterProjection || {},
+      projection_snapshot_at: projectionSnapshotAt,
       updated_at: new Date().toISOString()
     })
   });

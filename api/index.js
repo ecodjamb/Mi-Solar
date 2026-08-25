@@ -16,7 +16,7 @@ import { runDueAutomations } from '../server/automationRunner.js';
 import { runNotificationMonitors } from '../server/notificationMonitor.js';
 import { automationSiteProfile } from '../server/siteProfiles.js';
 import { forecastForDate, listForecastRevisions, lockTomorrowForecasts } from '../server/solarProjection.js';
-import { deleteUtilityBill, listUtilityBills, projectUtilityBill, readUtilityBillDocument, saveUtilityBill, saveUtilityMeterReading, updateUtilityBill, utilityBillReminder, utilityMeterTracking, updateUtilityBillReminder } from '../server/utilityBills.js';
+import { captureUtilityProjectionSnapshots, deleteUtilityBill, listUtilityBills, projectUtilityBill, readUtilityBillDocument, saveUtilityBill, saveUtilityMeterReading, updateUtilityBill, utilityBillReminder, utilityMeterTracking, updateUtilityBillReminder } from '../server/utilityBills.js';
 import { extractUtilityBill, validateBillImages } from '../server/utilityBillAi.js';
 import {
   closeWaterPeriod, deleteWaterBill, deleteWaterReading, openWaterPeriod, readWaterBillDocument, readWaterReadingPhoto,
@@ -906,6 +906,8 @@ export default async function handler(req, res) {
       if (method === 'GET') {
         const list = await listUtilityBills(sn);
         const [projection, reminder, meterTracking] = await Promise.all([projectUtilityBill(sn, list), utilityBillReminder(sn), utilityMeterTracking(sn, list)]);
+        try { await captureUtilityProjectionSnapshots(sn, projection, meterTracking); }
+        catch (snapshotError) { console.error('Utility projection snapshot:', { code: snapshotError?.code || 'SNAPSHOT_ERROR', message: String(snapshotError?.message || 'No fue posible guardar el corte diario.').slice(0, 180) }); }
         return sendJson(res, 200, { list, projection, reminder, meterTracking });
       }
       const body = parseBody(req);

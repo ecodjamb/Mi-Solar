@@ -1,3 +1,10 @@
+# Mi Solar v8.37.0
+
+- Costos conserva un corte diario de la proyección Mi Solar y de la proyección por lecturas reales para cada período Enel.
+- Al ingresar una cuenta, ambas proyecciones quedan congeladas dentro del registro y no cambian al recalcular datos posteriores.
+- El detalle de cada cuenta nueva compara kWh y monto real contra ambos modelos, mostrando sus diferencias para recalibración futura.
+- Las 31 cuentas históricas existentes se mantienen intactas y no reciben valores retroactivos inventados.
+
 # Mi Solar v8.36.1
 
 - Corrige Probar conexión, Actualizar credenciales y Sincronizar ahora para ejecutarse de inmediato, sin esperar la cola de consultas históricas.

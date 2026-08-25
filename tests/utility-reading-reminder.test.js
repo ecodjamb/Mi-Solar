@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { calculateUtilityMeterProjection, calculateUtilityReminderSchedule } from '../server/utilityBills.js';
 import { reconcileUtilityBill } from '../server/utilityBillAi.js';
 
@@ -31,5 +32,13 @@ assert.equal(meterProjection.consumedKwh, 810);
 assert.equal(meterProjection.elapsedDays, 27);
 assert.equal(meterProjection.totalDays, 31);
 assert.equal(meterProjection.projectedKwh, 930);
+
+const migration = readFileSync(new URL('../supabase/migrations/20260825144959_utility_bill_projection_snapshots.sql', import.meta.url), 'utf8');
+const interfaceSource = readFileSync(new URL('../src/components/EnelBillsSection.tsx', import.meta.url), 'utf8');
+assert.match(migration, /utility_projection_snapshots/);
+assert.match(migration, /misolar_projection jsonb/);
+assert.match(migration, /meter_projection jsonb/);
+assert.match(interfaceSource, /Comparativo congelado al ingresar la cuenta/);
+assert.match(interfaceSource, /Proyección por lecturas/);
 
 console.log('utility reading reminder tests passed');
