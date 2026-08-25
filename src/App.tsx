@@ -40,7 +40,7 @@ import { readSiteCache, writeSiteCache } from './services/siteCache';
 import {
   batteryChargePower,batteryDischargePower,batterySoc,batteryVoltage,chileDayApiChunks,chileSiteRangeApiRange,chileWeekApiRange,clp,dailyEnergy,dataQuality,
   detectPvCount,effectiveGridPower,filterRowsForSiteDate,filterRowsForSiteMonth,filterRowsForSiteRange,formatClock,formatDate,formatSiteDate,gridFrequency,gridVoltage,solarSystemToLoadPower,solarToLoadPower,
-  groupDailyEnergy,health,inverterTemperature,kwh,loadPower,outputFrequency,outputVoltage,parseApiTime,pvPower,siteRangeUtc,technicalCatalog,watts
+  groupDailyEnergy,health,inverterTemperature,kwh,loadPower,outputFrequency,outputVoltage,parseApiTime,pvPower,siteRangeUtc,watts
 } from './utils/energy';
 
 const SESSION_IDLE_MS=SESSION_POLICY.idleMs;
@@ -49,7 +49,7 @@ const LAST_ACTIVITY_KEY=SESSION_POLICY.storageKey;
 const REFRESH_MS=REFRESH_POLICY;
 const PROVIDER_ACTIVE_REFRESH_MS=2*60_000;
 type RealtimeRefreshMode='cache'|'if-stale'|'force';
-const requestedPage=()=>{const value=new URLSearchParams(window.location.search).get('page');return(['home','charts','solar','costs','equipment','programming','integrations','technical','water','users','family'] as PageKey[]).includes(value as PageKey)?value as PageKey:'home'};
+const requestedPage=()=>{const value=new URLSearchParams(window.location.search).get('page');if(value==='technical')return'equipment';return(['home','charts','solar','costs','equipment','programming','integrations','water','users','family'] as PageKey[]).includes(value as PageKey)?value as PageKey:'home'};
 const emptyEnergy:DailyEnergy={date:'',solar:0,pv1:0,pv2:0,load:0,grid:0,gridImport:0,gridExport:0,gridToLoad:0,charge:0,discharge:0,solarToLoad:0,batteryToLoad:0,solarToBattery:0,samples:0};
 type StoredSolarForecast={date:string;forecastKwh:number;radiationKwhM2:number;locked:boolean;lockedAt:string|null};
 type ForecastRevision={date:string;forecastKwh:number;radiationKwhM2:number;observedAt:string};
@@ -461,9 +461,6 @@ export default function App(){
 
   const systemToLoad=(energy:DailyEnergy)=>Math.max(0,energy.solarToLoad)+Math.max(0,energy.batteryToLoad);
   const savings=systemToLoad(homeEnergy)*tariff;
-  const catalog=technicalCatalog(realtime,summary,gridSourceLabel);
-  const used=new Set(catalog.flatMap(s=>s.items.map(i=>i.source).filter(Boolean)) as string[]);
-  const rawUnknown=[...new Set([...Object.keys(summary),...Object.keys(realtime)])].filter(k=>!used.has(k)).sort();
   const showUsers=appIdentity?.authenticated===true&&appIdentity.access.role==='superadmin';
   const showFamily=appIdentity?.authenticated===true&&(appIdentity.access.role==='superadmin'||appIdentity.access.permissions.includes('family.view')||appIdentity.access.menus.family===true);
   const solarChrome=page!=='family'&&page!=='users'&&page!=='water';
@@ -474,11 +471,11 @@ export default function App(){
       {solarChrome&&<header className="topbar">
         <div className="source-controls"><label><small>Instalación</small><select value={selected} onChange={e=>switchDevice(e.target.value)}>{devices.map(d=><option key={d.deviceSn} value={d.deviceSn}>{d.nickName||d.deviceSn}</option>)}</select></label><label><small>Fuente instantánea</small><select value={source} onChange={e=>switchProvider(e.target.value as ProviderName)}><option value="isolar">i.Solar</option><option value="watchpower" disabled={!selectedProviderSite?.providers.find(item=>item.provider==='watchpower')?.enabled}>WatchPower{!selectedProviderSite?.providers.find(item=>item.provider==='watchpower')?.enabled?' · pendiente':''}</option></select></label><span className={`online ${liveFresh?'is-fresh':'is-stale'}`}>● {selectedProviderStatus?.status==='temporarily_blocked'?'Bloqueado temporalmente':liveStatus}</span>{source==='watchpower'&&<em className="read-only-chip">Solo lectura</em>}</div>
         <div className="time-box"><strong>{clock}</strong><small>Hora de Chile</small><small>Último dato: {formatDate(realtime.currentTime||realtime.createTime)}</small><small>Consulta: {lastFetch?lastFetch.toLocaleTimeString('es-CL',{timeZone:'America/Santiago',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}):'—'} · v{APP_VERSION}</small></div>
-        {appIdentity?.authenticated&&<button className="account-chip" onClick={()=>setPage('integrations')} title="Ver sesión y credenciales"><ShieldCheck/><span><b>{appIdentity.user?.displayName||'Mi Solar'}</b><small>@{appIdentity.user?.username}</small></span></button>}
+        {appIdentity?.authenticated&&<button className="account-chip" onClick={()=>setPage(showUsers?'users':'integrations')} title={showUsers?'Ver usuarios y credenciales':'Ver domótica'}><ShieldCheck/><span><b>{appIdentity.user?.displayName||'Mi Solar'}</b><small>@{appIdentity.user?.username}</small></span></button>}
         <FunModeToggle value={funMode} onChange={v=>{setFunMode(v);localStorage.setItem('funMode',v?'on':'off')}}/>
         <button className="refresh-button" onClick={()=>void refreshRealtime(undefined,'force')} disabled={loading} title="Consultar el proveedor y guardar el último dato del flujo instantáneo"><RefreshCw className={loading?'spin':''}/><span>{loading?'Actualizando flujo…':'Actualizar'}</span></button>
       </header>}
-      {page==='family'&&appIdentity?.authenticated&&<header className="non-solar-context"><button className="account-chip" onClick={()=>setPage('integrations')} title="Ver mi sesión"><ShieldCheck/><span><b>{appIdentity.user?.displayName||'Superadministrador'}</b><small>@{appIdentity.user?.username}</small></span></button></header>}
+      {page==='family'&&appIdentity?.authenticated&&<header className="non-solar-context"><button className="account-chip" onClick={()=>setPage(showUsers?'users':'integrations')} title="Ver mi sesión"><ShieldCheck/><span><b>{appIdentity.user?.displayName||'Superadministrador'}</b><small>@{appIdentity.user?.username}</small></span></button></header>}
       {page==='water'&&<header className="non-solar-context water-context"><span><small>Instalación</small><b>El Arrayán</b></span></header>}
       {solarChrome&&syncMessage&&<div className="data-warning-banner">{syncMessage}</div>}
       {solarChrome&&historyMessage&&<div className={`data-warning-banner ${historyMessage.startsWith('Mes completo')?'history-status-ok':'history-status-warn'}`}>{historyMessage}</div>}
@@ -530,13 +527,11 @@ export default function App(){
 
       {page==='costs'&&<CostsPage key={selected} deviceSn={selected} siteLabel={siteLabel} gridLabel={gridSourceLabel} today={today} week={week} currentMonth={month} tariff={tariff} onTariffChange={value=>{setTariff(value);localStorage.setItem(siteStorageKey('tariffCLP',device?.nickName||''),String(value))}}/>}
 
-      {page==='equipment'&&<EquipmentPage deviceSn={selected} siteLabel={siteLabel} realtime={realtime} summary={summary} gridLabel={gridSourceLabel}/>}
-
-      {page==='technical'&&<section className="technical-page"><section className="technical-summary"><article className="panel"><small>Versión de la app</small><strong>v{APP_VERSION}</strong></article><article className="panel"><small>Política de actualización</small><strong>30 s · 5 min · 5 min · 5 min</strong><p>Tiempo real · día · semana · mes</p></article><article className="panel"><small>Datos catalogados</small><strong>{catalog.reduce((n,s)=>n+s.items.filter(i=>i.value!==null).length,0)}</strong></article><article className="panel"><small>Muestras hoy</small><strong>{today.samples}</strong></article><article className="panel"><small>Muestras mes</small><strong>{month.samples}</strong></article></section><section className="technical-grid">{catalog.map(section=><article className="panel technical-section" key={section.title}><h2>{section.title}</h2>{section.items.map(item=><div className="technical-row" key={item.key}><span>{item.label}</span><strong>{item.value===null?'—':`${typeof item.value==='number'?item.value.toLocaleString('es-CL',{maximumFractionDigits:2}):item.value}${item.unit?` ${item.unit}`:''}`}</strong><small>{item.source||'campo no disponible'}</small></div>)}</article>)}</section><section className="panel technical"><h2>Parámetros disponibles no usados en el dashboard</h2><p>Se muestran aquí para mantener el inicio limpio y facilitar futuras estadísticas.</p><div className="unknown-parameter-grid">{rawUnknown.map(key=><div className="unknown-parameter" key={key}><span>{key}</span><strong>{String((realtime as Record<string,unknown>)[key]??(summary as Record<string,unknown>)[key]??'—')}</strong></div>)}</div><details><summary>Auditoría completa en JSON</summary><pre>{JSON.stringify({version:APP_VERSION,architecture:'Vercel native · caché aislado por equipo',refreshPolicyMs:REFRESH_MS,lastSectionUpdate,realtime,summary,today,week,month,quality,solarModel},null,2)}</pre></details></section></section>}
+      {page==='equipment'&&<EquipmentPage deviceSn={selected} siteLabel={siteLabel} realtime={realtime} summary={summary} gridLabel={gridSourceLabel} today={today} week={week} month={month} lastSectionUpdate={lastSectionUpdate} quality={quality} solarModel={solarModel}/>}
       {page==='programming'&&(source==='watchpower'?<section className="panel provider-readonly-notice"><h2>WatchPower: solo lectura</h2><p>La programación conocida puede consultarse, pero no se enviará ningún comando. Para editar la programación, seleccione i.Solar.</p></section>:<ProgrammingPage deviceSn={selected} siteLabel={siteLabel} currentTime={clock} tomorrowDate={tomorrowDate} tomorrowForecast={forecastTomorrow}/>)}
-      {page==='integrations'&&<IntegrationsPage siteLabel={siteLabel} siteId={selectedProviderSite?.id}/>}
+      {page==='integrations'&&<IntegrationsPage siteLabel={siteLabel} siteId={selectedProviderSite?.id} mode="domotics"/>}
       {page==='water'&&waterEnabled&&<WaterCostsPage key={selected} deviceSn={selected} siteLabel={siteLabel}/>}
-      {page==='users'&&showUsers&&<UsersPage/>}
+      {page==='users'&&showUsers&&<UsersPage siteLabel={siteLabel} siteId={selectedProviderSite?.id}/>}
       {page==='family'&&showFamily&&<FamilyFinancePage/>}
     </main>
     <MobileNav page={page} setPage={setPage} waterEnabled={waterEnabled} showUsers={showUsers} showFamily={showFamily}/>

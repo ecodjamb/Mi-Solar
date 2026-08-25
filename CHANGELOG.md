@@ -1,3 +1,10 @@
+# Mi Solar v8.35.0
+
+- “Accesos” se convierte en el menú independiente “Domótica”, dedicado a portón, artefactos, sensores y horarios.
+- Usuarios incorpora dos paneles desplegables: gestión completa de usuarios y credenciales cifradas de i.Solar/WatchPower.
+- Técnico deja de ocupar un menú independiente y todo su diagnóstico queda integrado al final de Equipos.
+- Se conservan los endpoints, credenciales, permisos, históricos y fichas existentes sin migrar ni eliminar datos.
+
 # Mi Solar v8.34.1
 
 - Unifica Inicio y Costos usando como fuente prioritaria la importación de red acumulada exclusivamente con `statusGrid = 1`.
