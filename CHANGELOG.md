@@ -1,3 +1,9 @@
+# Mi Solar v8.36.1
+
+- Corrige Probar conexión, Actualizar credenciales y Sincronizar ahora para ejecutarse de inmediato, sin esperar la cola de consultas históricas.
+- Cada proveedor muestra progreso y resultado junto al botón accionado, incluyendo cantidad de equipos y nuevas lecturas de una sincronización.
+- Desconectar usa una confirmación propia y conserva intactos todos los históricos; únicamente elimina la credencial cifrada y la sesión del proveedor.
+
 # Mi Solar v8.36.0
 
 - Costos incorpora al inicio un gráfico diario comparativo de red activa (`statusGrid = 1`) y producción solar total.
