@@ -6,7 +6,7 @@ import { archiveTuyaRule, createTuyaRule, listTuyaRules, runDueTuyaRules, update
 import { parseInverterSettings } from '../server/isolarSettings.js';
 import {
   deleteEquipment, listEquipment, pushSubscriptionStatus, readAutomationRule, recordConfigurationEvent, removePushSubscription, saveAutomationCredentials,
-  saveEquipment, savePushSubscription, updateAutomationRule
+  saveEquipment, savePushSubscription, saveUserPushSubscription, updateAutomationRule
 } from '../server/automationStore.js';
 import { encryptCredentials } from '../server/secretBox.js';
 import { applyInverterTarget, loginOrigin, logoutOrigin } from '../server/inverterControl.js';
@@ -246,6 +246,12 @@ export default async function handler(req, res) {
       const session = await requireAppPermission(req, 'family.create');
       return sendJson(res, 201, { movement: await createExpenseMovement(session, parseBody(req)) });
     }
+    if (method === 'POST' && route === 'family/push-subscription') {
+      const session = await requireAppPermission(req, 'family.view');
+      const body = parseBody(req);
+      if (!body.endpoint || !body.keys?.p256dh || !body.keys?.auth) return sendJson(res, 400, { error: 'Suscripción de notificaciones inválida.' });
+      return sendJson(res, 200, await saveUserPushSubscription(body, session.user.id));
+    }
     const accountShare = route.match(/^family\/accounts\/(\d+)\/share$/);
     if (accountShare && method === 'POST') {
       const session = await requireAppPermission(req, 'family.create');
@@ -383,7 +389,7 @@ export default async function handler(req, res) {
       } catch (cause) {
         archiveError = cause instanceof Error ? cause.message : 'No fue posible comprobar el archivo permanente.';
       }
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.37.4', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.37.5', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -646,13 +652,13 @@ export default async function handler(req, res) {
 
     const pushSubscription = route.match(/^devices\/([^/]+)\/push-subscription$/);
     if ((method === 'POST' || method === 'DELETE') && pushSubscription) {
-      await authorizeStoredData(req, true);
+      const appSession = await authorizeStoredData(req, true);
       const sn = decodeURIComponent(pushSubscription[1]);
       const body = parseBody(req);
       if (!validDeviceReference(sn) || !body.endpoint) return sendJson(res, 400, { error: 'Suscripción de notificaciones inválida.' });
       if (method === 'DELETE') return sendJson(res, 200, await removePushSubscription(sn, String(body.endpoint)));
       if (!body.keys?.p256dh || !body.keys?.auth) return sendJson(res, 400, { error: 'La suscripción no contiene sus llaves públicas.' });
-      return sendJson(res, 200, await savePushSubscription(sn, body));
+      return sendJson(res, 200, await savePushSubscription(sn, body, appSession?.user?.id || null));
     }
 
     const pushStatus = route.match(/^devices\/([^/]+)\/push-status$/);

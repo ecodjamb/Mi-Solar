@@ -134,8 +134,12 @@ export async function readAutomationCredentials(deviceSn) {
   return rows?.[0]?.credentials_cipher || null;
 }
 
-export async function savePushSubscription(deviceSn, subscription) {
+export async function savePushSubscription(deviceSn, subscription, userId = null) {
   await ensureSite(deviceSn);
+  return await saveUserPushSubscription(subscription, userId);
+}
+
+export async function saveUserPushSubscription(subscription, userId) {
   const sites = await rest('solar_sites?select=id') || [];
   const rows = await rest('push_subscriptions?on_conflict=site_id,endpoint', {
     method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
@@ -144,6 +148,7 @@ export async function savePushSubscription(deviceSn, subscription) {
       endpoint: subscription.endpoint,
       p256dh: subscription.keys.p256dh,
       auth: subscription.keys.auth,
+      user_id: userId || null,
       failure_count: 0
     })))
   });
@@ -158,6 +163,13 @@ export async function removePushSubscription(deviceSn, endpoint) {
 
 export async function listPushSubscriptions(siteId) {
   return await rest(`push_subscriptions?site_id=eq.${siteId}&select=id,endpoint,p256dh,auth,failure_count`) || [];
+}
+
+export async function listPushSubscriptionsForUser(userId) {
+  const rows = await rest(`push_subscriptions?user_id=eq.${encodeURIComponent(userId)}&select=id,endpoint,p256dh,auth,failure_count&order=created_at.desc`) || [];
+  const unique = new Map();
+  for (const row of rows) if (!unique.has(row.endpoint)) unique.set(row.endpoint, row);
+  return [...unique.values()];
 }
 
 export async function pushSubscriptionStatus(deviceSn) {

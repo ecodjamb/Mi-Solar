@@ -1,5 +1,6 @@
 import webpush from 'web-push';
-import { deletePushSubscription, listPushSubscriptions, markPushFailure, markPushSuccess, recordNotificationEvent } from './automationStore.js';
+import { deletePushSubscription, listPushSubscriptions, listPushSubscriptionsForUser, markPushFailure, markPushSuccess, recordNotificationEvent } from './automationStore.js';
+import { privateFamilyPushClaim } from './privateRpc.js';
 
 function configure() {
   const publicKey = process.env.VAPID_PUBLIC_KEY;
@@ -23,9 +24,8 @@ export function pushPublicKey() {
   return process.env.VAPID_PUBLIC_KEY || '';
 }
 
-export async function sendAutomationPush(siteId, title, body, data = {}) {
+async function deliverPush(subscriptions, title, body, data = {}) {
   if (!configure()) return { sent: 0, failed: 0, configured: false };
-  const subscriptions = await listPushSubscriptions(siteId);
   let sent = 0;
   let failed = 0;
   let lastError = null;
@@ -46,6 +46,18 @@ export async function sendAutomationPush(siteId, title, body, data = {}) {
     }
   }
   return { sent, failed, configured: true, lastError };
+}
+
+export async function sendAutomationPush(siteId, title, body, data = {}) {
+  return await deliverPush(await listPushSubscriptions(siteId), title, body, data);
+}
+
+export async function sendFamilyPushThrottled(userId, category, title, body, data = {}) {
+  const subscriptions = await listPushSubscriptionsForUser(userId);
+  if (!subscriptions.length) return { sent: 0, failed: 0, configured: configure(), subscribed: false };
+  const claimed = await privateFamilyPushClaim(userId, category, 300);
+  if (!claimed) return { sent: 0, failed: 0, configured: configure(), subscribed: true, throttled: true };
+  return { ...(await deliverPush(subscriptions, title, body, data)), subscribed: true, throttled: false };
 }
 
 export async function sendSiteNotification(siteId, type, title, body, data = {}, dedupeKey = null) {
