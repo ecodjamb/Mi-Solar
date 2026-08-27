@@ -111,7 +111,8 @@ export async function requireAppPermission(req, permission) {
     throw error;
   }
   requireCsrf(req, appSession);
-  const allowed = appSession.access.role === 'superadmin' || appSession.access.permissions.includes(permission) || appSession.access.actions[permission] === true;
+  const explicit = appSession.access.actions?.[permission];
+  const allowed = appSession.access.role === 'superadmin' || (explicit === undefined ? appSession.access.permissions.includes(permission) : explicit === true);
   if (!allowed) {
     const error = new Error('No tienes permiso para realizar esta acción.');
     error.status = 403;

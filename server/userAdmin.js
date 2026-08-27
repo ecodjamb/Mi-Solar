@@ -6,14 +6,19 @@ const identityDb = (operation, payload = {}) => privateRpc('identity', operation
 
 export async function listUsers() {
   const { users = [], sites = [], site_permissions: sitePermissions = [], menu_permissions: menuPermissions = [], action_permissions: actionPermissions = [], devices = [] } = await identityDb('list_users') || {};
-  return (users || []).map((user) => ({
+  return await Promise.all((users || []).map(async (user) => {
+    const roleAccess = await identityDb('permissions', { user_id: user.id, role_id: user.role_id }) || {};
+    return {
     id: user.id, username: user.username, displayName: user.display_name, email: user.email, phone: user.phone, active: user.active,
     mustChangePassword: user.must_change_password, createdAt: user.created_at, lastLoginAt: user.last_login_at,
     role: user.roles?.key || 'member', roleName: user.roles?.name || 'Miembro',
+    rolePermissions: roleAccess.permissions || [],
+    availableSites: (sites || []).map((site) => ({ id: site.id, name: site.name })),
     sites: (sitePermissions || []).filter((row) => row.user_id === user.id).map((row) => ({ ...row, name: (sites || []).find((site) => site.id === row.site_id)?.name || String(row.site_id) })),
     menus: Object.fromEntries((menuPermissions || []).filter((row) => row.user_id === user.id).map((row) => [row.menu_key, row.allowed])),
     actions: Object.fromEntries((actionPermissions || []).filter((row) => row.user_id === user.id).map((row) => [row.action_key, row.allowed])),
     devices: (devices || []).filter((row) => row.user_id === user.id).map((row) => ({ id: row.id, label: row.label, lastSeenAt: row.last_seen_at, createdAt: row.created_at }))
+    };
   }));
 }
 
@@ -54,7 +59,12 @@ export async function updateUser(userId, input, actorUserId) {
   if (Object.keys(patch).length) await identityDb('user_update', { user_id: userId, ...patch });
   await applyUserAccess(userId, input);
   if (input.active === false) await revokeUserSessions(userId, actorUserId, false);
-  await audit(actorUserId, 'user.updated', userId, before, patch);
+  await audit(actorUserId, 'user.updated', userId, before, {
+    ...patch,
+    ...(input.menus ? { menus: input.menus } : {}),
+    ...(input.actions ? { actions: input.actions } : {}),
+    ...(Array.isArray(input.siteIds) ? { siteIds: input.siteIds, canControlISolar: Boolean(input.canControlISolar) } : {})
+  });
   return { ok: true };
 }
 

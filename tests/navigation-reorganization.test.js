@@ -22,5 +22,14 @@ assert.match(integrations,/provider-inline-feedback/);
 assert.match(integrations,/provider-disconnect-confirm/);
 assert.match(integrations,/Sincronización terminada:/);
 assert.doesNotMatch(integrations,/window\.confirm\(`¿Confirmas desconectar/);
+assert.match(users,/Editar usuario y permisos/);
+assert.match(users,/Instalaciones asignadas/);
+assert.match(users,/Cerrar sesión en dispositivos/);
+assert.match(users,/La contraseña no cambiará/);
+assert.match(users,/siteIds/);
+assert.match(app,/allowedMenus/);
+
+const appAuth=readFileSync(new URL('../server/appAuth.js',import.meta.url),'utf8');
+assert.match(appAuth,/explicit === undefined \? appSession\.access\.permissions\.includes\(permission\) : explicit === true/);
 
 console.log('navigation reorganization tests: ok');

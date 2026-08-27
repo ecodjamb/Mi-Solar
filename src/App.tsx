@@ -461,12 +461,17 @@ export default function App(){
 
   const systemToLoad=(energy:DailyEnergy)=>Math.max(0,energy.solarToLoad)+Math.max(0,energy.batteryToLoad);
   const savings=systemToLoad(homeEnergy)*tariff;
-  const showUsers=appIdentity?.authenticated===true&&appIdentity.access.role==='superadmin';
-  const showFamily=appIdentity?.authenticated===true&&(appIdentity.access.role==='superadmin'||appIdentity.access.permissions.includes('family.view')||appIdentity.access.menus.family===true);
+  const isSuperadmin=appIdentity?.authenticated===true&&appIdentity.access.role==='superadmin';
+  const actionAllowed=(key:string)=>{const explicit=appIdentity?.access.actions?.[key];return Boolean(isSuperadmin||(explicit===undefined?appIdentity?.access.permissions.includes(key):explicit===true))};
+  const menuAllowed=(key:PageKey,fallback:boolean)=>Boolean(isSuperadmin||(Object.prototype.hasOwnProperty.call(appIdentity?.access.menus||{},key)?appIdentity?.access.menus?.[key]===true:fallback));
+  const solarView=actionAllowed('solar.view');
+  const showUsers=appIdentity?.authenticated===true&&actionAllowed('users.manage')&&menuAllowed('users',false);
+  const showFamily=appIdentity?.authenticated===true&&actionAllowed('family.view')&&menuAllowed('family',true);
+  const allowedMenus:Partial<Record<PageKey,boolean>>={home:menuAllowed('home',solarView)&&solarView,charts:menuAllowed('charts',solarView)&&solarView,solar:menuAllowed('solar',solarView)&&solarView,costs:menuAllowed('costs',solarView)&&solarView,equipment:menuAllowed('equipment',solarView)&&solarView,programming:menuAllowed('programming',solarView)&&solarView,integrations:menuAllowed('integrations',solarView)&&solarView,water:menuAllowed('water',solarView)&&solarView,family:showFamily,users:showUsers};
   const solarChrome=page!=='family'&&page!=='users'&&page!=='water';
 
   return <div className="shell">
-    <Sidebar page={page} setPage={setPage} site={device?.nickName||'Mi instalación'} waterEnabled={waterEnabled} showUsers={showUsers} showFamily={showFamily} onLogout={async()=>{await Promise.allSettled([api('logout',{method:'POST'}),api('app-auth/logout',{method:'POST'})]);setAuth(false);setAppIdentity(null)}}/>
+    <Sidebar page={page} setPage={setPage} site={device?.nickName||'Mi instalación'} waterEnabled={waterEnabled} showUsers={showUsers} showFamily={showFamily} allowedMenus={allowedMenus} onLogout={async()=>{await Promise.allSettled([api('logout',{method:'POST'}),api('app-auth/logout',{method:'POST'})]);setAuth(false);setAppIdentity(null)}}/>
     <main className="content">
       {solarChrome&&<header className="topbar">
         <div className="source-controls"><label><small>Instalación</small><select value={selected} onChange={e=>switchDevice(e.target.value)}>{devices.map(d=><option key={d.deviceSn} value={d.deviceSn}>{d.nickName||d.deviceSn}</option>)}</select></label><label><small>Fuente instantánea</small><select value={source} onChange={e=>switchProvider(e.target.value as ProviderName)}><option value="isolar">i.Solar</option><option value="watchpower" disabled={!selectedProviderSite?.providers.find(item=>item.provider==='watchpower')?.enabled}>WatchPower{!selectedProviderSite?.providers.find(item=>item.provider==='watchpower')?.enabled?' · pendiente':''}</option></select></label><span className={`online ${liveFresh?'is-fresh':'is-stale'}`}>● {selectedProviderStatus?.status==='temporarily_blocked'?'Bloqueado temporalmente':liveStatus}</span>{source==='watchpower'&&<em className="read-only-chip">Solo lectura</em>}</div>
@@ -534,6 +539,6 @@ export default function App(){
       {page==='users'&&showUsers&&<UsersPage siteLabel={siteLabel} siteId={selectedProviderSite?.id}/>}
       {page==='family'&&showFamily&&<FamilyFinancePage/>}
     </main>
-    <MobileNav page={page} setPage={setPage} waterEnabled={waterEnabled} showUsers={showUsers} showFamily={showFamily}/>
+    <MobileNav page={page} setPage={setPage} waterEnabled={waterEnabled} showUsers={showUsers} showFamily={showFamily} allowedMenus={allowedMenus}/>
   </div>;
 }
