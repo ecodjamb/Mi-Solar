@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { privateFamilyMovementUpdate, privateRpc } from './privateRpc.js';
 import { validateFinancialImage } from './financialReceiptAi.js';
+import { sendFamilyPushThrottled } from './pushNotifications.js';
 
 const BUCKET = 'family-finance-documents';
 
@@ -154,6 +155,15 @@ export async function createExpenseMovement(session, input) {
   const admins = await adminUsers();
   const recipients = new Set([input.depositorUserId,input.recipientUserId,...admins.map((user) => user.id)]);
   await Promise.all([...recipients].map((userId) => notify(userId, 'expense_pending', income > 0 ? 'Depósito pendiente' : 'Gasto pendiente', `${input.detail}: requiere revisión.`, 'expense_movement', movementRow?.id)));
+  if (expense > 0 && !isAdmin(session)) {
+    await Promise.allSettled(admins.map((admin) => sendFamilyPushThrottled(
+      admin.id,
+      'expense_pending_admin',
+      '🧾 Nuevo gasto familiar pendiente',
+      `${session.user.display_name || session.user.username} ingresó “${input.detail}”.`,
+      { url: '/?page=family', type: 'expense_pending', movementId: movementRow?.id }
+    )));
+  }
   return created;
 }
 
@@ -249,8 +259,26 @@ export async function reviewExpenseMovement(session, movementId, input) {
   const decision = input.decision === 'approved' ? 'approved' : 'rejected';
   const result = await familyDb('movement_review', { movement_id: Number(movementId), decision, reviewed_by: session.user.id, note: input.note || '' });
   if (!result) { const error = new Error('El movimiento ya fue revisado o no existe.');error.status = 409;throw error; }
-  await audit(session.user.id, `expense.${decision}`, 'expense_movement', movementId, { status: 'pending' }, result);
+  const affectedUserId = expenseReviewRecipient(result);
+  const title = decision === 'approved' ? '✅ Gasto aprobado' : '❌ Gasto rechazado';
+  const body = `${result.detail || 'Tu gasto'} fue ${decision === 'approved' ? 'aprobado' : 'rechazado'} por ${session.user.display_name || session.user.username}.`;
+  await Promise.all([
+    audit(session.user.id, `expense.${decision}`, 'expense_movement', movementId, { status: 'pending' }, result),
+    affectedUserId && affectedUserId !== session.user.id
+      ? notify(affectedUserId, `expense_${decision}`, title, body, 'expense_movement', movementId)
+      : Promise.resolve()
+  ]);
+  if (affectedUserId && affectedUserId !== session.user.id) {
+    await sendFamilyPushThrottled(affectedUserId, 'expense_review_user', title, body, {
+      url: '/?page=family', type: `expense_${decision}`, movementId
+    }).catch(() => undefined);
+  }
   return result;
+}
+
+export function expenseReviewRecipient(movement) {
+  if (!movement) return null;
+  return Number(movement.expense_minor || 0) > 0 ? movement.depositor_user_id || null : movement.recipient_user_id || null;
 }
 
 export async function reviewLoan(session, loanId, input) {

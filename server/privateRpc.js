@@ -28,6 +28,17 @@ export async function privateFamilyMovementUpdate(payload) {
   });
 }
 
+export async function privateFamilyPushClaim(userId, category, cooldownSeconds = 300) {
+  return await rest('rpc/misolar_family_push_claim_backend', {
+    method: 'POST',
+    body: JSON.stringify({
+      p_recipient_user_id: userId,
+      p_category: category,
+      p_cooldown_seconds: cooldownSeconds
+    })
+  });
+}
+
 export async function privateProviderSyncClaim({ siteId, provider, minimumSeconds = 90, force = false }) {
   return await rest('rpc/misolar_provider_sync_claim_backend', {
     method: 'POST',

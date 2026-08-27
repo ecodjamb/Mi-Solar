@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { dueToday, pendingScheduleDates } from '../server/familyFinance.js';
+import { dueToday, expenseReviewRecipient, pendingScheduleDates } from '../server/familyFinance.js';
 import { validateFinancialImage } from '../server/financialReceiptAi.js';
 
 const image = { name: 'comprobante.jpg', dataUrl: 'data:image/jpeg;base64,YQ==' };
@@ -17,6 +17,8 @@ assert.deepEqual(pendingScheduleDates(sunday, '2026-08-24'), ['2026-08-23'], 'la
 const monthly = { starts_on: '2026-08-01', frequency: 'monthly', pay_day: 21 };
 assert.equal(dueToday(monthly, '2026-08-21'), true);
 assert.equal(dueToday(monthly, '2026-08-20'), false);
+assert.equal(expenseReviewRecipient({ expense_minor: 15000, depositor_user_id: 'mateo', recipient_user_id: 'eco' }), 'mateo');
+assert.equal(expenseReviewRecipient({ income_minor: 15000, expense_minor: 0, depositor_user_id: 'eco', recipient_user_id: 'mateo' }), 'mateo');
 
 const api = fs.readFileSync(new URL('../api/index.js', import.meta.url), 'utf8');
 assert.match(api, /family\/receipts\/extract/);
@@ -30,6 +32,14 @@ assert.match(familyServer, /familyAccessDb\('account_share'/);
 assert.match(familyServer, /movement_voided/);
 assert.match(familyServer, /allowance_updated/);
 assert.match(familyServer, /allowance_ended/);
+assert.match(familyServer, /sendFamilyPushThrottled/);
+assert.match(familyServer, /expense_pending_admin/);
+assert.match(familyServer, /expense_review_user/);
+
+const familyPushMigration = fs.readFileSync(new URL('../supabase/migrations/20260827153000_family_expense_push_notifications.sql', import.meta.url), 'utf8');
+assert.match(familyPushMigration, /user_id uuid references public\.app_users/);
+assert.match(familyPushMigration, /make_interval\(secs =>/);
+assert.match(familyPushMigration, /username = 'ecodjamb'/);
 
 const migration = fs.readFileSync(new URL('../supabase/migrations/20260822023000_family_finance_workflows.sql', import.meta.url), 'utf8');
 assert.match(migration, /family-finance-documents/);
