@@ -56,17 +56,35 @@ export function automationNotificationMessage(preset, changed) {
 
 async function executeRule(rule, now) {
   if (!rule.deviceSn) return { deviceSn: rule.deviceSn, status: 'not-due' };
-  const dueConditions = (rule.conditions || []).filter((condition) => conditionDueNow(condition, now));
-  if (!dueConditions.length) return { deviceSn: rule.deviceSn, status: 'not-due' };
   let condition = null;
   let projection = null;
-  for (const candidate of dueConditions) {
-    const targetDate = addDays(now.date, candidate.dayOffset === 0 ? 0 : 1);
-    const candidateProjection = await forecastForDate(rule.deviceSn, targetDate);
-    if (conditionMatches(candidate, candidateProjection.forecastKwh)) {
-      condition = candidate;
-      projection = candidateProjection;
-      break;
+
+  // Conciliación de una ejecución perdida: si aún es la mañana, no existe una
+  // ejecución válida para hoy y sí hay un pronóstico nocturno fijado, aplicar
+  // una sola vez la condición que correspondía. Leer antes de escribir hace
+  // que también sea seguro cuando el inversor ya estaba en el perfil correcto.
+  const todayExecution = await readAutomationExecution(rule.siteId, now.date);
+  if (minutes(now.time) < 12 * 60 && (!todayExecution || todayExecution.action === 'failed')) {
+    const todayProjection = await forecastForDate(rule.deviceSn, now.date);
+    if (todayProjection?.locked) {
+      condition = (rule.conditions || []).find((candidate) => candidate.enabled !== false
+        && candidate.dayOffset !== 0
+        && conditionMatches(candidate, todayProjection.forecastKwh));
+      if (condition) projection = todayProjection;
+    }
+  }
+
+  if (!condition) {
+    const dueConditions = (rule.conditions || []).filter((candidate) => conditionDueNow(candidate, now));
+    if (!dueConditions.length) return { deviceSn: rule.deviceSn, status: 'not-due' };
+    for (const candidate of dueConditions) {
+      const targetDate = addDays(now.date, candidate.dayOffset === 0 ? 0 : 1);
+      const candidateProjection = await forecastForDate(rule.deviceSn, targetDate);
+      if (conditionMatches(candidate, candidateProjection.forecastKwh)) {
+        condition = candidate;
+        projection = candidateProjection;
+        break;
+      }
     }
   }
   if (!condition || !projection) return { deviceSn: rule.deviceSn, status: 'no-condition-match' };
