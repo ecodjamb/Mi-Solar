@@ -74,9 +74,10 @@ assert.equal(settingCommandConfirmed(parseInverterSettings({ BCRD: '25 10~100', 
 assert.equal(settingCommandConfirmed(parseInverterSettings({ BCRD: '25 10~100', PO: '1 0,1,2' }),'S05',SETTINGS_PRESETS.sunny),false);
 assert.equal(settingCommandConfirmed(parseInverterSettings({ BCRD: '25 10~100', PO: '2 0,1,2' }),'S05',SETTINGS_PRESETS.sunny),true);
 assert.equal(automationDueNow({runAtLocal:'22:00'},{time:'22:04'}),true);
-assert.equal(automationDueNow({runAtLocal:'22:00'},{time:'22:05'}),false);
+assert.equal(automationDueNow({runAtLocal:'22:00'},{time:'22:05'}),true);
 assert.equal(automationDueNow({runAtLocal:'21:37'},{time:'21:40'}),true);
-assert.equal(automationDueNow({runAtLocal:'21:37'},{time:'21:42'}),false);
+assert.equal(automationDueNow({runAtLocal:'21:37'},{time:'23:59'}),true);
+assert.equal(automationDueNow({runAtLocal:'22:00'},{time:'21:59'}),false);
 assert.equal(automationNotificationMessage('sunny',true),'Se realizó cambio de configuración en inversor a día soleado para mañana.');
 assert.equal(automationNotificationMessage('cloudy',false),'No se modificaron parámetros del inversor, ya que mañana estará nublado.');
 process.env.AUTOMATION_CREDENTIALS_KEY='test-only-key';

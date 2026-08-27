@@ -1,15 +1,14 @@
-import { decryptCredentials } from './secretBox.js';
-import { applyInverterTarget, loginOrigin, logoutOrigin } from './inverterControl.js';
+import { applyInverterTarget } from './inverterControl.js';
 import { forecastForDate } from './solarProjection.js';
 import {
   listEnabledAutomationRules,
-  readAutomationCredentials,
   readAutomationExecution,
   recordAutomationExecution,
   recordConfigurationEvent
 } from './automationStore.js';
 import { sendSiteNotification } from './pushNotifications.js';
 import { automationSiteProfile } from './siteProfiles.js';
+import { withISolarProviderSession } from './providerStore.js';
 
 function chileClock(now = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -26,7 +25,7 @@ function minutes(value) {
 
 export function automationDueNow(rule, now) {
   const difference = minutes(now.time) - minutes(rule.runAtLocal);
-  return difference >= 0 && difference < 5;
+  return difference >= 0;
 }
 
 function addDays(value, days) {
@@ -36,7 +35,10 @@ function addDays(value, days) {
 
 function conditionDueNow(condition, now) {
   const difference = minutes(now.time) - minutes(condition.runAtLocal);
-  return condition.enabled !== false && difference >= 0 && difference < 5;
+  // Después de la hora programada la condición sigue siendo elegible durante
+  // ese día. Esto recupera un cron omitido y permite usar el pronóstico fijado
+  // a las 21:35 aunque el tramo tuviera una hora anterior (por ejemplo 20:00).
+  return condition.enabled !== false && difference >= 0;
 }
 
 function conditionMatches(condition, forecastKwh) {
@@ -68,16 +70,12 @@ async function executeRule(rule, now) {
     }
   }
   if (!condition || !projection) return { deviceSn: rule.deviceSn, status: 'no-condition-match' };
-  if (await readAutomationExecution(rule.siteId, projection.date)) return { deviceSn: rule.deviceSn, status: 'already-executed' };
+  const previousExecution = await readAutomationExecution(rule.siteId, projection.date);
+  if (previousExecution && previousExecution.action !== 'failed') return { deviceSn: rule.deviceSn, status: 'already-executed' };
   const preset = condition.preset;
   const target = rule[preset];
-  const encrypted = await readAutomationCredentials(rule.deviceSn);
-  if (!encrypted) throw new Error(`Faltan credenciales automáticas para ${rule.deviceSn}.`);
-  const credentials = decryptCredentials(encrypted);
-  let session;
   try {
-    session = await loginOrigin(credentials.username, credentials.password);
-    const result = await applyInverterTarget(rule.deviceSn, target, session);
+    const result = await withISolarProviderSession(rule.deviceSn, ({ session, deviceSn }) => applyInverterTarget(deviceSn, target, session));
     const changed = result.changed && result.confirmed;
     const action = result.confirmed ? (result.changed ? 'changed' : 'unchanged') : 'failed';
     const profile = automationSiteProfile(rule.deviceSn);
@@ -116,8 +114,27 @@ async function executeRule(rule, now) {
       await recordAutomationExecution(rule.siteId, { ...execution, notified: true });
     }
     return { deviceSn: rule.deviceSn, status: action, preset, projection, pushed };
-  } finally {
-    await logoutOrigin(session);
+  } catch (error) {
+    const profile = automationSiteProfile(rule.deviceSn);
+    const message = `La automatización de ${profile.label} falló: ${String(error?.message || 'error desconocido').slice(0, 180)}`;
+    await recordAutomationExecution(rule.siteId, {
+      forecast_date: projection.date,
+      evaluated_at: new Date().toISOString(),
+      forecast_kwh: projection.forecastKwh,
+      threshold_kwh: Number(condition.maxKwh ?? condition.minKwh ?? rule.thresholdKwh),
+      automation_condition_id: condition.id,
+      preset,
+      action: 'failed',
+      before_config: {},
+      after_config: {},
+      message,
+      notified: false
+    }).catch(() => undefined);
+    await recordConfigurationEvent(rule.deviceSn, {
+      source: 'automatic', preset, forecastDate: projection.date, forecastKwh: projection.forecastKwh,
+      before: {}, target, after: {}, commands: {}, success: false, message
+    }).catch(() => undefined);
+    throw error;
   }
 }
 
@@ -132,5 +149,6 @@ export async function runDueAutomations(nowDate = new Date()) {
       results.push({ deviceSn: rule.deviceSn, status: 'failed', error: error instanceof Error ? error.message : 'Error desconocido' });
     }
   }
+  console.log('[automation/run] completed', { checkedAt: new Date().toISOString(), chile: now, rules: rules.length, results });
   return { checkedAt: new Date().toISOString(), chile: now, rules: rules.length, results };
 }

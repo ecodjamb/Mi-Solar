@@ -5,7 +5,7 @@ import { normalizeISolar, normalizeWatchPower, NORMALIZER_VERSION } from './cano
 import { WatchPowerProvider } from './providers/watchPowerProvider.js';
 import { ISolarProvider } from './providers/isolarProvider.js';
 import { ProviderError } from './providers/ProviderAdapter.js';
-import { readEnergySamples, readLatestEnergySample } from './archive.js';
+import { ensureSite, readEnergySamples, readLatestEnergySample, resolveDeviceReference } from './archive.js';
 
 const adapters = { isolar: new ISolarProvider(), watchpower: new WatchPowerProvider() };
 const PROVIDERS = new Set(Object.keys(adapters));
@@ -190,6 +190,45 @@ async function storeSession(account, session) {
   const packed = encryptProviderSecret(session);
   const expiresAt = new Date(Date.now() + Math.max(300, Number(session.expiresInSeconds || 600)) * 1000).toISOString();
   await providerDb('session_replace', { account_id: account.id, session_cipher: packed.cipher, encryption_version: packed.version, expires_at: expiresAt });
+}
+
+function looksLikeExpiredISolarSession(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return Number(error?.status) === 401
+    || error?.code === 'SESSION_EXPIRED'
+    || message.includes('sesión')
+    || message.includes('session')
+    || message.includes('token');
+}
+
+// Unifica las operaciones de configuración con la misma sesión persistente
+// que ya usa la telemetría. Así Programar no depende de una cookie antigua del
+// navegador y funciona también cuando la UI identifica la instalación como
+// `site:2`. La sesión rotativa de i.Solar se vuelve a guardar tras cada uso.
+export async function withISolarProviderSession(deviceReference, operation, { retryRead = false } = {}) {
+  const siteId = await ensureSite(deviceReference);
+  const deviceSn = await resolveDeviceReference(deviceReference);
+  if (!siteId || !deviceSn) throw new ProviderError('No fue posible identificar el inversor de esta instalación.', { code: 'DEVICE_NOT_FOUND', status: 404 });
+  const site = await siteById(siteId);
+  const account = await accountFor(siteId, 'isolar');
+  if (!account) throw new ProviderError('i.Solar aún no está configurado para esta instalación.', { code: 'NOT_CONFIGURED', status: 409 });
+
+  const run = async (session) => {
+    const value = await operation({ session, deviceSn, siteId, site, account });
+    await storeSession(account, session);
+    return value;
+  };
+
+  let session = await sessionFor(site, account);
+  try {
+    return await run(session);
+  } catch (error) {
+    // Solo las lecturas se reintentan automáticamente. Una escritura nunca se
+    // repite a ciegas porque la primera orden pudo haber alcanzado al inversor.
+    if (!retryRead || !looksLikeExpiredISolarSession(error)) throw error;
+    session = await authenticateFreshSession(site, account);
+    return await run(session);
+  }
 }
 
 async function recordRaw(siteId, providerDeviceId, provider, payloadType, payload, canonical) {

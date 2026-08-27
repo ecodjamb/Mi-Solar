@@ -26,7 +26,8 @@ import { extractWaterBill, extractWaterMeterReading, validateWaterImages } from 
 import { appSessionStatus, changeAppPassword, loginApp, logoutApp, requireAppPermission, requireAppViewIfEnabled } from '../server/appAuth.js';
 import {
   disconnectProvider, latestCanonical, listProviderAccounts, providerHistory, saveProviderCredentials,
-  syncProviderNow, syncProviderIfDue, syncEnabledProviders, testProviderConnection, publicProviderCatalog
+  syncProviderNow, syncProviderIfDue, syncEnabledProviders, testProviderConnection, publicProviderCatalog,
+  withISolarProviderSession
 } from '../server/providerStore.js';
 import { canonicalToLegacy } from '../server/canonicalTelemetry.js';
 import { createUser, listUsers, resetUserPassword, revokeUserSessions, updateUser } from '../server/userAdmin.js';
@@ -382,7 +383,7 @@ export default async function handler(req, res) {
       } catch (cause) {
         archiveError = cause instanceof Error ? cause.message : 'No fue posible comprobar el archivo permanente.';
       }
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.33.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.37.2', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -535,19 +536,21 @@ export default async function handler(req, res) {
 
     const settingsCheck = route.match(/^devices\/([^/]+)\/settings-check$/);
     if (method === 'GET' && settingsCheck) {
-      const session = requireSession(req);
-      const sn = decodeURIComponent(settingsCheck[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
-      const result = await tumRequest('paramSet/getParam', {
-        params: { deviceSn: sn }, token: session.token, vrtKey: session.vrtKey
-      });
-      session.token = result.token;
-      const settings = parseInverterSettings(result.payload.data || {});
+      await requireAppPermission(req, 'solar.view');
+      const reference = decodeURIComponent(settingsCheck[1]);
+      if (!validDeviceReference(reference)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
+      const settings = await withISolarProviderSession(reference, async ({ session, deviceSn }) => {
+        const result = await tumRequest('paramSet/getParam', {
+          params: { deviceSn }, token: session.token, vrtKey: session.vrtKey
+        });
+        session.token = result.token;
+        return parseInverterSettings(result.payload.data || {});
+      }, { retryRead: true });
       return sendJson(res, 200, {
         ...settings,
         observedAt: new Date().toISOString(),
         readOnly: true
-      }, { 'Set-Cookie': sessionCookie(session) });
+      });
     }
 
     const automation = route.match(/^devices\/([^/]+)\/automation$/);
@@ -689,18 +692,18 @@ export default async function handler(req, res) {
 
     const settingsApply = route.match(/^devices\/([^/]+)\/settings-apply$/);
     if (method === 'POST' && settingsApply) {
-      const session = requireSession(req);
-      const sn = decodeURIComponent(settingsApply[1]);
-      if (!/^\d{8,20}$/.test(sn)) return sendJson(res, 400, { error: 'Número de serie inválido.' });
+      await requireAppPermission(req, 'isolar.write');
+      const reference = decodeURIComponent(settingsApply[1]);
+      if (!validDeviceReference(reference)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       const body = parseBody(req);
       const preset = String(body.preset || '');
-      const rule = await readAutomationRule(sn);
+      const rule = await readAutomationRule(reference);
       const target = preset === 'sunny' || preset === 'cloudy' ? rule[preset] : null;
       if (!target) return sendJson(res, 400, { error: 'Configuración solicitada no reconocida.' });
       let audit = { stored: false };
       try {
-        const result = await applyInverterTarget(sn, target, session);
-        audit = await recordConfigurationEvent(sn, {
+        const result = await withISolarProviderSession(reference, ({ session, deviceSn }) => applyInverterTarget(deviceSn, target, session));
+        audit = await recordConfigurationEvent(reference, {
           source: 'manual', preset, forecastDate: body.forecastDate, forecastKwh: body.forecastKwh,
           before: result.before, target, after: result.after, commands: { requested: result.commands, sent: result.commandResults }, success: result.confirmed,
           message: result.confirmed ? 'Cambio confirmado mediante lectura posterior.' : 'El origen aceptó la solicitud, pero la lectura posterior aún no coincide.'
@@ -710,9 +713,9 @@ export default async function handler(req, res) {
           ...result, preset, target, audit,
           error: result.confirmed ? undefined : `${partialMessage} El intento quedó registrado y no se enviarán más órdenes automáticamente.`,
           message: result.confirmed ? (result.changed ? 'Configuración aplicada y confirmada correctamente.' : 'La configuración ya estaba aplicada; no fue necesario modificar el inversor.') : partialMessage
-        }, { 'Set-Cookie': sessionCookie(session) });
+        });
       } catch (error) {
-        await recordConfigurationEvent(sn, {
+        await recordConfigurationEvent(reference, {
           source: 'manual', preset, forecastDate: body.forecastDate, forecastKwh: body.forecastKwh,
           before: {}, target, after: {}, commands: {}, success: false, message: error instanceof Error ? error.message : 'Error desconocido'
         }).catch(() => undefined);
