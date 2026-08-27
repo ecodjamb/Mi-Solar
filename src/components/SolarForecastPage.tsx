@@ -10,10 +10,10 @@ import { projectionCoefficients, seasonForDate, SEASON_PROFILES, theoreticalSeri
 type SiteKey = 'arrayan' | 'puerto-montt';
 type RangeDays = 7 | 15 | 30 | 90;
 type AutomationSummary = { thresholdKwh: number };
-type StoredForecast = { date: string; forecastKwh: number; radiationKwhM2: number; locked: boolean; lockedAt: string | null };
+type StoredForecast = { date: string; forecastKwh: number; radiationKwhM2: number; locked: boolean; lockedAt: string | null; rawForecastKwh?: number; accuracyFactor?: number; accuracySampleDays?: number };
 type ForecastRevision = { date: string; forecastKwh: number; radiationKwhM2: number; observedAt: string };
 type LiveForecast = { forecastKwh: number; radiationKwhM2: number; observedAt?: string };
-type StoredForecastResponse = { today: StoredForecast; tomorrow: StoredForecast; revisions?: Record<string, ForecastRevision[]>; lockTimeChile: string } | null;
+type StoredForecastResponse = { today: StoredForecast; tomorrow: StoredForecast; days?: StoredForecast[]; revisions?: Record<string, ForecastRevision[]>; lockTimeChile: string } | null;
 
 const RANGE_OPTIONS: Array<{ value: RangeDays; label: string }> = [
   { value: 7, label: '7 días' },
@@ -80,7 +80,7 @@ export default function SolarForecastPage({ actual, hourlyActual, liveData, weat
   const radiation = useMemo(() => weather.dailyRadiation || [], [weather.dailyRadiation]);
   const todayKey = chileDate(new Date());
   const theoretical = useMemo(() => theoreticalSeries(radiation, model), [radiation, model]);
-  const storedByDate = useMemo(() => new Map([storedForecast?.today, storedForecast?.tomorrow].filter((item): item is StoredForecast => Boolean(item) && (Boolean(item?.locked) || String(item?.date) > todayKey)).map((item) => [item.date, item])), [storedForecast, todayKey]);
+  const storedByDate = useMemo(() => new Map([...(storedForecast?.days || []), storedForecast?.today, storedForecast?.tomorrow].filter((item): item is StoredForecast => Boolean(item) && (Boolean(item?.locked) || String(item?.date) > todayKey)).map((item) => [item.date, item])), [storedForecast, todayKey]);
   const displayedTheoretical = useMemo(() => theoretical.map((item) => {
     const stored = storedByDate.get(item.date);
     return stored ? { ...item, value: stored.forecastKwh } : item;
@@ -158,7 +158,7 @@ export default function SolarForecastPage({ actual, hourlyActual, liveData, weat
       <EChart option={option}/>
     </section>
 
-    <section className="panel projection-formula"><small>Cálculo usado en esta proyección</small><strong>Generación estimada = máx(0; {coefficients.slope.toFixed(2)} × radiación {coefficients.intercept >= 0 ? '+' : '−'} {Math.abs(coefficients.intercept).toFixed(2)})</strong><p>Radiación en kWh/m²/día y resultado en kWh/día. Regresión con {model.sampleDays} días reales completos · ajuste R² {coefficients.rSquared.toFixed(2)}. La proyección de mañana puede ajustarse hasta las {storedForecast?.lockTimeChile || '21:35'} de Chile del día anterior; después queda guardada e inamovible.</p></section>
+    <section className="panel projection-formula"><small>Cálculo usado en esta proyección</small><strong>Generación estimada = máx(0; {coefficients.slope.toFixed(2)} × radiación {coefficients.intercept >= 0 ? '+' : '−'} {Math.abs(coefficients.intercept).toFixed(2)}) × precisión reciente</strong><p>Radiación en kWh/m²/día y resultado en kWh/día. La precisión reciente compara pronósticos fijados con producción real de días completos; actualmente aplica {Math.round((storedForecast?.days?.find((item)=>!item.locked)?.accuracyFactor || 1)*100)}%. La proyección de mañana puede ajustarse hasta las {storedForecast?.lockTimeChile || '21:35'} de Chile del día anterior; después queda guardada e inamovible.</p></section>
 
     <section className="forecast-section-heading"><div><small>Pronóstico solar y decisión automática</small><h2>Los próximos días</h2><p>Cada estimación conversa con el umbral guardado en Programación: sobre {thresholdKwh} kWh se prepara “día soleado”; con {thresholdKwh} kWh o menos, “día nublado”.</p></div><span className={thresholdSynced ? 'threshold-synced' : 'threshold-default'}>{thresholdSynced ? 'Sincronizado con Programación' : 'Umbral predeterminado'} · {thresholdKwh} kWh</span></section>
     <section className="forecast-days">{displayedTheoretical.filter((item) => item.date > todayKey).map((day) => {

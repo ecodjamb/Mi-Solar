@@ -39,6 +39,13 @@ export function projectRemainingGrid({ observedGridKwh, averageDailyLoadKwh, rem
   return { futureLoadKwh: Number(futureLoad.toFixed(2)), projectedSolarKwh: Number(solar.toFixed(2)), futureGridKwh: Number(futureGrid.toFixed(2)), projectedGridKwh: Number((observed + futureGrid).toFixed(2)) };
 }
 
+export function effectiveSolarOffsetFactor({ observedLoadKwh, observedGridKwh, observedSolarKwh }) {
+  const solar = Math.max(0, Number(observedSolarKwh) || 0);
+  if (solar < 1) return 0.65;
+  const suppliedBySystem = Math.max(0, (Number(observedLoadKwh) || 0) - (Number(observedGridKwh) || 0));
+  return Number(Math.max(0.2, Math.min(1, suppliedBySystem / solar)).toFixed(3));
+}
+
 function dateAdd(date, days) {
   const [year, month, day] = date.split('-').map(Number);
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
@@ -356,7 +363,10 @@ export async function projectUtilityBill(deviceSn, bills = null, unitRateClp = 2
   const availableForecastKwh = futureForecasts.reduce((sum, item) => sum + Math.max(0, Number(item.forecastKwh || 0) - (item.date === observedThrough ? observedToday.solarKwh : 0)), 0);
   const uncoveredDays = Math.max(0, Math.ceil(remainingDays) - futureForecasts.length);
   const averageForecastKwh = futureForecasts.length ? futureForecasts.reduce((sum, item) => sum + Number(item.forecastKwh || 0), 0) / futureForecasts.length : (observed.coveredHours > 0 ? observed.solarKwh / observed.coveredHours * 24 : 0);
-  const projection = projectRemainingGrid({ observedGridKwh: observed.kwh, averageDailyLoadKwh, remainingDays, projectedSolarKwh: availableForecastKwh + averageForecastKwh * uncoveredDays });
+  const grossProjectedFutureSolarKwh = availableForecastKwh + averageForecastKwh * uncoveredDays;
+  const solarOffsetFactor = effectiveSolarOffsetFactor({ observedLoadKwh: observed.loadKwh, observedGridKwh: observed.kwh, observedSolarKwh: observed.solarKwh });
+  const effectiveProjectedSolarKwh = grossProjectedFutureSolarKwh * solarOffsetFactor;
+  const projection = projectRemainingGrid({ observedGridKwh: observed.kwh, averageDailyLoadKwh, remainingDays, projectedSolarKwh: effectiveProjectedSolarKwh });
   return {
     periodStart,
     periodEnd,
@@ -367,6 +377,8 @@ export async function projectUtilityBill(deviceSn, bills = null, unitRateClp = 2
     remainingDays: Number(remainingDays.toFixed(2)),
     projectedFutureLoadKwh: projection.futureLoadKwh,
     projectedFutureSolarKwh: projection.projectedSolarKwh,
+    grossProjectedFutureSolarKwh: Number(grossProjectedFutureSolarKwh.toFixed(2)),
+    solarOffsetFactor,
     projectedFutureGridKwh: projection.futureGridKwh,
     forecastDays: futureForecasts.length,
     projectedGridKwh: projection.projectedGridKwh,

@@ -15,7 +15,7 @@ import { ensureSite } from '../server/archive.js';
 import { runDueAutomations } from '../server/automationRunner.js';
 import { runNotificationMonitors } from '../server/notificationMonitor.js';
 import { automationSiteProfile } from '../server/siteProfiles.js';
-import { forecastForDate, listForecastRevisions, lockTomorrowForecasts } from '../server/solarProjection.js';
+import { forecastForDate, forecastRange, listForecastRevisions, lockTomorrowForecasts } from '../server/solarProjection.js';
 import { captureUtilityProjectionSnapshots, deleteUtilityBill, listUtilityBills, projectUtilityBill, readUtilityBillDocument, saveUtilityBill, saveUtilityMeterReading, updateUtilityBill, utilityBillReminder, utilityMeterTracking, updateUtilityBillReminder } from '../server/utilityBills.js';
 import { extractUtilityBill, validateBillImages } from '../server/utilityBillAi.js';
 import {
@@ -383,7 +383,7 @@ export default async function handler(req, res) {
       } catch (cause) {
         archiveError = cause instanceof Error ? cause.message : 'No fue posible comprobar el archivo permanente.';
       }
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.37.3', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.37.4', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -1116,8 +1116,11 @@ export default async function handler(req, res) {
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
       const [year, month, day] = today.split('-').map(Number);
       const tomorrow = new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
-      const [current, next, revisions] = await Promise.all([forecastForDate(sn, today), forecastForDate(sn, tomorrow), listForecastRevisions(sn, [today, tomorrow])]);
-      return sendJson(res, 200, { today: current, tomorrow: next, revisions, lockTimeChile: '21:35' });
+      const forecastEnd = new Date(Date.UTC(year, month - 1, day + 15)).toISOString().slice(0, 10);
+      const [days, revisions] = await Promise.all([forecastRange(sn, today, forecastEnd), listForecastRevisions(sn, [today, tomorrow])]);
+      const current = days.find((item) => item.date === today) || await forecastForDate(sn, today);
+      const next = days.find((item) => item.date === tomorrow) || await forecastForDate(sn, tomorrow);
+      return sendJson(res, 200, { today: current, tomorrow: next, days, revisions, lockTimeChile: '21:35' });
     }
 
     const summary = route.match(/^devices\/([^/]+)\/summary$/);

@@ -30,6 +30,16 @@ function median(values) {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+export function forecastAttainmentCorrection(samples = []) {
+  const ratios = samples
+    .filter((item) => Number(item.coverageHours) >= 20 && Number(item.actualKwh) > 0.35 && Number(item.forecastKwh) >= 1)
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+    .slice(-14)
+    .map((item) => Math.max(0.2, Math.min(1.25, Number(item.actualKwh) / Number(item.forecastKwh))));
+  if (ratios.length < 5) return { factor: 1, sampleDays: ratios.length };
+  return { factor: Number(Math.max(0.55, Math.min(1.05, median(ratios))).toFixed(3)), sampleDays: ratios.length };
+}
+
 function circularDayDistance(a, b) {
   const day = (value) => {
     const date = new Date(`${value}T12:00:00Z`);
@@ -78,9 +88,10 @@ async function radiation(profile, forecastDays = 3) {
 
 async function forecastContext(profile, siteId, today, forecastDays = 16) {
   const start = addDays(today, -65);
-  const [radiationDays, actualRows] = await Promise.all([
+  const [radiationDays, actualRows, lockedRows] = await Promise.all([
     radiation(profile, forecastDays),
-    rest(`energy_daily?site_id=eq.${siteId}&bucket_at=gte.${start}T00:00:00Z&bucket_at=lt.${today}T00:00:00Z&select=bucket_at,solar_w,samples,coverage_hours&order=bucket_at.asc&limit=100`)
+    rest(`energy_daily?site_id=eq.${siteId}&bucket_at=gte.${start}T00:00:00Z&bucket_at=lt.${today}T00:00:00Z&select=bucket_at,solar_w,samples,coverage_hours&order=bucket_at.asc&limit=100`),
+    rest(`solar_forecast_locks?site_id=eq.${siteId}&forecast_date=gte.${start}&forecast_date=lt.${today}&select=forecast_date,forecast_kwh&order=forecast_date.asc&limit=100`)
   ]);
   const byDate = new Map(radiationDays.map((item) => [item.date, item.radiation]));
   const rawSamples = (actualRows || []).map((row) => {
@@ -92,11 +103,20 @@ async function forecastContext(profile, siteId, today, forecastDays = 16) {
   const center = median(rawSamples.map((item) => item.ratio));
   const mad = median(rawSamples.map((item) => Math.abs(item.ratio - center)));
   const filtered = rawSamples.filter((item) => Math.abs(item.ratio - center) <= Math.max(0.1, mad * 3));
-  return { profile, today, byDate, samples: filtered.length >= 3 ? filtered : rawSamples };
+  const actualByDate = new Map((actualRows || []).map((row) => [String(row.bucket_at).slice(0, 10), {
+    actualKwh: Number(row.solar_w || 0) * Number(row.coverage_hours || 0) / 1000,
+    coverageHours: Number(row.coverage_hours || 0)
+  }]));
+  const accuracy = forecastAttainmentCorrection((lockedRows || []).map((row) => ({
+    date: row.forecast_date,
+    forecastKwh: Number(row.forecast_kwh || 0),
+    ...(actualByDate.get(row.forecast_date) || {})
+  })));
+  return { profile, today, byDate, samples: filtered.length >= 3 ? filtered : rawSamples, accuracy };
 }
 
 function forecastFromContext(context, targetDate) {
-  const { profile, today, byDate, samples } = context;
+  const { profile, today, byDate, samples, accuracy } = context;
   const globalCoefficients = regression(samples, profile.installedKwp, today);
   const localCoefficients = regression(samples, profile.installedKwp, targetDate);
   const confidence = Math.min(0.82, 0.48 + samples.length / 55);
@@ -108,7 +128,8 @@ function forecastFromContext(context, targetDate) {
   const targetRadiation = byDate.get(targetDate);
   if (!(targetRadiation > 0)) return null;
   const upper = Math.max(SEASON_UPPER[profile.key][season(targetDate)], targetRadiation * profile.installedKwp * 1.05);
-  const forecastKwh = Math.max(0, Math.min(upper, coefficients.slope * targetRadiation + coefficients.intercept));
+  const rawForecastKwh = Math.max(0, Math.min(upper, coefficients.slope * targetRadiation + coefficients.intercept));
+  const forecastKwh = rawForecastKwh * (accuracy?.factor || 1);
   return {
     date: targetDate,
     forecastKwh: Number(forecastKwh.toFixed(2)),
@@ -117,6 +138,9 @@ function forecastFromContext(context, targetDate) {
     slope: Number(coefficients.slope.toFixed(3)),
     intercept: Number(coefficients.intercept.toFixed(3)),
     rSquared: Number(coefficients.rSquared.toFixed(3)),
+    rawForecastKwh: Number(rawForecastKwh.toFixed(2)),
+    accuracyFactor: Number((accuracy?.factor || 1).toFixed(3)),
+    accuracySampleDays: Number(accuracy?.sampleDays || 0),
     site: profile,
     locked: false,
     lockedAt: null
