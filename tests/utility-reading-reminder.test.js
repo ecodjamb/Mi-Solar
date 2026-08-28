@@ -40,5 +40,8 @@ assert.match(migration, /misolar_projection jsonb/);
 assert.match(migration, /meter_projection jsonb/);
 assert.match(interfaceSource, /Comparativo congelado al ingresar la cuenta/);
 assert.match(interfaceSource, /Proyección por lecturas/);
+assert.match(interfaceSource, /Proyección Mi Solar · red Estado 1/);
+assert.match(interfaceSource, /Ingresar lectura medidor/);
+assert.doesNotMatch(interfaceSource, /Historial de lecturas \(\{meterTracking\.readings\.length\}\)<\/summary>/);
 
 console.log('utility reading reminder tests passed');

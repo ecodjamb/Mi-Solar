@@ -8,7 +8,7 @@ type User={id:string;username:string;displayName:string;email?:string;phone?:str
 type EditForm={displayName:string;email:string;phone:string;role:string;menus:Record<string,boolean>;actions:Record<string,boolean>;siteIds:number[];canControlISolar:boolean};
 const menus=['home','charts','solar','costs','equipment','programming','integrations','water','users','family'];
 const actions=['solar.view','family.view','family.create','family.approve','users.manage','credentials.manage','isolar.write','audit.view'];
-const MENU_LABELS:Record<string,string>={home:'Inicio',charts:'Gráficos',solar:'Radiación',costs:'Costos',equipment:'Equipos y técnico',programming:'Programar',integrations:'Domótica',technical:'Técnico integrado en Equipos',water:'Agua',users:'Usuarios',family:'Familia'};
+const MENU_LABELS:Record<string,string>={home:'Inicio',charts:'Gráficos',solar:'Radiación',costs:'Cuenta Enel',equipment:'Equipos y técnico',programming:'Programar',integrations:'Domótica',technical:'Técnico integrado en Equipos',water:'Cuenta Aguas Cordillera',users:'Usuarios',family:'Familia'};
 const ACTION_LABELS:Record<string,{title:string;description:string}>={
   'solar.view':{title:'Ver información solar',description:'Consulta el inicio, datos solares y sus indicadores.'},
   'family.view':{title:'Ver finanzas familiares',description:'Puede consultar mesadas, rendiciones y préstamos en los que participa.'},

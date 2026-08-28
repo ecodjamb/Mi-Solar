@@ -383,7 +383,6 @@ export default function WaterCostsPage({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [billOpen, setBillOpen] = useState(false);
-  const [currentOpen, setCurrentOpen] = useState(false);
   const [billDraft, setBillDraft] = useState(defaultBillDraft);
   const [billImages, setBillImages] = useState<WaterImage[]>([]);
   const [billAi, setBillAi] = useState<WaterBillExtract | null>(null);
@@ -663,6 +662,51 @@ export default function WaterCostsPage({
     }),
     [chartBills],
   );
+  const dailyReadingChart = useMemo(() => {
+    const period = dashboard?.period;
+    if (!period) return null;
+    const dayKeys: string[] = [];
+    for (let day = period.periodStart; day <= period.expectedCloseDate; day = addDays(day, 1)) {
+      dayKeys.push(day);
+      if (dayKeys.length >= 40) break;
+    }
+    const calculated = new Map<string, number>();
+    const ordered = [...(dashboard?.readings || [])].sort((a, b) => a.readingAt.localeCompare(b.readingAt));
+    let previousValue = period.openingReadingM3;
+    let previousDate = period.periodStart;
+    let previousCycle = ordered[0]?.meterCycle ?? 1;
+    for (const reading of ordered) {
+      const readingDate = new Date(reading.readingAt).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+      const changed = reading.isMeterChange || reading.meterCycle !== previousCycle || reading.readingM3 < previousValue;
+      if (!changed) {
+        const segmentDays = dayKeys.filter((day) => day > previousDate && day <= readingDate);
+        const daily = segmentDays.length ? Math.max(0, reading.readingM3 - previousValue) / segmentDays.length : 0;
+        for (const day of segmentDays) calculated.set(day, daily);
+      }
+      previousValue = reading.readingM3;
+      previousDate = readingDate;
+      previousCycle = reading.meterCycle;
+    }
+    const latestDate = ordered.at(-1) ? new Date(ordered.at(-1)!.readingAt).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' }) : period.periodStart;
+    const projectedDaily = Math.max(0, Number(dashboard?.projection?.averageDailyM3 || 0));
+    const calculatedValues = dayKeys.map((day) => calculated.has(day) ? Number(calculated.get(day)!.toFixed(3)) : null);
+    const projectedValues = dayKeys.map((day) => day > latestDate && projectedDaily > 0 ? Number(projectedDaily.toFixed(3)) : null);
+    return {
+      option: {
+        tooltip: { trigger: 'axis', confine: true, formatter: (params: unknown) => { const items = Array.isArray(params) ? params as Array<{dataIndex?:number;seriesName?:string;value?:number}> : []; const index = Number(items[0]?.dataIndex || 0); const value = items.find((item) => item.value != null); return `<b>${dateLabel(dayKeys[index])}</b><br/>${value?.seriesName || 'Consumo'}: <b>${m3(Number(value?.value || 0), 3)}</b>`; } },
+        legend: { top: 2, textStyle: { color: '#a9bdc3' } },
+        grid: { left: 34, right: 12, top: 52, bottom: 54, containLabel: true },
+        xAxis: { type: 'category', data: dayKeys.map((day) => dateLabel(day).replace(/ de /g, ' ')), axisLabel: { color: '#8fa6ad', rotate: dayKeys.length > 18 ? 42 : 0, interval: dayKeys.length > 20 ? 2 : 0 }, axisLine: { lineStyle: { color: '#31525d' } } },
+        yAxis: { type: 'value', name: 'm³/día', axisLabel: { color: '#8ba0a8' }, nameTextStyle: { color: '#8ba0a8' }, splitLine: { lineStyle: { color: 'rgba(110,150,160,.12)' } } },
+        series: [
+          { name: 'Calculado entre lecturas', type: 'bar', stack: 'daily', data: calculatedValues, itemStyle: { color: '#38bdf8', borderRadius: [4,4,0,0] } },
+          { name: 'Estimado hasta el cierre', type: 'bar', stack: 'daily', data: projectedValues, itemStyle: { color: '#f3a847', borderRadius: [4,4,0,0] } }
+        ]
+      },
+      totalCalculated: calculatedValues.reduce<number>((sum, value) => sum + Number(value || 0), 0),
+      projectedDaily
+    };
+  }, [dashboard?.period, dashboard?.projection, dashboard?.readings]);
 
   async function chooseBillFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -1047,14 +1091,14 @@ export default function WaterCostsPage({
           <Droplets />
         </div>
         <div>
-          <small>Control de Aguas Andinas · {siteLabel}</small>
-          <h1>Costos y consumo de agua</h1>
+          <small>Control de Aguas Cordillera · {siteLabel}</small>
+          <h1>Cuenta Aguas Cordillera</h1>
         </div>
       </header>
       {dashboard?.reminderSchedule ? (
-        <section className="water-next-reading-line" aria-label="Próxima lectura Aguas Andinas">
+        <section className="water-next-reading-line" aria-label="Próxima lectura Aguas Cordillera">
           <CalendarClock />
-          <strong>Próxima lectura Aguas Andinas</strong>
+          <strong>Próxima lectura Aguas Cordillera</strong>
           <span>{dateLabel(dashboard.reminderSchedule.nextReadingDate)}</span>
           <b>{dashboard.reminderSchedule.daysRemaining === 0 ? "Hoy" : dashboard.reminderSchedule.daysRemaining === 1 ? "Falta 1 día" : `Faltan ${dashboard.reminderSchedule.daysRemaining} días`}</b>
         </section>
@@ -1109,27 +1153,16 @@ export default function WaterCostsPage({
         <button
           className="reading"
           type="button"
-          onClick={() => setCaptureChooser("reading")}
-          disabled={readingBusy}
-        >
-          <Camera />
-          <span>
-            <b>{readingBusy ? "Leyendo medidor…" : "Subir lectura de hoy"}</b>
-            <small>Foto directa del medidor</small>
-          </span>
-        </button>
-        <button
-          className="manual"
-          type="button"
           onClick={() => {
             setReadingAt(localDateTimeInput());
             setManualReadingOpen(true);
           }}
+          disabled={readingBusy}
         >
           <Gauge />
           <span>
-            <b>Ingresar número lectura de hoy</b>
-            <small>Guarda automáticamente fecha y hora</small>
+            <b>{readingBusy ? "Leyendo medidor…" : "Subir lectura de hoy"}</b>
+            <small>Ingresa el número · foto opcional</small>
           </span>
         </button>
       </section>
@@ -1173,6 +1206,13 @@ export default function WaterCostsPage({
                 placeholder="Ej. lectura ingresada por Carola"
               />
             </label>
+            <div className="water-optional-photo">
+              <span><Camera/><span><b>Foto opcional</b><small>También puedes dejar que la IA lea el visor.</small></span></span>
+              <div>
+                <button type="button" onClick={() => readingCameraInput.current?.click()}><Camera/> Sacar foto</button>
+                <button type="button" onClick={() => readingLibraryInput.current?.click()}><FileImage/> Elegir del rollo</button>
+              </div>
+            </div>
             <div className="water-quick-reading-time">
               <CalendarClock />
               <span>
@@ -1385,17 +1425,8 @@ export default function WaterCostsPage({
             </span>
           </div>
         ) : null}
-        <details
-          className="water-current-details"
-          open={currentOpen}
-          onToggle={(event) => setCurrentOpen(event.currentTarget.open)}
-        >
-          <summary>
-            {currentOpen
-              ? "Ocultar detalles y lecturas"
-              : "Ver detalles, fotos y cierre del mes"}{" "}
-            <ChevronDown />
-          </summary>
+        <div className="water-current-details is-always-open">
+          <h3 className="water-current-details-title">Detalles, fotos y cierre del mes</h3>
           {period ? (
             <>
               <div className="water-period-meta">
@@ -1553,8 +1584,21 @@ export default function WaterCostsPage({
                   })}
                 </div>
               ) : null}
-              <details className="water-close-period">
-                <summary>Cerrar este período</summary>
+              {dailyReadingChart ? (
+                <section className="water-daily-reading-chart">
+                  <header>
+                    <div><small>Estimación distribuida entre lecturas</small><h3>Consumo diario del período</h3></div>
+                    <span>Azul: calculado · naranja: proyectado</span>
+                  </header>
+                  <EChart option={dailyReadingChart.option} className="water-daily-chart" />
+                  <footer>
+                    <span><small>Consumo distribuido hasta la última lectura</small><b>{m3(dailyReadingChart.totalCalculated, 3)}</b></span>
+                    <span><small>Promedio usado para días restantes</small><b>{m3(dailyReadingChart.projectedDaily, 3)}/día</b></span>
+                  </footer>
+                </section>
+              ) : null}
+              <section className="water-close-period is-always-open">
+                <h3>Cerrar este período</h3>
                 <p>
                   El cierre deja registrada la última lectura. La boleta oficial
                   se podrá subir después.
@@ -1576,7 +1620,7 @@ export default function WaterCostsPage({
                     Confirmar cierre
                   </button>
                 </div>
-              </details>
+              </section>
             </>
           ) : (
             <div className="water-open-period">
@@ -1638,7 +1682,7 @@ export default function WaterCostsPage({
               </button>
             </div>
           )}
-        </details>
+        </div>
       </section>
 
       {settingsDraft ? (
@@ -1747,7 +1791,7 @@ export default function WaterCostsPage({
           <header>
             <div>
               <small>Carga automática</small>
-              <h2>Subir cuenta de Aguas Andinas</h2>
+              <h2>Subir cuenta de Aguas Cordillera</h2>
               <p>
                 Elige una o varias fotos. La IA extrae, clasifica y guarda todo
                 sin preguntarte datos.

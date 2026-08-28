@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { reconcileWaterBill } from '../server/waterBillAi.js';
 import { calculateWaterConsumptionAcrossMeterCycles, calculateWaterProjection, classifyWaterConsumption, deleteWaterReading, normalizeWaterReadingM3 } from '../server/waterCosts.js';
 
@@ -91,4 +92,10 @@ assert.equal(normalizeWaterReadingM3('7893,125'), 7893.125);
 assert.equal(normalizeWaterReadingM3(7893.1254), 7893.125);
 assert.ok(Number.isNaN(normalizeWaterReadingM3('lectura')));
 await assert.rejects(() => deleteWaterReading('96342509120972', 'no-valida'), /no es válida/);
+const waterInterface = readFileSync(new URL('../src/components/WaterCostsPage.tsx', import.meta.url), 'utf8');
+assert.match(waterInterface, /Cuenta Aguas Cordillera/);
+assert.match(waterInterface, /Consumo diario del período/);
+assert.match(waterInterface, /Ingresa el número · foto opcional/);
+assert.doesNotMatch(waterInterface, /Ingresar número lectura de hoy/);
+assert.doesNotMatch(waterInterface, /Ocultar detalles y lecturas/);
 console.log('water bill AI reconciliation tests: ok');

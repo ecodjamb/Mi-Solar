@@ -1,6 +1,5 @@
 import { ensureSite, rest } from './archive.js';
 import { createHash } from 'node:crypto';
-import { forecastRange } from './solarProjection.js';
 
 const SITE_TZ = 'America/Santiago';
 
@@ -37,6 +36,20 @@ export function projectRemainingGrid({ observedGridKwh, averageDailyLoadKwh, rem
   const solar = Math.min(futureLoad, Math.max(0, Number(projectedSolarKwh) || 0));
   const futureGrid = Math.max(0, futureLoad - solar);
   return { futureLoadKwh: Number(futureLoad.toFixed(2)), projectedSolarKwh: Number(solar.toFixed(2)), futureGridKwh: Number(futureGrid.toFixed(2)), projectedGridKwh: Number((observed + futureGrid).toFixed(2)) };
+}
+
+export function projectLinearGrid({ observedGridKwh, elapsedHours, totalHours }) {
+  const observed = Math.max(0, Number(observedGridKwh) || 0);
+  const elapsed = Math.max(0, Number(elapsedHours) || 0);
+  const total = Math.max(1, Number(totalHours) || 0);
+  const averageHourlyGridKwh = elapsed > 0 ? observed / elapsed : 0;
+  const projectedGridKwh = elapsed > 0 ? Math.max(observed, averageHourlyGridKwh * total) : observed;
+  return {
+    averageHourlyGridKwh: Number(averageHourlyGridKwh.toFixed(4)),
+    averageDailyGridKwh: Number((averageHourlyGridKwh * 24).toFixed(3)),
+    projectedFutureGridKwh: Number(Math.max(0, projectedGridKwh - observed).toFixed(2)),
+    projectedGridKwh: Number(projectedGridKwh.toFixed(2))
+  };
 }
 
 export function effectiveSolarOffsetFactor({ observedLoadKwh, observedGridKwh, observedSolarKwh }) {
@@ -350,39 +363,33 @@ export async function projectUtilityBill(deviceSn, bills = null, unitRateClp = 2
   const today = todayChile();
   if (periodStart > today) return null;
   const observedThrough = today < periodEnd ? today : periodEnd;
-  const [observed, observedToday] = await Promise.all([theoreticalGrid(deviceSn, periodStart, observedThrough), theoreticalGrid(deviceSn, observedThrough, observedThrough)]);
+  const observed = await theoreticalGrid(deviceSn, periodStart, observedThrough);
   const periodStartMs = Date.parse(chileMidnightUtc(periodStart));
   const periodEndMs = Date.parse(chileMidnightUtc(dateAdd(periodEnd, 1)));
   const totalHours = Math.max(1, (periodEndMs - periodStartMs) / 3_600_000);
   const lastSampleMs = observed.lastSampleAt ? Date.parse(observed.lastSampleAt) : periodStartMs;
   const elapsedHours = Math.max(0, Math.min(totalHours, (lastSampleMs - periodStartMs) / 3_600_000 + observed.lastCoverageHours));
   const remainingDays = Math.max(0, (totalHours - elapsedHours) / 24);
-  const averageDailyLoadKwh = observed.coveredHours > 0 ? observed.loadKwh / observed.coveredHours * 24 : 0;
-  let futureForecasts = [];
-  try { futureForecasts = await forecastRange(deviceSn, observedThrough, periodEnd); } catch { futureForecasts = []; }
-  const availableForecastKwh = futureForecasts.reduce((sum, item) => sum + Math.max(0, Number(item.forecastKwh || 0) - (item.date === observedThrough ? observedToday.solarKwh : 0)), 0);
-  const uncoveredDays = Math.max(0, Math.ceil(remainingDays) - futureForecasts.length);
-  const averageForecastKwh = futureForecasts.length ? futureForecasts.reduce((sum, item) => sum + Number(item.forecastKwh || 0), 0) / futureForecasts.length : (observed.coveredHours > 0 ? observed.solarKwh / observed.coveredHours * 24 : 0);
-  const grossProjectedFutureSolarKwh = availableForecastKwh + averageForecastKwh * uncoveredDays;
-  const solarOffsetFactor = effectiveSolarOffsetFactor({ observedLoadKwh: observed.loadKwh, observedGridKwh: observed.kwh, observedSolarKwh: observed.solarKwh });
-  const effectiveProjectedSolarKwh = grossProjectedFutureSolarKwh * solarOffsetFactor;
-  const projection = projectRemainingGrid({ observedGridKwh: observed.kwh, averageDailyLoadKwh, remainingDays, projectedSolarKwh: effectiveProjectedSolarKwh });
+  const linear = projectLinearGrid({ observedGridKwh: observed.kwh, elapsedHours, totalHours });
   return {
     periodStart,
     periodEnd,
     observedThrough,
     observedGridKwh: observed.kwh,
     observedLoadKwh: observed.loadKwh,
-    averageDailyLoadKwh: Number(averageDailyLoadKwh.toFixed(2)),
+    averageDailyLoadKwh: linear.averageDailyGridKwh,
+    averageDailyGridKwh: linear.averageDailyGridKwh,
+    averageHourlyGridKwh: linear.averageHourlyGridKwh,
     remainingDays: Number(remainingDays.toFixed(2)),
-    projectedFutureLoadKwh: projection.futureLoadKwh,
-    projectedFutureSolarKwh: projection.projectedSolarKwh,
-    grossProjectedFutureSolarKwh: Number(grossProjectedFutureSolarKwh.toFixed(2)),
-    solarOffsetFactor,
-    projectedFutureGridKwh: projection.futureGridKwh,
-    forecastDays: futureForecasts.length,
-    projectedGridKwh: projection.projectedGridKwh,
-    projectedAmountClp: Math.round(projection.projectedGridKwh * unitRateClp),
+    projectedFutureLoadKwh: linear.projectedFutureGridKwh,
+    projectedFutureSolarKwh: 0,
+    grossProjectedFutureSolarKwh: 0,
+    solarOffsetFactor: 0,
+    projectedFutureGridKwh: linear.projectedFutureGridKwh,
+    forecastDays: 0,
+    projectionMethod: 'linear-observed-grid-status-1',
+    projectedGridKwh: linear.projectedGridKwh,
+    projectedAmountClp: Math.round(linear.projectedGridKwh * unitRateClp),
     unitRateClp,
     archiveCoveragePct: observed.coveragePct,
     coveredHours: observed.coveredHours,
