@@ -1,9 +1,27 @@
 import assert from 'node:assert/strict';
 import { normalizeWatchPower } from '../server/canonicalTelemetry.js';
+import { looksLikeExpiredISolarSession, shouldRecordProviderFailure } from '../server/providerStore.js';
 import { ISolarProvider } from '../server/providers/isolarProvider.js';
 import { WatchPowerProvider, WATCHPOWER_WRITES_ENABLED } from '../server/providers/watchPowerProvider.js';
 
 const response = (payload, status = 200) => new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json' } });
+
+assert.equal(shouldRecordProviderFailure({ code: 'CIRCUIT_OPEN', status: 423 }), false);
+assert.equal(shouldRecordProviderFailure({ code: 'PROVIDER_DISABLED', status: 409 }), false);
+assert.equal(shouldRecordProviderFailure({ code: 'RATE_LIMIT', status: 429 }), true);
+assert.equal(looksLikeExpiredISolarSession({ status: 401 }), true);
+assert.equal(looksLikeExpiredISolarSession({ message: 'Login required' }), true);
+assert.equal(looksLikeExpiredISolarSession({ code: 'RATE_LIMIT', status: 429 }), false);
+
+{
+  const provider = new ISolarProvider({ request: async () => { const error = new Error('limited'); error.status = 429; throw error; } });
+  await assert.rejects(() => provider.authenticate({ username: 'fixture', password: 'fixture' }), (error) => error.code === 'RATE_LIMIT' && error.status === 429);
+}
+
+{
+  const provider = new ISolarProvider({ request: async () => { const error = new Error('blocked'); error.status = 403; throw error; } });
+  await assert.rejects(() => provider.authenticate({ username: 'fixture', password: 'fixture' }), (error) => error.code === 'ACCOUNT_BLOCKED' && error.status === 403);
+}
 
 {
   const calls = [];

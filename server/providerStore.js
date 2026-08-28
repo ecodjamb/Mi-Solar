@@ -148,6 +148,12 @@ function statusFrom(error) {
   return 'unavailable';
 }
 
+export function shouldRecordProviderFailure(error) {
+  const code = String(error?.code || '');
+  return Number(error?.status) !== 423
+    && !['CIRCUIT_OPEN', 'PROVIDER_DISABLED', 'CREDENTIALS_MISSING', 'NOT_CONFIGURED'].includes(code);
+}
+
 async function markFailure(account, error) {
   const failures = Math.min(100, Number(account.consecutive_failures || 0) + 1);
   const blockMinutes = failures >= 3 ? Math.min(360, 15 * (2 ** Math.min(4, failures - 3))) : 0;
@@ -192,13 +198,31 @@ async function storeSession(account, session) {
   await providerDb('session_replace', { account_id: account.id, session_cipher: packed.cipher, encryption_version: packed.version, expires_at: expiresAt });
 }
 
-function looksLikeExpiredISolarSession(error) {
+export function looksLikeExpiredISolarSession(error) {
   const message = String(error?.message || '').toLowerCase();
   return Number(error?.status) === 401
     || error?.code === 'SESSION_EXPIRED'
     || message.includes('sesión')
     || message.includes('session')
-    || message.includes('token');
+    || message.includes('token')
+    || message.includes('login');
+}
+
+async function sharedISolarGroup(site, account) {
+  const targetCredentials = await credentialsFor(account, site);
+  if (!targetCredentials) return [{ site, account }];
+  const catalog = await providerDb('accounts') || {};
+  const sites = catalog.sites || [];
+  const matches = [];
+  for (const candidate of (catalog.accounts || []).filter((row) => row.provider === 'isolar' && row.enabled)) {
+    const candidateSite = sites.find((row) => Number(row.id) === Number(candidate.site_id));
+    if (!candidateSite) continue;
+    const candidateCredentials = await credentialsFor(candidate, candidateSite);
+    if (candidateCredentials?.username === targetCredentials.username && candidateCredentials?.password === targetCredentials.password) {
+      matches.push({ site: candidateSite, account: candidate });
+    }
+  }
+  return (matches.length ? matches : [{ site, account }]).sort((left, right) => Number(left.site.id) - Number(right.site.id));
 }
 
 // Unifica las operaciones de configuración con la misma sesión persistente
@@ -212,21 +236,23 @@ export async function withISolarProviderSession(deviceReference, operation, { re
   const site = await siteById(siteId);
   const account = await accountFor(siteId, 'isolar');
   if (!account) throw new ProviderError('i.Solar aún no está configurado para esta instalación.', { code: 'NOT_CONFIGURED', status: 409 });
+  const sessionGroup = await sharedISolarGroup(site, account);
+  const [sessionOwner] = sessionGroup;
 
   const run = async (session) => {
     const value = await operation({ session, deviceSn, siteId, site, account });
-    await storeSession(account, session);
+    for (const member of sessionGroup) await storeSession(member.account, session);
     return value;
   };
 
-  let session = await sessionFor(site, account);
+  let session = await sessionFor(sessionOwner.site, sessionOwner.account);
   try {
     return await run(session);
   } catch (error) {
     // Solo las lecturas se reintentan automáticamente. Una escritura nunca se
     // repite a ciegas porque la primera orden pudo haber alcanzado al inversor.
     if (!retryRead || !looksLikeExpiredISolarSession(error)) throw error;
-    session = await authenticateFreshSession(site, account);
+    session = await authenticateFreshSession(sessionOwner.site, sessionOwner.account);
     return await run(session);
   }
 }
@@ -309,9 +335,11 @@ export async function testProviderConnection({ siteId, provider }) {
   const site = await siteById(siteId);
   const account = await accountFor(siteId, provider);
   if (!account) throw new ProviderError('El proveedor aún no está configurado.', { code: 'NOT_CONFIGURED', status: 409 });
-  const session = await sessionFor(site, account);
+  const sessionGroup = provider === 'isolar' ? await sharedISolarGroup(site, account) : [{ site, account }];
+  const sessionOwner = sessionGroup[0];
+  const session = await sessionFor(sessionOwner.site, sessionOwner.account);
   const health = await adapters[provider].healthCheck(session);
-  if (provider === 'isolar') await storeSession(account, session);
+  if (provider === 'isolar') for (const member of sessionGroup) await storeSession(member.account, session);
   return { ...health, provider, readOnly: adapters[provider].readOnly };
 }
 
@@ -319,6 +347,11 @@ export async function syncProviderNow({ siteId, provider }) {
   const site = await siteById(siteId);
   const account = await accountFor(siteId, provider);
   if (!account) throw new ProviderError('El proveedor aún no está configurado.', { code: 'NOT_CONFIGURED', status: 409 });
+  if (provider === 'isolar') return await syncISolarGroupNow(await sharedISolarGroup(site, account));
+  return await syncSingleProviderNow({ site, account, provider });
+}
+
+async function syncSingleProviderNow({ site, account, provider }) {
   const run = await providerDb('sync_start', { site_id: site.id, provider, sync_type: 'manual' });
   const runId = run?.id;
   const started = Date.now();
@@ -331,7 +364,7 @@ export async function syncProviderNow({ siteId, provider }) {
       // i.Solar rota el token en sus respuestas. Una sesión guardada antes de
       // esta corrección puede haber quedado inválida: se renueva una sola vez,
       // sin bucles ni intentos consecutivos ilimitados.
-      if (provider !== 'isolar' || firstError?.code === 'DEVICE_NOT_FOUND' || firstError?.code === 'CREDENTIALS_MISSING') throw firstError;
+      if (provider !== 'isolar' || !looksLikeExpiredISolarSession(firstError)) throw firstError;
       session = await authenticateFreshSession(site, account);
       results = await synchronizeWithSession({ site, account, provider, session });
     }
@@ -339,7 +372,56 @@ export async function syncProviderNow({ siteId, provider }) {
     return { provider, site: { id: site.id, name: site.name }, devices: results, readOnly: adapters[provider].readOnly, syncedAt: new Date().toISOString() };
   } catch (error) {
     if (runId) await providerDb('sync_finish', { run_id: runId, status: 'failed', samples_received: 0, samples_inserted: 0, duplicates: 0, error_code: String(error?.code || 'SYNC_ERROR').slice(0, 80), error_message: String(error?.message || 'Error de sincronización').slice(0, 240), duration_ms: Date.now() - started });
-    if (!error?.providerFailureRecorded) await markFailure(account, error);
+    if (!error?.providerFailureRecorded && shouldRecordProviderFailure(error)) await markFailure(account, error);
+    throw error;
+  }
+}
+
+async function synchronizeISolarGroupWithSession(group, session) {
+  const listed = await adapters.isolar.listDevices(session);
+  const activeSession = listed.session || session;
+  const results = [];
+  for (const { site, account } of group) {
+    const input = (listed.devices || []).find((device) => String(device.deviceSn || device.sn || '') === String(site.device_sn || ''));
+    if (!input) throw new ProviderError(`i.Solar no devolvió el equipo configurado para ${site.name}.`, { code: 'DEVICE_NOT_FOUND', status: 404 });
+    const saved = await saveISolarDevice(account, input);
+    const payload = await adapters.isolar.getRealtimeData(activeSession, input);
+    const persisted = await persistTelemetry({ site, account, providerDevice: saved, payload });
+    const canonical = persisted.canonical;
+    if (saved) await providerDb('device_update', { device_id: saved.id, model: canonical.device.model || '', firmware_main: canonical.device.firmware_main || '', firmware_secondary: canonical.device.firmware_secondary || '', last_reading_at: canonical.time.sampled_at_utc });
+    results.push({ siteId: site.id, siteName: site.name, device: { alias: saved?.alias || input.nickName || null, serialMasked: saved?.serial_masked || maskIdentifier(input.deviceSn) }, canonical, inserted: persisted.inserted });
+  }
+  for (const { account } of group) await storeSession(account, activeSession);
+  return results;
+}
+
+async function syncISolarGroupNow(group) {
+  const runs = [];
+  for (const { site } of group) runs.push({ site, run: await providerDb('sync_start', { site_id: site.id, provider: 'isolar', sync_type: 'grouped' }) });
+  const started = Date.now();
+  const sessionOwner = group[0];
+  try {
+    let session = await sessionFor(sessionOwner.site, sessionOwner.account);
+    let results;
+    try {
+      results = await synchronizeISolarGroupWithSession(group, session);
+    } catch (firstError) {
+      if (!looksLikeExpiredISolarSession(firstError)) throw firstError;
+      session = await authenticateFreshSession(sessionOwner.site, sessionOwner.account);
+      results = await synchronizeISolarGroupWithSession(group, session);
+    }
+    for (const { site, run } of runs) {
+      const item = results.find((result) => Number(result.siteId) === Number(site.id));
+      if (run?.id) await providerDb('sync_finish', { run_id: run.id, status: 'success', samples_received: item ? 1 : 0, samples_inserted: item?.inserted ? 1 : 0, duplicates: item && !item.inserted ? 1 : 0, duration_ms: Date.now() - started, error_code: '', error_message: '' });
+    }
+    return { provider: 'isolar', sites: group.map(({ site }) => ({ id: site.id, name: site.name })), devices: results, readOnly: false, syncedAt: new Date().toISOString() };
+  } catch (error) {
+    for (const { run } of runs) {
+      if (run?.id) await providerDb('sync_finish', { run_id: run.id, status: 'failed', samples_received: 0, samples_inserted: 0, duplicates: 0, error_code: String(error?.code || 'SYNC_ERROR').slice(0, 80), error_message: String(error?.message || 'Error de sincronización').slice(0, 240), duration_ms: Date.now() - started });
+    }
+    if (!error?.providerFailureRecorded && shouldRecordProviderFailure(error)) {
+      for (const { account } of group) await markFailure(account, error);
+    }
     throw error;
   }
 }
@@ -364,9 +446,15 @@ async function synchronizeWithSession({ site, account, provider, session }) {
   return results;
 }
 
-export async function syncProviderIfDue({ siteId, provider, minimumSeconds = 90 }) {
+export async function syncProviderIfDue({ siteId, provider, minimumSeconds = 300 }) {
   assertProvider(provider);
-  const claimed = await privateProviderSyncClaim({ siteId, provider, minimumSeconds });
+  let claimSiteId = siteId;
+  if (provider === 'isolar') {
+    const site = await siteById(siteId);
+    const account = await accountFor(siteId, provider);
+    if (account) claimSiteId = (await sharedISolarGroup(site, account))[0].site.id;
+  }
+  const claimed = await privateProviderSyncClaim({ siteId: claimSiteId, provider, minimumSeconds });
   if (!claimed) return { provider, siteId: Number(siteId), skipped: true, reason: 'recent_or_running' };
   return await syncProviderNow({ siteId, provider });
 }

@@ -93,7 +93,9 @@ export async function tumRequest(path, { params = {}, token = '', vrtKey = '', m
     } catch (error) {
       lastError = error;
       const status = Number(error?.status || 0);
-      const retryable = !status || [408, 429, 500, 502, 503, 504].includes(status);
+      // Un 429 nunca se repite dentro de la misma operación: insistir en ese
+      // momento solo prolonga el límite impuesto por i.Solar.
+      const retryable = !status || [408, 500, 502, 503, 504].includes(status);
       if (!retryable || attempt === 2) break;
       await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
     }

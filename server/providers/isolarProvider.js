@@ -22,7 +22,9 @@ export class ISolarProvider extends ProviderAdapter {
       if (!token || !vrtKey) throw new Error('Sesión incompleta');
       return { token, vrtKey, authenticatedAt: new Date().toISOString(), expiresInSeconds: 86_400 };
     } catch (error) {
-      throw new ProviderError('i.Solar no aceptó la conexión.', { code: Number(error?.status) === 401 ? 'INVALID_CREDENTIALS' : 'ISOLAR_AUTH_ERROR', status: Number(error?.status) || 502, retryable: false });
+      const status = Number(error?.status) || 502;
+      const code = status === 401 ? 'INVALID_CREDENTIALS' : status === 429 ? 'RATE_LIMIT' : status === 403 ? 'ACCOUNT_BLOCKED' : 'ISOLAR_AUTH_ERROR';
+      throw new ProviderError('i.Solar no aceptó la conexión.', { code, status, retryable: status >= 500 });
     }
   }
 
