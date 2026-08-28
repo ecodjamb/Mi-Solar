@@ -47,7 +47,7 @@ const SESSION_IDLE_MS=SESSION_POLICY.idleMs;
 const ACTIVITY_PING_MS=SESSION_POLICY.activityPingMs;
 const LAST_ACTIVITY_KEY=SESSION_POLICY.storageKey;
 const REFRESH_MS=REFRESH_POLICY;
-const PROVIDER_ACTIVE_REFRESH_MS=5*60_000;
+const PROVIDER_ACTIVE_REFRESH_MS=4*60_000;
 type RealtimeRefreshMode='cache'|'if-stale'|'force';
 const requestedPage=()=>{const value=new URLSearchParams(window.location.search).get('page');if(value==='technical')return'equipment';return(['home','charts','solar','costs','equipment','programming','integrations','water','users','family'] as PageKey[]).includes(value as PageKey)?value as PageKey:'home'};
 const emptyEnergy:DailyEnergy={date:'',solar:0,pv1:0,pv2:0,load:0,grid:0,gridImport:0,gridExport:0,gridToLoad:0,charge:0,discharge:0,solarToLoad:0,batteryToLoad:0,solarToBattery:0,samples:0};

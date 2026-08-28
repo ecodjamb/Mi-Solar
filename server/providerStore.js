@@ -446,7 +446,7 @@ async function synchronizeWithSession({ site, account, provider, session }) {
   return results;
 }
 
-export async function syncProviderIfDue({ siteId, provider, minimumSeconds = 300 }) {
+export async function syncProviderIfDue({ siteId, provider, minimumSeconds = 240 }) {
   assertProvider(provider);
   let claimSiteId = siteId;
   if (provider === 'isolar') {
