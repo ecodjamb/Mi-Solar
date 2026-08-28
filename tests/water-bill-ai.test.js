@@ -93,7 +93,7 @@ assert.equal(normalizeWaterReadingM3(7893.1254), 7893.125);
 assert.ok(Number.isNaN(normalizeWaterReadingM3('lectura')));
 await assert.rejects(() => deleteWaterReading('96342509120972', 'no-valida'), /no es válida/);
 const waterInterface = readFileSync(new URL('../src/components/WaterCostsPage.tsx', import.meta.url), 'utf8');
-assert.match(waterInterface, /Cuenta Aguas Cordillera/);
+assert.match(waterInterface, /<h1>Aguas<\/h1>/);
 assert.match(waterInterface, /Consumo diario del período/);
 assert.match(waterInterface, /Ingresa el número · foto opcional/);
 assert.doesNotMatch(waterInterface, /Ingresar número lectura de hoy/);

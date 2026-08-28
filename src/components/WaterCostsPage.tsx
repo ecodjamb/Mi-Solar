@@ -1092,7 +1092,7 @@ export default function WaterCostsPage({
         </div>
         <div>
           <small>Control de Aguas Cordillera · {siteLabel}</small>
-          <h1>Cuenta Aguas Cordillera</h1>
+          <h1>Aguas</h1>
         </div>
       </header>
       {dashboard?.reminderSchedule ? (

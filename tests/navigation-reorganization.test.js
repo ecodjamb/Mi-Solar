@@ -28,8 +28,8 @@ assert.match(users,/Cerrar sesión en dispositivos/);
 assert.match(users,/La contraseña no cambiará/);
 assert.match(users,/siteIds/);
 assert.match(app,/allowedMenus/);
-assert.match(sidebar,/Cuenta Enel/);
-assert.match(sidebar,/Cuenta Aguas Cordillera/);
+assert.match(sidebar,/\['costs','Enel'/);
+assert.match(sidebar,/\['water','Aguas'/);
 
 const appAuth=readFileSync(new URL('../server/appAuth.js',import.meta.url),'utf8');
 assert.match(appAuth,/explicit === undefined \? appSession\.access\.permissions\.includes\(permission\) : explicit === true/);
