@@ -223,14 +223,16 @@ async function monitorSite(site) {
 
 export async function runNotificationMonitors() {
   const sites = await listNotificationSites();
-  const [settled, waterDue, utilityDue] = await Promise.all([
-    Promise.all(sites.map((site) => monitorSite(site).catch((error) => ({
-      deviceSn: site.deviceSn,
-      status: 'failed',
-      error: error instanceof Error ? error.message : String(error)
-    })))),
-    listDueWaterReminders().catch(() => []),
-    listDueUtilityBillReminders().catch(() => [])
+  const settled=await Promise.all(sites.map(site=>monitorSite(site).catch(error=>({
+    deviceSn:site.deviceSn,status:'failed',error:error instanceof Error?error.message:String(error)
+  }))));
+  return {checkedAt:new Date().toISOString(),sites:sites.length,results:settled};
+}
+
+/** Utility reading reminders have a separate morning schedule, independent of live alerts. */
+export async function runReadingReminders(){
+  const [waterDue,utilityDue]=await Promise.all([
+    listDueWaterReminders().catch(()=>[]),listDueUtilityBillReminders().catch(()=>[])
   ]);
   const waterReminders = [];
   for (const reminder of waterDue) {
@@ -273,5 +275,5 @@ export async function runNotificationMonitors() {
     await saveNotificationState(reminder.siteId, eventKey, 'sent', reminder, new Date().toISOString());
     utilityBillReminders.push({ ...reminder, status: 'sent', pushed });
   }
-  return { checkedAt: new Date().toISOString(), sites: sites.length, results: settled, waterReminders, utilityBillReminders };
+  return { checkedAt: new Date().toISOString(), waterReminders, utilityBillReminders };
 }

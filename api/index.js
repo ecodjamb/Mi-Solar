@@ -14,7 +14,7 @@ import { applyInverterTarget, loginOrigin, logoutOrigin } from '../server/invert
 import { pushConfiguration, pushPublicKey, sendAutomationPush, sendSiteNotification } from '../server/pushNotifications.js';
 import { ensureSite } from '../server/archive.js';
 import { runDueAutomations } from '../server/automationRunner.js';
-import { runNotificationMonitors } from '../server/notificationMonitor.js';
+import { runNotificationMonitors, runReadingReminders } from '../server/notificationMonitor.js';
 import { automationSiteProfile } from '../server/siteProfiles.js';
 import { forecastForDate, forecastRange, listForecastRevisions, lockTomorrowForecasts } from '../server/solarProjection.js';
 import { captureUtilityProjectionSnapshots, deleteUtilityBill, listUtilityBills, projectUtilityBill, readUtilityBillDocument, saveUtilityBill, saveUtilityMeterReading, updateUtilityBill, utilityBillReminder, utilityMeterTracking, updateUtilityBillReminder } from '../server/utilityBills.js';
@@ -396,15 +396,24 @@ export default async function handler(req, res) {
       } catch (cause) {
         archiveError = cause instanceof Error ? cause.message : 'No fue posible comprobar el archivo permanente.';
       }
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.38.5', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveSeriesAuthorized, pollPolicyAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.38.6', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveSeriesAuthorized, pollPolicyAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
       if (!process.env.CRON_SECRET || req.headers?.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
         return sendJson(res, 401, { error: 'Ejecución programada no autorizada.' });
       }
-      const [automation, forecastLocks] = await Promise.all([runDueAutomations(), lockTomorrowForecasts()]);
-      return sendJson(res, 200, { automation, forecastLocks });
+      return sendJson(res, 200, {automation:await runDueAutomations()});
+    }
+
+    if(method==='POST'&&route==='forecast/run'){
+      if(!process.env.CRON_SECRET||req.headers?.authorization!==`Bearer ${process.env.CRON_SECRET}`)return sendJson(res,401,{error:'Pronóstico no autorizado.'});
+      return sendJson(res,200,{forecastLocks:await lockTomorrowForecasts()});
+    }
+
+    if(method==='POST'&&route==='notifications/reminders'){
+      if(!process.env.CRON_SECRET||req.headers?.authorization!==`Bearer ${process.env.CRON_SECRET}`)return sendJson(res,401,{error:'Recordatorios no autorizados.'});
+      return sendJson(res,200,await runReadingReminders());
     }
 
     if (method === 'POST' && route === 'notifications/monitor') {
