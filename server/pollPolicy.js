@@ -13,3 +13,9 @@ export async function readPollPolicy({monitor=false}={}) {
     return {visible:true,minimumSeconds:300,runMonitor:true};
   }
 }
+
+/** Allow for the few seconds spent storing a completed run, so a five-minute
+ * scheduler does not accidentally defer a 300-second claim to its next tick. */
+export function providerClaimSeconds(intervalSeconds){
+  return Math.max(30,Number(intervalSeconds)-30);
+}

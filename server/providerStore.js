@@ -1,3 +1,4 @@
+import { providerClaimSeconds } from './pollPolicy.js';
 import crypto from 'node:crypto';
 import { privateProviderSyncClaim, privateRpc } from './privateRpc.js';
 import { decryptProviderSecret, encryptProviderSecret, maskIdentifier, sanitizeProviderPayload, sha256Json } from './providerCrypto.js';
@@ -454,7 +455,7 @@ export async function syncProviderIfDue({ siteId, provider, minimumSeconds = 300
     const account = await accountFor(siteId, provider);
     if (account) claimSiteId = (await sharedISolarGroup(site, account))[0].site.id;
   }
-  const claimed = await privateProviderSyncClaim({ siteId: claimSiteId, provider, minimumSeconds });
+  const claimed = await privateProviderSyncClaim({ siteId: claimSiteId, provider, minimumSeconds: providerClaimSeconds(minimumSeconds) });
   if (!claimed) return { provider, siteId: Number(siteId), skipped: true, reason: 'recent_or_running' };
   return await syncProviderNow({ siteId, provider });
 }

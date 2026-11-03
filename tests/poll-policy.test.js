@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {readPollPolicy} from '../server/pollPolicy.js';
+import {readPollPolicy,providerClaimSeconds} from '../server/pollPolicy.js';
 const original=global.fetch;
 const keys=['SUPABASE_URL','SUPABASE_SECRET_KEY','SUPABASE_SERVICE_ROLE_KEY','SUPABASE_PUBLISHABLE_KEY','MISOLAR_DB_KEY'];
 const env=Object.fromEntries(keys.map(k=>[k,process.env[k]]));
@@ -23,3 +23,7 @@ try{
  global.fetch=original;for(const k of keys){if(env[k]===undefined)delete process.env[k];else process.env[k]=env[k]}
 }
 console.log('visible/background polling and monitoring fallback passed');
+
+assert.equal(providerClaimSeconds(300),270);
+assert.equal(providerClaimSeconds(900),870);
+assert.equal(providerClaimSeconds(10),30);
