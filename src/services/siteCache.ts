@@ -7,6 +7,7 @@ export type SiteCachePayload = {
   weekRows?: HistoryRow[];
   monthRows?: HistoryRow[];
   savedAt?: number;
+  monthCheckedAt?: number;
   realtimeSavedAt?: number;
   summarySavedAt?: number;
 };

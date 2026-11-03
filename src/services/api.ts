@@ -57,14 +57,15 @@ async function executeOnce<T>(path: string, options: RequestInit = {}, timeoutMs
 
 async function execute<T>(path: string, options: RequestInit = {}): Promise<T> {
   let lastError: unknown;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  const attempts=(options.method||'GET').toUpperCase()==='GET'?2:1;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
       return await executeOnce<T>(path, options);
     } catch (error) {
       lastError = error;
       const status = (error as { status?: number })?.status;
       const retryable = status == null || RETRYABLE_STATUS.has(status);
-      if (!retryable || attempt === 2) break;
+      if (!retryable || attempt === attempts-1) break;
       await sleep(700 * (attempt + 1));
     }
   }

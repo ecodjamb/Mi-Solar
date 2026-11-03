@@ -37,6 +37,7 @@ import type { DailyEnergy, Device, HistoryRow, PageKey, Realtime } from './types
 import { siteProfile,siteStorageKey } from './utils/site';
 import { APP_VERSION, REFRESH_POLICY, SESSION_POLICY } from './config';
 import { readSiteCache, writeSiteCache } from './services/siteCache';
+import { needsMonthRefresh, withCurrentDay } from './utils/refresh';
 import {
   batteryChargePower,batteryDischargePower,batterySoc,batteryVoltage,chileDayApiChunks,chileSiteRangeApiRange,chileWeekApiRange,clp,dailyEnergy,dataQuality,
   detectPvCount,effectiveGridPower,filterRowsForSiteDate,filterRowsForSiteMonth,filterRowsForSiteRange,formatClock,formatDate,formatSiteDate,gridFrequency,gridVoltage,solarSystemToLoadPower,solarToLoadPower,
@@ -47,7 +48,7 @@ const SESSION_IDLE_MS=SESSION_POLICY.idleMs;
 const ACTIVITY_PING_MS=SESSION_POLICY.activityPingMs;
 const LAST_ACTIVITY_KEY=SESSION_POLICY.storageKey;
 const REFRESH_MS=REFRESH_POLICY;
-const PROVIDER_ACTIVE_REFRESH_MS=4*60_000;
+const PROVIDER_ACTIVE_REFRESH_MS=5*60_000;
 type RealtimeRefreshMode='cache'|'if-stale'|'force';
 const requestedPage=()=>{const value=new URLSearchParams(window.location.search).get('page');if(value==='technical')return'equipment';return(['home','charts','solar','costs','equipment','programming','integrations','water','users','family'] as PageKey[]).includes(value as PageKey)?value as PageKey:'home'};
 const emptyEnergy:DailyEnergy={date:'',solar:0,pv1:0,pv2:0,load:0,grid:0,gridImport:0,gridExport:0,gridToLoad:0,charge:0,discharge:0,solarToLoad:0,batteryToLoad:0,solarToBattery:0,samples:0};
@@ -87,6 +88,8 @@ function ChangeInitialPassword({done}:{done:()=>void}){
 
 export default function App(){
   const [clock,setClock]=useState(formatClock());
+  const [visible,setVisible]=useState(document.visibilityState==='visible');
+  useEffect(()=>{const update=()=>setVisible(document.visibilityState==='visible');document.addEventListener('visibilitychange',update);return()=>document.removeEventListener('visibilitychange',update)},[]);
   const [auth,setAuth]=useState<boolean|null>(null);
   const [legacyAuth,setLegacyAuth]=useState(false);
   const [page,setPage]=useState<PageKey>(requestedPage);
@@ -118,15 +121,16 @@ export default function App(){
   const [storedForecast,setStoredForecast]=useState<SolarForecastResponse|null>(null);
   const selectedRef=useRef('');
   const sourceRef=useRef<ProviderName>('isolar');
+  const historyRequestsRef=useRef(new Map<string,Promise<void>>());
   const liveRequestsRef=useRef(new Map<string,Promise<void>>());
   const markUpdated=(key:string)=>setLastSectionUpdate(prev=>({...prev,[key]:new Date()}));
 
   const siteDate=formatSiteDate();
   const weekRange=useMemo(()=>chileWeekApiRange(siteDate),[siteDate]);
   const history=useMemo(()=>filterRowsForSiteDate(rawDayRows,siteDate),[rawDayRows,siteDate]);
-  const combinedMonthRows=useMemo(()=>rawMonthRows.some(row=>Number(row.aggregateSamples||0)>0)?rawMonthRows:[...rawMonthRows,...rawDayRows],[rawMonthRows,rawDayRows]);
+  const combinedMonthRows=useMemo(()=>[...rawMonthRows.filter(row=>filterRowsForSiteDate([row],siteDate).length===0),...rawDayRows],[rawMonthRows,rawDayRows,siteDate]);
   const monthRows=useMemo(()=>filterRowsForSiteMonth(combinedMonthRows,siteDate.slice(0,7)),[combinedMonthRows,siteDate]);
-  const combinedWeekRows=useMemo(()=>rawWeekRows.some(row=>Number(row.aggregateSamples||0)>0)?rawWeekRows:[...rawWeekRows,...rawDayRows],[rawWeekRows,rawDayRows]);
+  const combinedWeekRows=useMemo(()=>[...rawWeekRows.filter(row=>filterRowsForSiteDate([row],siteDate).length===0),...rawDayRows],[rawWeekRows,rawDayRows,siteDate]);
   const weekRows=useMemo(()=>filterRowsForSiteRange(combinedWeekRows,weekRange.siteStart,weekRange.siteEnd),[combinedWeekRows,weekRange.siteStart,weekRange.siteEnd]);
   const device=devices.find(d=>d.deviceSn===selected);
   const providerSiteFor=(value:string)=>providerCatalog?.sites.find(site=>site.siteKey===value||(site.deviceSuffix&&value.endsWith(site.deviceSuffix)));
@@ -149,8 +153,8 @@ export default function App(){
   const homeEnergy=useMemo(()=>({...dailyEnergy(homeRows),date:homeDate}),[homeRows,homeDate]);
   const pvCount:1|2=profile.key==='arrayan'?2:detectPvCount(realtime,[...history,...monthRows]);
   const quality=useMemo(()=>dataQuality(rawDayRows,siteDate),[rawDayRows,siteDate]);
-  const weekDaily=useMemo(()=>groupDailyEnergy(weekRows),[weekRows]);
-  const daily=useMemo(()=>groupDailyEnergy(monthRows),[monthRows]);
+  const weekDaily=useMemo(()=>withCurrentDay(groupDailyEnergy(rawWeekRows),today,weekRange.siteStart,weekRange.siteEnd),[rawWeekRows,today,weekRange.siteStart,weekRange.siteEnd]);
+  const daily=useMemo(()=>withCurrentDay(groupDailyEnergy(rawMonthRows),today,`${siteDate.slice(0,7)}-01`,addDays(siteDate,1)),[rawMonthRows,today,siteDate]);
   const best=useMemo(()=>daily.reduce<DailyEnergy|null>((a,b)=>!a||b.solar>a.solar?b:a,null),[daily]);
   const week=useMemo(()=>sumDays(weekDaily),[weekDaily]);
   const month=useMemo(()=>sumDays(daily),[daily]);
@@ -169,7 +173,7 @@ export default function App(){
   const realtimeSampleAt=parseApiTime(realtime.currentTime??realtime.createTime??realtime.collectTime??realtime.dataTime??realtime.time);
   const queryAgeMs=lastFetch?Date.now()-lastFetch.getTime():Infinity;
   const sampleAgeMs=realtimeSampleAt?Date.now()-realtimeSampleAt.getTime():null;
-  const liveFresh=Object.keys(realtime).length>0&&queryAgeMs<=75_000&&(sampleAgeMs===null||sampleAgeMs<=5*60_000);
+  const liveFresh=Object.keys(realtime).length>0&&queryAgeMs<=6*60_000&&(sampleAgeMs===null||sampleAgeMs<=6*60_000);
   const liveStatus=isHistoricalDay?'Sin animación':loading?'Sincronizando…':liveFresh?'En línea':Object.keys(realtime).length?'Dato atrasado':'Esperando datos';
 
   useEffect(()=>{if(page==='water'&&!waterEnabled)setPage('home')},[page,waterEnabled]);
@@ -179,7 +183,7 @@ export default function App(){
   }
 
   function refreshRealtime(sn=selectedRef.current||selected,refreshMode:RealtimeRefreshMode='cache'){
-    if(!sn)return Promise.resolve();
+    if(!sn||document.visibilityState!=='visible')return Promise.resolve();
     const requestedProvider=sourceRef.current;
     const requestKey=`${sn}:${requestedProvider}`;
     const pending=liveRequestsRef.current.get(requestKey);
@@ -209,7 +213,7 @@ export default function App(){
         markUpdated('realtime');
         setSyncMessage(originError?`No se pudo consultar ${provider==='isolar'?'i.Solar':'WatchPower'} ahora: ${originError}. Se conserva la última muestra respaldada.`:result.partial?'Datos instantáneos actualizados; el resumen del equipo se completará en el próximo ciclo.':'');
       }catch{
-        if(selectedRef.current===sn)setSyncMessage('No se pudo actualizar ahora. La app conserva el último dato identificado como anterior y reintentará en 30 segundos.');
+        if(selectedRef.current===sn)setSyncMessage('No se pudo actualizar ahora. La app conserva el último dato identificado como anterior y reintentará en cinco minutos o al pulsar Actualizar.');
       }finally{
         liveRequestsRef.current.delete(requestKey);
         if(selectedRef.current===sn)setLoading(false);
@@ -219,17 +223,32 @@ export default function App(){
     return request;
   }
 
-  async function refreshDayHistory(sn=selected){
+  function refreshDayHistory(sn=selected){
+    if(!sn||document.visibilityState!=='visible')return Promise.resolve();
+    const key=`day:${sn}:${siteDate}`;
+    const pending=historyRequestsRef.current.get(key);
+    if(pending)return pending;
+    const request=loadDayHistory(sn).finally(()=>historyRequestsRef.current.delete(key));
+    historyRequestsRef.current.set(key,request);
+    return request;
+  }
+
+  async function loadDayHistory(sn=selected){
     if(!sn)return;
+    const cachedDay=filterRowsForSiteDate(readSiteCache(sn)?.dayRows||[],siteDate);
     const chunks=chileDayApiChunks(siteDate,new Date(),6);
     const rows:HistoryRow[]=[];
     const warnings:string[]=[];
     try{
       const archiveRange=siteRangeUtc(siteDate,addDays(siteDate,1));
+      const latestCached=cachedDay.map(row=>parseApiTime(row.currentTime??row.createTime??row.collectTime??row.dataTime??row.time)?.getTime()||0).reduce((a,b)=>Math.max(a,b),0);
+      if(latestCached)archiveRange.start=new Date(Math.max(Date.parse(archiveRange.start),latestCached-10*60_000)).toISOString();
       try{
         const archived=await api<{list:HistoryRow[]}>(`devices/${sn}/archive?start=${encodeURIComponent(archiveRange.start)}&end=${encodeURIComponent(archiveRange.end)}`);
         if(archived.list?.length){
-          const archivedRows=filterRowsForSiteDate(archived.list,siteDate);
+          const byTime=new Map([...cachedDay,...archived.list].map(row=>[String(row.currentTime??row.createTime??row.collectTime??row.dataTime??row.time),row]));
+          const archivedRows=filterRowsForSiteDate([...byTime.values()],siteDate).sort((a,b)=>(parseApiTime(a.currentTime??a.createTime)?.getTime()||0)-(parseApiTime(b.currentTime??b.createTime)?.getTime()||0));
+          if(selectedRef.current!==sn)return;
           setRawDayRows(archivedRows);
           writeSiteCache(sn,{dayRows:archivedRows});
           markUpdated('day');
@@ -239,7 +258,8 @@ export default function App(){
           setHistoryMessage(`Día cargado desde el respaldo permanente · última muestra ${lastLabel}.`);
           return;
         }
-      }catch{ /* Si el respaldo aún no tiene el día, se consulta el origen. */ }
+        if(cachedDay.length)return;
+      }catch{if(cachedDay.length){setHistoryMessage('No se pudo actualizar el respaldo diario; se conservan los totales anteriores.');return}}
       for(let i=0;i<chunks.length;i+=1){
         const chunk=chunks[i];
         setHistoryProgress(`Actualizando el día hasta ahora: tramo ${i+1} de ${chunks.length}`);
@@ -265,7 +285,17 @@ export default function App(){
   }
 
 
-  async function refreshWeekHistory(sn=selected){
+  function refreshWeekHistory(sn=selected){
+    if(!sn||document.visibilityState!=='visible')return Promise.resolve();
+    const key=`week:${sn}:${siteDate}`;
+    const pending=historyRequestsRef.current.get(key);
+    if(pending)return pending;
+    const request=loadWeekHistory(sn).finally(()=>historyRequestsRef.current.delete(key));
+    historyRequestsRef.current.set(key,request);
+    return request;
+  }
+
+  async function loadWeekHistory(sn=selected){
     if(!sn)return;
     try{
       const utc=siteRangeUtc(weekRange.siteStart,weekRange.siteEnd);
@@ -283,13 +313,28 @@ export default function App(){
     }
   }
 
-  async function refreshMonthHistory(sn=selected){
+  function refreshMonthHistory(sn=selected){
+    if(!sn||document.visibilityState!=='visible')return Promise.resolve();
+    const key=`month:${sn}:${siteDate}`;
+    const pending=historyRequestsRef.current.get(key);
+    if(pending)return pending;
+    const request=loadMonthHistory(sn).finally(()=>historyRequestsRef.current.delete(key));
+    historyRequestsRef.current.set(key,request);
+    return request;
+  }
+
+  async function loadMonthHistory(sn=selected){
     if(!sn)return;
+    const cached=readSiteCache(sn);
+    const cachedRows=filterRowsForSiteMonth(cached?.monthRows||[],siteDate.slice(0,7));
+    const dates=cachedRows.map(row=>formatSiteDate(parseApiTime(row.currentTime??row.createTime) || new Date(0)));
+    if(!needsMonthRefresh(siteDate,dates,cached?.monthCheckedAt))return;
+    writeSiteCache(sn,{monthCheckedAt:Date.now()});
     const chunks=monthChunkRanges(siteDate,4);
     const archiveRange=siteRangeUtc(chunks[0].siteStart,chunks[chunks.length-1].siteEnd);
     try{
       const archived=await api<{list:HistoryRow[]}>(`devices/${sn}/archive-series?start=${encodeURIComponent(archiveRange.start)}&end=${encodeURIComponent(archiveRange.end)}&resolution=hour`);
-      if(archived.list?.length){setRawMonthRows(archived.list);writeSiteCache(sn,{monthRows:archived.list});markUpdated('month');setHistoryMessage('Mes cargado desde el respaldo permanente de Mi Solar.');return}
+      if(archived.list?.length){setRawMonthRows(archived.list);writeSiteCache(sn,{monthRows:archived.list,monthCheckedAt:Date.now()});markUpdated('month');setHistoryMessage('Mes cargado desde el respaldo permanente de Mi Solar.');return}
     }catch{ /* Si el archivo no responde, se consulta el origen por bloques. */ }
     const rows:HistoryRow[]=[];
     const warnings:string[]=[];
@@ -305,7 +350,7 @@ export default function App(){
         warnings.push(`${chunk.siteStart}–${addDays(chunk.siteEnd,-1)} sin respuesta`);
       }
     }
-    if(rows.length){setRawMonthRows(rows);writeSiteCache(sn,{monthRows:rows});markUpdated('month');}
+    if(rows.length){setRawMonthRows(rows);writeSiteCache(sn,{monthRows:rows,monthCheckedAt:Date.now()});markUpdated('month');}
     setHistoryProgress('');
     setHistoryMessage(warnings.length?`Histórico mensual parcial: ${warnings.join(', ')}.`:'Mes completo descargado y ajustado a Santiago.');
   }
@@ -390,7 +435,7 @@ export default function App(){
       ['scroll',registerActivity,{passive:true}]
     ];
     events.forEach(([name,handler,options])=>window.addEventListener(name,handler,options));
-    const refreshOnResume=()=>{const sn=selectedRef.current;if(sn)void refreshRealtime(sn,appIdentity?.authenticated?'if-stale':'cache')};
+    const refreshOnResume=()=>{if(document.visibilityState!=='visible')return;const sn=selectedRef.current;if(sn)void refreshRealtime(sn,appIdentity?.authenticated?'if-stale':'cache')};
     const onVisibility=()=>{if(document.visibilityState==='visible'){registerActivity();void apiFast<{authenticated:boolean}>('session').then(value=>{setLegacyAuth(value.authenticated);refreshOnResume()}).catch(()=>refreshOnResume())}};
     const onOnline=()=>refreshOnResume();
     const onPageShow=()=>refreshOnResume();
@@ -408,22 +453,23 @@ export default function App(){
   },[auth,legacyAuth]);
   useEffect(()=>{if(!auth||!providerCatalog)return;const fallback=()=>{const list=providerCatalog.sites.map(site=>({deviceSn:site.siteKey,nickName:site.name,onlineStatus:site.providers.some(item=>item.status==='connected')?1:0}));setDevices(list);if(!selected&&list[0])switchDevice(list[0].deviceSn)};if(!legacyAuth){fallback();return}api<{devices:Device[]}>('devices').then(x=>{const list=x.devices||[];if(!list.length){fallback();return}setDevices(list);const sn=list[0]?.deviceSn||'';if(sn&&!selected)switchDevice(sn)}).catch(fallback)},[auth,legacyAuth,providerCatalog]);
   useEffect(()=>{if(!device)return;setTariff(Number(localStorage.getItem(siteStorageKey('tariffCLP',device.nickName||'')))||profile.defaultTariff)},[device?.deviceSn]);
-  useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>void refreshRealtime(selected),REFRESH_MS.realtime);return()=>clearInterval(t)},[auth,selected]);
   useEffect(()=>{
-    if(!auth||!selected||page!=='home'||!appIdentity?.authenticated)return;
-    const t=setInterval(()=>void refreshRealtime(selected,'if-stale'),PROVIDER_ACTIVE_REFRESH_MS);
-    return()=>clearInterval(t);
-  },[auth,selected,source,page,appIdentity?.authenticated]);
-  useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>void refreshDayHistory(selected),REFRESH_MS.day);return()=>clearInterval(t)},[auth,selected]);
-  useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>void refreshWeekHistory(selected),REFRESH_MS.week);return()=>clearInterval(t)},[auth,selected,weekRange.siteStart,weekRange.siteEnd]);
-  useEffect(()=>{if(!auth||!selected)return;const t=setInterval(()=>void refreshMonthHistory(selected),REFRESH_MS.month);return()=>clearInterval(t)},[auth,selected,siteDate]);
+    if(!auth||!selected||!visible)return;
+    const update=async()=>{if(document.visibilityState!=='visible')return;await refreshRealtime(selected,appIdentity?.authenticated?'if-stale':'cache');await refreshDayHistory(selected)};
+    void update();
+    const timer=setInterval(()=>void update(),PROVIDER_ACTIVE_REFRESH_MS);
+    return()=>clearInterval(timer);
+  },[auth,selected,source,visible,appIdentity?.authenticated,siteDate]);
+  useEffect(()=>{if(!auth||!selected||!visible)return;const t=setInterval(()=>void refreshWeekHistory(selected),REFRESH_MS.week);return()=>clearInterval(t)},[auth,selected,visible,weekRange.siteStart,weekRange.siteEnd]);
+  useEffect(()=>{if(!auth||!selected||!visible)return;void refreshMonthHistory(selected);const t=setInterval(()=>void refreshMonthHistory(selected),REFRESH_MS.month);return()=>clearInterval(t)},[auth,selected,visible,siteDate]);
   useEffect(()=>{
-    if(!auth||page!=='home'||!peerDevice){setPeerSolar(null);return}
+    if(!auth||!visible||page!=='home'||!peerDevice){setPeerSolar(null);return}
     let active=true;
     const siteLabel=siteProfile(peerDevice.nickName||'').shortLabel;
     const cached=readSiteCache(peerDevice.deviceSn)?.realtime;
     if(cached)setPeerSolar({deviceSn:peerDevice.deviceSn,siteLabel,power:pvPower(cached,1)+pvPower(cached,2),updatedAt:null});
     const loadPeerSolar=async()=>{
+      if(document.visibilityState!=='visible')return;
       try{
         const peerProviderSite=providerSiteFor(peerDevice.deviceSn);
         const result=peerProviderSite
@@ -440,20 +486,17 @@ export default function App(){
     const initialTimer=window.setTimeout(()=>void loadPeerSolar(),4_000);
     const refreshTimer=window.setInterval(()=>void loadPeerSolar(),REFRESH_MS.realtime);
     return()=>{active=false;window.clearTimeout(initialTimer);window.clearInterval(refreshTimer)};
-  },[auth,page,peerDevice?.deviceSn]);
+  },[auth,visible,page,peerDevice?.deviceSn]);
   useEffect(()=>{if(!auth||!selected||!isHistoricalDay){setHistoricalDayRows([]);return}let active=true;setHistoricalDayLoading(true);setTimelineIndex(null);const utc=siteRangeUtc(homeDate,addDays(homeDate,1));api<{list:HistoryRow[]}>(`devices/${selected}/archive-series?start=${encodeURIComponent(utc.start)}&end=${encodeURIComponent(utc.end)}&resolution=hour`).then(result=>{if(active){const rows=filterRowsForSiteDate(result.list||[],homeDate);setHistoricalDayRows(rows);setTimelineIndex(rows.length?rows.length-1:null)}}).catch(error=>active&&setHistoryMessage(`No fue posible cargar ${homeDate}: ${error instanceof Error?error.message:'error'}.`)).finally(()=>active&&setHistoricalDayLoading(false));return()=>{active=false}},[auth,selected,homeDate,isHistoricalDay]);
   useEffect(()=>{const start=weather.dailyRadiation?.[0]?.date;if(!auth||!selected||!start){setProjectionHistory([]);return}let active=true;const utc=siteRangeUtc(start,addDays(siteDate,1));api<{list:HistoryRow[]}>(`devices/${selected}/archive-series?start=${encodeURIComponent(utc.start)}&end=${encodeURIComponent(utc.end)}&resolution=day`).then(result=>{if(active)setProjectionHistory(groupDailyEnergy(result.list||[]))}).catch(()=>active&&setProjectionHistory([]));return()=>{active=false}},[auth,selected,weather.dailyRadiation?.[0]?.date,siteDate]);
   useEffect(()=>{if(!auth||!selected||!weather.dailyRadiation?.length){setStoredForecast(null);return}let active=true;api<SolarForecastResponse>(`devices/${selected}/solar-forecast`).then(value=>active&&setStoredForecast(value)).catch(()=>active&&setStoredForecast(null));return()=>{active=false}},[auth,selected,weather.updatedAt]);
   useEffect(()=>{
-    if(!auth||!device)return;
+    if(!auth||!visible||!device)return;
     const loadFull=()=>fetchWeather(device.nickName||'').then(data=>{setWeather({...data,error:undefined});markUpdated('weather');markUpdated('radiation')}).catch(err=>setWeather(prev=>({...prev,error:err instanceof Error?err.message:'Clima no disponible'})));
-    const loadCurrent=()=>fetchWeather(device.nickName||'').then(data=>{setWeather(prev=>({...prev,temperature:data.temperature,humidity:data.humidity,weatherCode:data.weatherCode,windSpeed:data.windSpeed,isDay:data.isDay,cloudCover:data.cloudCover,precipitation:data.precipitation,provider:data.provider,updatedAt:data.updatedAt,error:undefined}));markUpdated('weather')}).catch(err=>setWeather(prev=>({...prev,error:err instanceof Error?err.message:'Clima no disponible'})));
-    const loadRadiation=()=>fetchWeather(device.nickName||'').then(data=>{setWeather(prev=>({...prev,hourly:data.hourly,dailyRadiation:data.dailyRadiation,sunrise:data.sunrise,sunset:data.sunset,provider:data.provider,updatedAt:data.updatedAt,error:undefined}));markUpdated('radiation')}).catch(()=>{});
     void loadFull();
-    const weatherTimer=setInterval(()=>void loadCurrent(),REFRESH_MS.weather);
-    const radiationTimer=setInterval(()=>void loadRadiation(),REFRESH_MS.radiation);
-    return()=>{clearInterval(weatherTimer);clearInterval(radiationTimer)};
-  },[auth,device?.deviceSn]);
+    const weatherTimer=setInterval(()=>void loadFull(),REFRESH_MS.weather);
+    return()=>clearInterval(weatherTimer);
+  },[auth,visible,device?.deviceSn]);
 
   if(auth===null)return <div className="boot">Cargando Mi Solar…</div>;
   if(!auth)return <Login done={()=>{apiFast<NonNullable<typeof appIdentity>>('app-auth/session').then(value=>{setAppIdentity(value);setAuth(value.authenticated)}).catch(()=>setAuth(false))}}/>;
@@ -478,7 +521,7 @@ export default function App(){
         <div className="time-box"><strong>{clock}</strong><small>Hora de Chile</small><small>Último dato: {formatDate(realtime.currentTime||realtime.createTime)}</small><small>Consulta: {lastFetch?lastFetch.toLocaleTimeString('es-CL',{timeZone:'America/Santiago',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}):'—'} · v{APP_VERSION}</small></div>
         {appIdentity?.authenticated&&<button className="account-chip" onClick={()=>setPage(showUsers?'users':'integrations')} title={showUsers?'Ver usuarios y credenciales':'Ver domótica'}><ShieldCheck/><span><b>{appIdentity.user?.displayName||'Mi Solar'}</b><small>@{appIdentity.user?.username}</small></span></button>}
         <FunModeToggle value={funMode} onChange={v=>{setFunMode(v);localStorage.setItem('funMode',v?'on':'off')}}/>
-        <button className="refresh-button" onClick={()=>void refreshRealtime(undefined,'force')} disabled={loading} title="Consultar el proveedor y guardar el último dato del flujo instantáneo"><RefreshCw className={loading?'spin':''}/><span>{loading?'Actualizando flujo…':'Actualizar'}</span></button>
+        <button className="refresh-button" onClick={()=>void refreshRealtime(undefined,'force').then(()=>refreshDayHistory(selectedRef.current))} disabled={loading} title="Consultar el proveedor y guardar el último dato del flujo instantáneo"><RefreshCw className={loading?'spin':''}/><span>{loading?'Actualizando flujo…':'Actualizar'}</span></button>
       </header>}
       {page==='family'&&appIdentity?.authenticated&&<header className="non-solar-context"><button className="account-chip" onClick={()=>setPage(showUsers?'users':'integrations')} title="Ver mi sesión"><ShieldCheck/><span><b>{appIdentity.user?.displayName||'Superadministrador'}</b><small>@{appIdentity.user?.username}</small></span></button></header>}
       {page==='water'&&<header className="non-solar-context water-context"><span><small>Instalación</small><b>El Arrayán</b></span></header>}

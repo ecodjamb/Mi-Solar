@@ -30,14 +30,19 @@ function config(){
 export async function rest(path,options={}){
   const value=config();
   if(!value)return null;
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),12_000);
+  try {
   const response=await fetch(`${value.url}/rest/v1/${path}`,{
     ...options,
+    signal:options.signal||controller.signal,
     headers:{apikey:value.key,Authorization:`Bearer ${value.key}`,...(!value.serverKey?{'x-misolar-key':value.appKey}:{}),'Content-Type':'application/json',...(options.headers||{})}
   });
   if(!response.ok)throw new Error(`Archivo permanente HTTP ${response.status}: ${(await response.text()).slice(0,180)}`);
   if(response.status===204)return null;
   const text=await response.text();
   return text?JSON.parse(text):null;
+  } finally {clearTimeout(timeout)}
 }
 
 export async function findSiteId(deviceSn){

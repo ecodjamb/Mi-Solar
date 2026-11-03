@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import ts from 'typescript';
+const source=readFileSync(new URL('../src/utils/refresh.ts',import.meta.url),'utf8');
+const js=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022}}).outputText;
+const {needsMonthRefresh,withCurrentDay}=await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
+const now=1_000_000_000;
+assert.equal(needsMonthRefresh('2026-11-03',['2026-11-01','2026-11-02'],undefined,now),false);
+assert.equal(needsMonthRefresh('2026-11-03',['2026-11-01'],undefined,now),true);
+assert.equal(needsMonthRefresh('2026-11-03',[],now-60_000,now),false);
+assert.equal(needsMonthRefresh('2026-11-03',[],now-12*60*60_000,now),true);
+assert.equal(needsMonthRefresh('2026-12-02',['2026-11-01'],undefined,now),true);
+const days=[{date:'2026-10-31',solar:99},{date:'2026-11-01',solar:10},{date:'2026-11-02',solar:3}];
+assert.deepEqual(withCurrentDay(days,{date:'2026-11-02',solar:8},'2026-11-01','2026-11-03'),[{date:'2026-11-01',solar:10},{date:'2026-11-02',solar:8}]);
+assert.equal(withCurrentDay([], {date:'2026-11-03',solar:5},'2026-11-01','2026-11-04')[0].solar,5);
+console.log('refresh policy: missing days, 12-hour backoff, month rollover and live daily replacement passed');
