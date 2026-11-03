@@ -1,3 +1,4 @@
+import { readPollPolicy } from '../server/pollPolicy.js';
 import { md5, tumRequest } from '../server/tumcapp.js';
 import { clearCookie, openSession, sessionCookie, SESSION_IDLE_MS } from '../server/session.js';
 import { archiveRows, readArchive, readArchiveSeries, rest, validDeviceReference } from '../server/archive.js';
@@ -347,12 +348,14 @@ export default async function handler(req, res) {
     const providerSync = route.match(/^sites\/(\d+)\/providers\/(isolar|watchpower)\/sync$/);
     if (providerSync && method === 'POST') {
       await requireAppPermission(req, 'solar.view');
+      await rest('rpc/misolar_touch_visible_backend',{method:'POST',body:'{}'}).catch(()=>console.warn('Visible activity heartbeat unavailable.'));
       return sendJson(res, 200, await syncProviderIfDue({ siteId: Number(providerSync[1]), provider: providerSync[2], minimumSeconds: 10 }));
     }
 
     const providerRefresh = route.match(/^sites\/(\d+)\/providers\/(isolar|watchpower)\/refresh$/);
     if (providerRefresh && method === 'POST') {
       await requireAppPermission(req, 'solar.view');
+      await rest('rpc/misolar_touch_visible_backend',{method:'POST',body:'{}'}).catch(()=>console.warn('Visible activity heartbeat unavailable.'));
       return sendJson(res, 200, await syncProviderIfDue({ siteId: Number(providerRefresh[1]), provider: providerRefresh[2], minimumSeconds: 300 }));
     }
 
@@ -375,7 +378,8 @@ export default async function handler(req, res) {
 
     if (method === 'POST' && route === 'providers/sync') {
       if (!process.env.CRON_SECRET || req.headers?.authorization !== `Bearer ${process.env.CRON_SECRET}`) return sendJson(res, 401, { error: 'Sincronización no autorizada.' });
-      const results = await syncEnabledProviders();
+      const policy=await readPollPolicy();
+      const results = await syncEnabledProviders({minimumSeconds:policy?.minimumSeconds===300?300:900});
       return sendJson(res, 200, { results, synchronizedAt: new Date().toISOString() });
     }
 
@@ -383,13 +387,16 @@ export default async function handler(req, res) {
       const push = pushConfiguration();
       let archiveAuthorized = false;
       let archiveError = null;
+      let archiveSeriesAuthorized = false;
+      let pollPolicyAuthorized = false;
       try {
         const sites = await rest('solar_sites?select=id&limit=1');
         archiveAuthorized = Array.isArray(sites);
+        if(sites?.[0]?.id){const series=await rest('rpc/misolar_energy_series_backend',{method:'POST',body:JSON.stringify({p_site_id:sites[0].id,p_from:new Date(Date.now()-86400000).toISOString(),p_to:new Date().toISOString(),p_resolution:'hour'})});archiveSeriesAuthorized=Array.isArray(series);const policy=await rest('rpc/misolar_poll_policy_backend',{method:'POST',body:JSON.stringify({p_monitor:false})});pollPolicyAuthorized=[300,900].includes(policy?.minimumSeconds)}
       } catch (cause) {
         archiveError = cause instanceof Error ? cause.message : 'No fue posible comprobar el archivo permanente.';
       }
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.38.4', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.38.5', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveSeriesAuthorized, pollPolicyAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -404,6 +411,8 @@ export default async function handler(req, res) {
       if (!process.env.CRON_SECRET || req.headers?.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
         return sendJson(res, 401, { error: 'Monitor de notificaciones no autorizado.' });
       }
+      const policy=await readPollPolicy({monitor:true});
+      if(policy?.runMonitor===false)return sendJson(res,200,{skipped:true,reason:'background_interval',minimumSeconds:policy.minimumSeconds});
       return sendJson(res, 200, await runNotificationMonitors());
     }
 

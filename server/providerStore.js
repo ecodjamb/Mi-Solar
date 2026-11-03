@@ -459,13 +459,13 @@ export async function syncProviderIfDue({ siteId, provider, minimumSeconds = 300
   return await syncProviderNow({ siteId, provider });
 }
 
-export async function syncEnabledProviders({ onlyProvider = null } = {}) {
+export async function syncEnabledProviders({ onlyProvider = null, minimumSeconds = 300 } = {}) {
   const sites = await listProviderAccounts();
   const results = [];
   for (const site of sites) {
     for (const account of site.providers.filter((item) => item.enabled && (!onlyProvider || item.provider === onlyProvider))) {
       try {
-        results.push(await syncProviderIfDue({ siteId: site.id, provider: account.provider }));
+        results.push(await syncProviderIfDue({ siteId: site.id, provider: account.provider, minimumSeconds }));
       } catch (error) {
         results.push({ siteId: site.id, provider: account.provider, error: String(error?.message || 'Error de proveedor') });
       }
