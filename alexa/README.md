@@ -1,10 +1,11 @@
 # Widget Mi Solar para Echo Show
 
-Esta carpeta contiene el diseño APL para la galería de widgets de Alexa y un sincronizador opcional. **No es una aplicación Android/iOS** y no carga el HTML de Mi Solar: usa datos del archivo energético existente.
+Esta carpeta contiene dos documentos APL importables para la galería de widgets de Alexa y un sincronizador opcional. **No es una aplicación Android/iOS** y no carga el HTML de Mi Solar: usa datos del archivo energético existente.
 
 ## Estado
 
-- Diseño APL: `widget.json` (seis parámetros y estado).
+- Diseño APL para pantallas grandes: `widget.json` (seis parámetros y estado).
+- Diseño de prueba compacto para Echo Show 5: `widget-show5.json` (generación, batería y estado).
 - Datos de Vercel: `GET /api/alexa/widget-data`, autenticación Bearer con `ALEXA_WIDGET_TOKEN`.
 - Fuente: último registro de `energy_samples` para `ALEXA_WIDGET_DEVICE_SN`. No llama a Tumcapp.
 - Sincronizador: `sync-datastore.mjs` actualiza `MiSolar/Indicadores` mediante la Data Store REST API.
@@ -24,10 +25,11 @@ Las variables existentes del archivo (`SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`
 1. Usar la **misma cuenta Amazon** registrada en el Echo Show Cocina.
 2. En [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask) crear Skill Custom, con backend Alexa-hosted Node.js para las pruebas.
 3. Activar en **Build > Interfaces**: Data Store Packages, Data Store y Data Store Extension (`alexaext:datastore:10`). Guardar y reconstruir el modelo.
-4. **Build > Multimodal Responses > Widget > Create Widget > Upload**, importar `widget.json` y guardar.
+4. **Build > Multimodal Responses > Widget > Create Widget > Upload**, importar primero `widget-show5.json` en Echo Show 5 (o `widget.json` para pantallas grandes) y guardar. Son documentos APL sin contenedor `document` externo.
 5. En el **manifest** del paquete definir el nombre "Mi Solar" y descripción, y agregar los assets que solicite la consola.
 6. Ejecutar **Build Model** y **Install > Send to Device** (no solo Preview). El dispositivo debe aparecer como compatible.
-7. La documentación de diseño de Amazon del año 2023 excluía el Echo Show 5, mientras que la guía actual de consumo muestra widgets para ese modelo. **Es necesario validar widgets APL de terceros en el Echo Show 5**; la galería visible no basta para confirmarlo.
+7. Para probar con números simulados sin credenciales puedes usar el botón **Install > Update Datastore** y enviar un comando con `PUT_OBJECT`, namespace `MiSolar`, key `Indicadores`, y content con las propiedades `generacion`, `consumo`, `bateria`, `red`, `carga`, `descarga`, `estado`.
+8. La documentación de diseño de Amazon del año 2023 excluía el Echo Show 5, mientras que la guía actual de consumo muestra widgets para ese modelo. **Es necesario validar widgets APL de terceros en el Echo Show 5**; la galería visible no basta para confirmarlo.
 
 ## Sincronizar datos
 
