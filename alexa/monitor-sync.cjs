@@ -60,6 +60,7 @@ function emptySnapshot(status = 'Sin datos') {
     generacion: '--',
     consumo: '--',
     bateria: '--',
+    bateriaValor: 0,
     red: '--',
     generadoHoy: '--',
     esperadoHoy: '--',
@@ -73,6 +74,16 @@ function emptySnapshot(status = 'Sin datos') {
     origen: '--',
     disponible: false,
     sampledAt: null
+  };
+}
+
+function enrichSnapshot(snapshot) {
+  const battery = Number.parseFloat(String(snapshot?.bateria || '').replace(',', '.'));
+  const grid = Number.parseFloat(String(snapshot?.red || '').replace(',', '.'));
+  return {
+    ...snapshot,
+    bateriaValor: Number.isFinite(battery) ? Math.max(0, Math.min(100, Math.round(battery))) : 0,
+    redDireccion: Number.isFinite(grid) && grid > 0.05 ? 'IMPORTANDO DE LA RED' : 'SIN IMPORTACIÓN'
   };
 }
 
@@ -143,7 +154,7 @@ async function fetchMonitor({
     if (!response.ok) throw new Error(`API pública HTTP ${response.status}`);
     const payload = await response.json();
     if (payload?.sitio) {
-      return { snapshot: payload, refreshAfterSeconds: MAX_REFRESH_SECONDS };
+      return { snapshot: enrichSnapshot(payload), refreshAfterSeconds: MAX_REFRESH_SECONDS };
     }
     return {
       snapshot: snapshotFromMonitor(payload, now),
@@ -220,6 +231,7 @@ async function syncMonitorToDataStore({
 module.exports = {
   MONITOR_URL,
   emptySnapshot,
+  enrichSnapshot,
   fetchMonitor,
   generatedTodayKwh,
   isStale,

@@ -12,14 +12,15 @@ const previousWidgetDataToken = process.env.ALEXA_WIDGET_DATA_TOKEN;
 process.env.ALEXA_WIDGET_DATA_TOKEN = 'test-widget-token';
 
 const manifest = JSON.parse(await readFile(new URL('../alexa/widget-manifest.json', import.meta.url)));
-assert.equal(manifest.manifest.version, '1.0.5');
+assert.equal(manifest.manifest.version, '1.0.7');
 assert.equal(manifest.manifest.installStateChanges, 'INFORM');
 assert.equal(manifest.manifest.updateStateChanges, 'INFORM');
 assert.deepEqual(Object.keys(manifest.publishingInformation.locales).sort(), ['es-ES', 'es-MX', 'es-US']);
 for (const locale of Object.values(manifest.publishingInformation.locales)) {
   const metadata = locale[0].metadata;
   assert.equal(locale[0].targetViewport, 'WIDGET_M');
-  assert.match(metadata.iconUri, /\/3a2f6193b3363b756bd00ac325cf1fab7babfaf2\/.*450|mi-solar-widget-icon\.png$/);
+  assert.equal(metadata.name, 'mi solar v1.0.7');
+  assert.match(metadata.iconUri, /mi-solar-widget-icon-v1\.0\.7\.png$/);
   assert.match(metadata.previews[0], /mi-solar-widget-preview-v2\.png$/);
   assert.doesNotMatch(metadata.iconUri, /default_icon/);
 }
