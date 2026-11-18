@@ -1,5 +1,18 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { authorizedAlexaWidgetRequest, readAlexaWidgetSnapshot } from '../server/alexaWidget.js';
+
+const manifest = JSON.parse(await readFile(new URL('../alexa/widget-manifest.json', import.meta.url)));
+assert.equal(manifest.manifest.version, '1.0.3');
+assert.equal(manifest.manifest.installStateChanges, 'INFORM');
+assert.deepEqual(Object.keys(manifest.publishingInformation.locales).sort(), ['es-ES', 'es-MX', 'es-US']);
+for (const locale of Object.values(manifest.publishingInformation.locales)) {
+  const metadata = locale[0].metadata;
+  assert.equal(locale[0].targetViewport, 'WIDGET_M');
+  assert.match(metadata.iconUri, /\/3a2f6193b3363b756bd00ac325cf1fab7babfaf2\/.*450|mi-solar-widget-icon\.png$/);
+  assert.match(metadata.previews[0], /mi-solar-widget-preview\.png$/);
+  assert.doesNotMatch(metadata.iconUri, /default_icon/);
+}
 
 assert.equal(authorizedAlexaWidgetRequest({ authorization: 'Bearer abc' }, 'abc'), true);
 assert.equal(authorizedAlexaWidgetRequest({ authorization: 'Bearer abc' }, 'abcd'), false);
