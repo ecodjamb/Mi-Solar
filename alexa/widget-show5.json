@@ -4,8 +4,6 @@
   "settings": {"DataStore":{"dataBindings":[{"namespace":"MiSolar","key":"Indicadores","dataBindingName":"MiSolarData","dataType":"OBJECT"}]}},
   "mainTemplate": {"items":[{
     "type":"Frame","width":"100vw","height":"100vh","backgroundColor":"#031523","items":[
-      {"type":"Image","source":"https://raw.githubusercontent.com/ecodjamb/Mi-Solar/refs/heads/feature/alexa-mi-solar-widget/public/alexa/mi-solar-widget-background-v3.png","width":"100%","height":"100%","scale":"best-fill","opacity":0.3},
-      {"type":"Frame","width":"100%","height":"100%","backgroundColor":"#B8031523"},
       {"type":"Container","width":"100%","height":"100%","direction":"column","paddingLeft":"${viewport.width >= 300 ? '16dp' : '10dp'}","paddingRight":"${viewport.width >= 300 ? '16dp' : '10dp'}","paddingTop":"${viewport.height >= 500 ? '16dp' : '8dp'}","paddingBottom":"${viewport.height >= 500 ? '14dp' : '7dp'}","items":[
         {"type":"Container","direction":"row","alignItems":"center","height":"${viewport.height >= 500 ? '42dp' : '30dp'}","items":[
           {"type":"Image","source":"https://raw.githubusercontent.com/ecodjamb/Mi-Solar/3a2f6193b3363b756bd00ac325cf1fab7babfaf2/public/alexa/mi-solar-widget-icon.png","width":"${viewport.height >= 500 ? '34dp' : '24dp'}","height":"${viewport.height >= 500 ? '34dp' : '24dp'}","borderRadius":"9dp","scale":"best-fill"},
@@ -35,7 +33,9 @@
           {"type":"Text","text":"${MiSolarData.tienePronostico ? MiSolarData.progresoSolar + ' de la meta diaria' : 'Producción real acumulada · meta no informada'}","fontSize":"${viewport.height >= 500 ? '9dp' : '7dp'}","color":"#9FC1D2","maxLines":1}
         ]}]},
         {"type":"Text","height":"${viewport.height >= 500 ? '19dp' : '13dp'}","text":"${(MiSolarData.estado ? MiSolarData.estado : 'Sin datos') + ' · ' + (MiSolarData.hora ? MiSolarData.hora : '--:--') + ' · ' + (MiSolarData.origen ? MiSolarData.origen : '--')}","fontSize":"${viewport.height >= 500 ? '9dp' : '7dp'}","color":"#9EBAC9","textAlign":"center","textAlignVertical":"center","maxLines":1}
-      ]}
+      ]},
+      {"type":"Frame","width":"100%","height":"100%","backgroundColor":"#B8031523"},
+      {"type":"Image","source":"https://raw.githubusercontent.com/ecodjamb/Mi-Solar/refs/heads/feature/alexa-mi-solar-widget/public/alexa/mi-solar-widget-background-v3.png","width":"100%","height":"100%","scale":"best-fill","opacity":0.3}
     ]
   }]}
 }
