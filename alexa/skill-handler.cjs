@@ -47,8 +47,8 @@ async function writeDataStore(snapshot, targetId) {
   if (failures.length) throw new Error(`Entrega Data Store fallida: ${failures.map(x => x.type).join(', ')}`);
 }
 
-async function syncDevice(deviceId) {
-  const result = await syncMonitorToDataStore({ targetId: deviceId, writeDataStore });
+async function syncDevice(deviceId, { force = false } = {}) {
+  const result = await syncMonitorToDataStore({ targetId: deviceId, writeDataStore, force });
   console.log(result.written ? 'MiSolar: Data Store actualizado' : 'MiSolar: muestra sin cambios',
     result.snapshot.sampledAt);
 }
@@ -63,7 +63,7 @@ const InstalledHandler = {
     if (deviceId) {
       console.log('MiSolar: widget instalado; deviceId=', deviceId);
       console.log('MiSolar: userId=', userId || '(no disponible)');
-      await syncDevice(deviceId);
+      await syncDevice(deviceId, { force: true });
     }
     return input.responseBuilder.getResponse();
   }
@@ -75,7 +75,7 @@ const UpdatedHandler = {
   },
   async handle(input) {
     const deviceId = input.requestEnvelope.context?.System?.device?.deviceId;
-    if (deviceId) await syncDevice(deviceId);
+    if (deviceId) await syncDevice(deviceId, { force: true });
     return input.responseBuilder.getResponse();
   }
 };
@@ -94,7 +94,9 @@ const LaunchHandler = {
   canHandle(input) {
     return Alexa.getRequestType(input.requestEnvelope) === 'LaunchRequest';
   },
-  handle(input) {
+  async handle(input) {
+    const deviceId = input.requestEnvelope.context?.System?.device?.deviceId;
+    if (deviceId) await syncDevice(deviceId, { force: true });
     return input.responseBuilder.speak('Mi Solar está listo para mostrar tus indicadores desde la galería de widgets.').getResponse();
   }
 };

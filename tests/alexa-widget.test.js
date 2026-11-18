@@ -8,6 +8,8 @@ const {
   snapshotFromMonitor,
   syncMonitorToDataStore
 } = monitorSync;
+const previousWidgetDataToken = process.env.ALEXA_WIDGET_DATA_TOKEN;
+process.env.ALEXA_WIDGET_DATA_TOKEN = 'test-widget-token';
 
 const manifest = JSON.parse(await readFile(new URL('../alexa/widget-manifest.json', import.meta.url)));
 assert.equal(manifest.manifest.version, '1.0.5');
@@ -73,6 +75,7 @@ assert.equal(withoutForecast.tienePronostico, false);
 const fetched = await fetchMonitor({
   fetchImpl: async (_url, options) => {
     assert.equal(options.headers.Accept, 'application/json');
+    assert.equal(options.headers.Authorization, 'Bearer test-widget-token');
     return { ok: true, json: async () => publicPayload };
   },
   now: new Date('2026-11-18T11:40:00Z')
@@ -128,7 +131,7 @@ try {
     query: async (path) => {
       requestedPath = path;
       return [{
-        sample_at: '2026-11-18T01:25:00.000Z', solar_w: 7560,
+        sample_at: '2026-11-18T01:25:00.000Z', solar_w: 7560, pv1_w: 3200, pv2_w: 4360,
         load_w: 2420, grid_w: 0, battery_soc: 88.4,
         battery_charge_w: 1250, battery_discharge_w: 0
       }];
@@ -137,6 +140,8 @@ try {
   });
   assert.ok(requestedPath.includes('site-example'));
   assert.equal(result.generacion, '7,6 kW');
+  assert.equal(result.pv1, '3,2 kW');
+  assert.equal(result.pv2, '4,4 kW');
   assert.equal(result.consumo, '2,4 kW');
   assert.equal(result.bateria, '88 %');
   assert.equal(result.estado, 'Actualizado');
@@ -157,4 +162,6 @@ try {
   for (const [key, value] of Object.entries(before)) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;
   }
+  if (previousWidgetDataToken === undefined) delete process.env.ALEXA_WIDGET_DATA_TOKEN;
+  else process.env.ALEXA_WIDGET_DATA_TOKEN = previousWidgetDataToken;
 }

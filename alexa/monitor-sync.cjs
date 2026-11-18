@@ -2,7 +2,7 @@
 
 const fs = require('node:fs/promises');
 
-const MONITOR_URL = 'https://misolar.vercel.app/api/public/monitor';
+const MONITOR_URL = 'https://misolar.vercel.app/api/alexa/widget-data';
 const SITE_KEY = 'site:2';
 const SITE_NAME = 'El Arrayán';
 const DEFAULT_STATE_FILE = '/tmp/mi-solar-alexa-state.json';
@@ -134,12 +134,17 @@ async function fetchMonitor({
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const token = process.env.ALEXA_WIDGET_DATA_TOKEN;
+    if (!token) throw new Error('Falta ALEXA_WIDGET_DATA_TOKEN.');
     const response = await fetchImpl(MONITOR_URL, {
-      headers: { Accept: 'application/json' },
+      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
       signal: controller.signal
     });
     if (!response.ok) throw new Error(`API pública HTTP ${response.status}`);
     const payload = await response.json();
+    if (payload?.sitio) {
+      return { snapshot: payload, refreshAfterSeconds: MAX_REFRESH_SECONDS };
+    }
     return {
       snapshot: snapshotFromMonitor(payload, now),
       refreshAfterSeconds: refreshSeconds(payload)
@@ -169,7 +174,8 @@ async function syncMonitorToDataStore({
   fetchImpl = globalThis.fetch,
   timeoutMs,
   now = new Date(),
-  statePath
+  statePath,
+  force = false
 }) {
   if (!targetId) throw new Error('Falta el destino de Alexa Data Store.');
   if (typeof writeDataStore !== 'function') throw new Error('Falta writeDataStore.');
@@ -192,7 +198,7 @@ async function syncMonitorToDataStore({
     snapshot = { ...targetState.snapshot, estado: 'Dato atrasado' };
   }
 
-  if (snapshot.sampledAt && snapshot.sampledAt === targetState.lastWrittenSampledAt) {
+  if (!force && snapshot.sampledAt && snapshot.sampledAt === targetState.lastWrittenSampledAt) {
     return { written: false, snapshot, refreshAfterSeconds, sourceError };
   }
 

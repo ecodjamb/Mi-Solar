@@ -1,7 +1,7 @@
 {
   "manifest": {
     "id": "MiSolar",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "presentationDefinitions": [
       {
         "url": "presentations/default.tpl"
@@ -20,13 +20,13 @@
         {
           "targetViewport": "WIDGET_M",
           "metadata": {
-            "name": "Mi Solar",
+            "name": "Mi Solar v1.0.6",
             "description": "Generación solar y nivel de batería de El Arrayán.",
             "keywords": [
               "solar",
               "batería"
             ],
-            "iconUri": "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/3a2f6193b3363b756bd00ac325cf1fab7babfaf2/public/alexa/mi-solar-widget-icon.png",
+            "iconUri": "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/feature/alexa-mi-solar-widget/public/alexa/mi-solar-widget-icon-v1.0.6.png",
             "previews": [
               "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/8c9f4e9607aa341d771749857aeaa90545375ef7/public/alexa/mi-solar-widget-preview-v2.png"
             ]
@@ -37,13 +37,13 @@
         {
           "targetViewport": "WIDGET_M",
           "metadata": {
-            "name": "Mi Solar",
+            "name": "Mi Solar v1.0.6",
             "description": "Generación solar y nivel de batería de El Arrayán.",
             "keywords": [
               "solar",
               "batería"
             ],
-            "iconUri": "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/3a2f6193b3363b756bd00ac325cf1fab7babfaf2/public/alexa/mi-solar-widget-icon.png",
+            "iconUri": "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/feature/alexa-mi-solar-widget/public/alexa/mi-solar-widget-icon-v1.0.6.png",
             "previews": [
               "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/8c9f4e9607aa341d771749857aeaa90545375ef7/public/alexa/mi-solar-widget-preview-v2.png"
             ]
@@ -54,13 +54,13 @@
         {
           "targetViewport": "WIDGET_M",
           "metadata": {
-            "name": "Mi Solar",
+            "name": "Mi Solar v1.0.6",
             "description": "Generación solar y nivel de batería de El Arrayán.",
             "keywords": [
               "solar",
               "batería"
             ],
-            "iconUri": "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/3a2f6193b3363b756bd00ac325cf1fab7babfaf2/public/alexa/mi-solar-widget-icon.png",
+            "iconUri": "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/feature/alexa-mi-solar-widget/public/alexa/mi-solar-widget-icon-v1.0.6.png",
             "previews": [
               "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/8c9f4e9607aa341d771749857aeaa90545375ef7/public/alexa/mi-solar-widget-preview-v2.png"
             ]
