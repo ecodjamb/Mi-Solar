@@ -26,10 +26,11 @@ Las variables existentes del archivo (`SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`
 2. En [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask) crear Skill Custom, con backend Alexa-hosted Node.js para las pruebas.
 3. Activar en **Build > Interfaces**: Data Store Packages, Data Store y Data Store Extension (`alexaext:datastore:10`). Guardar y reconstruir el modelo.
 4. **Build > Multimodal Responses > Widget > Create Widget > Upload**, importar primero `widget-show5.json` en Echo Show 5 (o `widget.json` para pantallas grandes) y guardar. Son documentos APL sin contenedor `document` externo.
-5. En el **manifest** del paquete definir el nombre "Mi Solar" y descripción, y agregar los assets que solicite la consola.
-6. Ejecutar **Build Model** y **Install > Send to Device** (no solo Preview). El dispositivo debe aparecer como compatible.
-7. Para probar con números simulados sin credenciales puedes usar el botón **Install > Update Datastore** y enviar un comando con `PUT_OBJECT`, namespace `MiSolar`, key `Indicadores`, y content con las propiedades `generacion`, `consumo`, `bateria`, `red`, `carga`, `descarga`, `estado`.
-8. La documentación de diseño de Amazon del año 2023 excluía el Echo Show 5, mientras que la guía actual de consumo muestra widgets para ese modelo. **Es necesario validar widgets APL de terceros en el Echo Show 5**; la galería visible no basta para confirmarlo.
+5. Para la Skill Alexa-hosted, copiar el contenido de `alexa/skill-handler.cjs` como controlador Lambda (`index.js`) e instalar `ask-sdk-core`. El evento `UsagesInstalled` permite identificar el dispositivo en los logs. Estos datos deben tratarse como identificadores internos.
+6. En el **manifest** del paquete definir el nombre "Mi Solar" y descripción, y agregar los assets que solicite la consola.
+7. Ejecutar **Build Model** y **Install > Send to Device** (no solo Preview). El dispositivo debe aparecer como compatible.
+8. Para probar con números simulados sin credenciales puedes usar el botón **Install > Update Datastore** y enviar un comando con `PUT_OBJECT`, namespace `MiSolar`, key `Indicadores`, y content con las propiedades `generacion`, `consumo`, `bateria`, `red`, `carga`, `descarga`, `estado`.
+9. La documentación de diseño de Amazon del año 2023 excluía el Echo Show 5, mientras que la guía actual de consumo muestra widgets para ese modelo. **Es necesario validar widgets APL de terceros en el Echo Show 5**; la galería visible no basta para confirmarlo.
 
 ## Sincronizar datos
 
