@@ -1,0 +1,108 @@
+{
+  "type": "APL",
+  "version": "2022.2",
+  "extensions": [
+    {
+      "name": "DataStore",
+      "uri": "alexaext:datastore:10"
+    }
+  ],
+  "settings": {
+    "DataStore": {
+      "dataBindings": [
+        {
+          "namespace": "MiSolar",
+          "key": "Indicadores",
+          "dataBindingName": "MiSolarData",
+          "dataType": "OBJECT"
+        }
+      ]
+    }
+  },
+  "mainTemplate": {
+    "items": [
+      {
+        "type": "Frame",
+        "width": "100vw",
+        "height": "100vh",
+        "backgroundColor": "#0E2134",
+        "items": [
+          {
+            "type": "Container",
+            "width": "100%",
+            "height": "100%",
+            "paddingLeft": "12dp",
+            "paddingRight": "12dp",
+            "paddingTop": "9dp",
+            "direction": "column",
+            "items": [
+              {
+                "type": "Text",
+                "text": "☀ MI SOLAR · EL ARRAYÁN",
+                "fontSize": "18dp",
+                "fontWeight": "bold",
+                "color": "#FFFFFF",
+                "maxLines": 1
+              },
+              {
+                "type": "Container",
+                "direction": "row",
+                "width": "100%",
+                "justifyContent": "spaceBetween",
+                "items": [
+                  {
+                    "type": "Container",
+                    "direction": "column",
+                    "width": "48%",
+                    "items": [
+                      {
+                        "type": "Text",
+                        "text": "GENERACIÓN",
+                        "fontSize": "13dp",
+                        "color": "#B2CFDF"
+                      },
+                      {
+                        "type": "Text",
+                        "text": "${MiSolarData.generacion ? MiSolarData.generacion : '--'}",
+                        "fontSize": "25dp",
+                        "fontWeight": "bold",
+                        "color": "#FFFFFF"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Container",
+                    "direction": "column",
+                    "width": "48%",
+                    "items": [
+                      {
+                        "type": "Text",
+                        "text": "BATERÍA",
+                        "fontSize": "13dp",
+                        "color": "#B2CFDF"
+                      },
+                      {
+                        "type": "Text",
+                        "text": "${MiSolarData.bateria ? MiSolarData.bateria : '--'}",
+                        "fontSize": "25dp",
+                        "fontWeight": "bold",
+                        "color": "#FFFFFF"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Text",
+                "text": "${MiSolarData.estado ? MiSolarData.estado : 'Prueba sin datos'}",
+                "fontSize": "13dp",
+                "color": "#B2CFDF",
+                "maxLines": 1
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
