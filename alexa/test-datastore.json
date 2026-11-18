@@ -1,0 +1,18 @@
+[
+  {
+    "type": "PUT_OBJECT",
+    "namespace": "MiSolar",
+    "key": "Indicadores",
+    "content": {
+      "sitio": "El Arrayán",
+      "generacion": "5,2 kW",
+      "consumo": "2,4 kW",
+      "bateria": "90 %",
+      "red": "0,0 kW",
+      "carga": "1,1 kW",
+      "descarga": "0,0 kW",
+      "estado": "Prueba (valores simulados)",
+      "hora": "12:00"
+    }
+  }
+]
