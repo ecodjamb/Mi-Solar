@@ -5,7 +5,7 @@ Esta carpeta contiene dos documentos APL importables para la galería de widgets
 ## Estado
 
 - Diseño APL responsivo: cuadrícula 2×2 con paneles PV1+PV2, casa, batería y red, más generación diaria y barra de avance.
-- `widget-show5.json` y `widget.json` comparten el diseño compacto para escalar desde Echo Show 5 a pantallas mayores.
+- `widget-show5.json` es el documento canónico responsivo: escala desde Echo Show 5 a pantallas mayores, incluido Echo Show 11.
 - Manifiesto del paquete: `widget-manifest.json` v1.0.4, con tres locales, logo propio y vista previa 2×2.
 - Datos: `GET https://misolar.vercel.app/api/public/monitor`, API pública de solo lectura con caché de 60 segundos.
 - Fuente: `site:2` (El Arrayán), última telemetría ya respaldada por Mi Solar. No llama a i.Solar, WatchPower ni Supabase.
@@ -27,7 +27,7 @@ La Lambda maneja `UsagesInstalled` y `UpdateRequest` y también acepta un evento
 1. Usar la **misma cuenta Amazon** registrada en el Echo Show Cocina.
 2. En [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask) crear Skill Custom, con backend Alexa-hosted Node.js para las pruebas.
 3. Activar en **Build > Interfaces**: Data Store Packages, Data Store y Data Store Extension (`alexaext:datastore:10`). Guardar y reconstruir el modelo.
-4. **Build > Multimodal Responses > Widget > Create Widget > Upload**, importar primero `widget-show5.json` en Echo Show 5 (o `widget.json` para pantallas grandes) y guardar. Son documentos APL sin contenedor `document` externo.
+4. **Build > Multimodal Responses > Widget > Create Widget > Upload**, importar `widget-show5.json` para todos los tamaños compatibles y guardar. Es un documento APL sin contenedor `document` externo.
 5. Para la Skill Alexa-hosted, copiar el contenido de `alexa/skill-handler.cjs` como controlador Lambda (`index.js`) e instalar `ask-sdk-core`. El evento `UsagesInstalled` permite identificar el dispositivo en los logs. Estos datos deben tratarse como identificadores internos.
 6. En **Manifest**, reemplazar el contenido por `widget-manifest.json`. No dejar los recursos genéricos `default_icon.png` y `default_preview.png`: la versión 1.0.3 usa un icono PNG 450×450 y una vista previa PNG 328×552 propios.
 7. Ejecutar **Build Model** y **Install > Send to Device** (no solo Preview). El dispositivo debe aparecer como compatible.

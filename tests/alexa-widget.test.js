@@ -10,7 +10,7 @@ const {
 } = monitorSync;
 
 const manifest = JSON.parse(await readFile(new URL('../alexa/widget-manifest.json', import.meta.url)));
-assert.equal(manifest.manifest.version, '1.0.4');
+assert.equal(manifest.manifest.version, '1.0.5');
 assert.equal(manifest.manifest.installStateChanges, 'INFORM');
 assert.equal(manifest.manifest.updateStateChanges, 'INFORM');
 assert.deepEqual(Object.keys(manifest.publishingInformation.locales).sort(), ['es-ES', 'es-MX', 'es-US']);
@@ -47,6 +47,8 @@ const publicPayload = {
 };
 const compact = snapshotFromMonitor(publicPayload, new Date('2026-11-18T11:40:00Z'));
 assert.equal(compact.generacion, '2,6 kW');
+assert.equal(compact.pv1, '0,8 kW');
+assert.equal(compact.pv2, '1,8 kW');
 assert.equal(compact.bateria, '39 %');
 assert.equal(compact.consumo, '2,4 kW');
 assert.equal(compact.red, '0,0 kW');
@@ -54,9 +56,19 @@ assert.equal(compact.origen, 'isolar');
 assert.equal(compact.generadoHoy, '4,0 kWh');
 assert.equal(compact.esperadoHoy, '20,0 kWh');
 assert.equal(compact.progresoSolar, '20%');
+assert.equal(compact.progresoSolarValor, 20);
+assert.equal(compact.tienePronostico, true);
 assert.equal(compact.disponible, true);
 assert.equal(compact.estado, 'Actualizado');
 assert.equal(snapshotFromMonitor(publicPayload, new Date('2026-11-18T12:00:00Z')).estado, 'Dato atrasado');
+
+const withoutForecast = snapshotFromMonitor({
+  ...publicPayload,
+  sites: [{ ...publicPayload.sites[0], forecastTodayKwh: null }]
+}, new Date('2026-11-18T11:40:00Z'));
+assert.equal(withoutForecast.esperadoHoy, '--');
+assert.equal(withoutForecast.progresoSolarValor, 0);
+assert.equal(withoutForecast.tienePronostico, false);
 
 const fetched = await fetchMonitor({
   fetchImpl: async (_url, options) => {
