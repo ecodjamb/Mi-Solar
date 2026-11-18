@@ -94,7 +94,7 @@
               },
               {
                 "type": "Text",
-                "text": "${MiSolarData.estado ? MiSolarData.estado : 'Prueba sin datos'}",
+                "text": "${(MiSolarData.estado ? MiSolarData.estado : 'Sin datos') + ' · ' + (MiSolarData.hora ? MiSolarData.hora : '--:--') + ' · ' + (MiSolarData.origen ? MiSolarData.origen : '--')}",
                 "fontSize": "13dp",
                 "color": "#B2CFDF",
                 "maxLines": 1

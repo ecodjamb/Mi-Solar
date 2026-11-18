@@ -8,7 +8,8 @@
       }
     ],
     "appliesTo": "${viewport.mode == 'HUB'}",
-    "installStateChanges": "INFORM"
+    "installStateChanges": "INFORM",
+    "updateStateChanges": "INFORM"
   },
   "packageVersion": "1.0",
   "packageType": "APL_PACKAGE",

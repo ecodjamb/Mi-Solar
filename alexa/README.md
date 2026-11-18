@@ -7,19 +7,20 @@ Esta carpeta contiene dos documentos APL importables para la galería de widgets
 - Diseño APL para pantallas grandes: `widget.json` (seis parámetros y estado).
 - Diseño de prueba compacto para Echo Show 5: `widget-show5.json` (generación, batería y estado).
 - Manifiesto del paquete: `widget-manifest.json`, con versión, tres locales y assets propios inmutables.
-- Datos de Vercel: `GET /api/alexa/widget-data`, autenticación Bearer con `ALEXA_WIDGET_TOKEN`.
-- Fuente: último registro de `energy_samples` para `ALEXA_WIDGET_DEVICE_SN`. No llama a Tumcapp.
+- Datos: `GET https://misolar.vercel.app/api/public/monitor`, API pública de solo lectura con caché de 60 segundos.
+- Fuente: `site:2` (El Arrayán), última telemetría ya respaldada por Mi Solar. No llama a i.Solar, WatchPower ni Supabase.
 - Sincronizador: `sync-datastore.mjs` actualiza `MiSolar/Indicadores` mediante la Data Store REST API.
 - **Sin instalar todavía**: requiere iniciar sesión en Amazon Developer, crear Skill, activar interfaces y que el Echo Show concreto sea aceptado para prueba.
 
-## Configuración en Vercel (solo cuando se vaya a activar)
+## Configuración de la Lambda / sincronizador
 
-Configurar en el servidor las variables secretas:
+Configurar en Amazon las variables secretas:
 
-- `ALEXA_WIDGET_DEVICE_SN`: número de serie del inversor de El Arrayán (nunca publicar).
-- `ALEXA_WIDGET_TOKEN`: secreto aleatorio largo (>= 32 caracteres), distinto de `SESSION_SECRET`.
+- `ALEXA_LWA_CLIENT_ID` y `ALEXA_LWA_CLIENT_SECRET`: credenciales LWA con alcance `alexa::datastore`.
+- `ALEXA_WIDGET_DEVICE_ID` o `ALEXA_WIDGET_DEVICE_IDS`: destino(s) capturados en `UsagesInstalled`.
+- `ALEXA_API_REGION`: `na`, `eu` o `fe` (por defecto `na`).
 
-Las variables existentes del archivo (`SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `MISOLAR_DB_KEY`) siguen siendo necesarias. El endpoint responde 401 sin Bearer válido y 503 si faltan los ajustes.
+La Lambda maneja `UsagesInstalled` y `UpdateRequest` y también acepta un evento programado con `source: aws.events` o `type: MiSolarScheduledSync`. Programar como máximo una ejecución por minuto. El estado local `/tmp/mi-solar-alexa-state.json` conserva la última muestra válida y omite escrituras si `sampledAt` no cambió.
 
 ## Crear el widget en Alexa Developer
 
@@ -37,8 +38,6 @@ Las variables existentes del archivo (`SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`
 
 Cuando se obtengan los accesos y un ID de dispositivo emitido por Alexa para la Skill, definir en el ambiente del proceso sincronizador:
 
-- `MISOLAR_BASE_URL`: `https://tu-dominio-de-mi-solar`
-- `ALEXA_WIDGET_TOKEN`: mismo secreto del backend Mi Solar
 - `ALEXA_LWA_CLIENT_ID`, `ALEXA_LWA_CLIENT_SECRET`: credenciales OAuth LWA de la Skill
 - `ALEXA_WIDGET_DEVICE_ID`: ID de dispositivo de la Skill (no el nombre "Echo Show Cocina")
 - `ALEXA_API_REGION`: `na`, `eu` o `fe`, según región de la Skill
@@ -49,7 +48,7 @@ Ejecutar:
 node alexa/sync-datastore.mjs
 ```
 
-La llamada publica un objeto mediante `PUT_OBJECT` en el Data Store de Amazon. Se puede programar cada 5 minutos **después de comprobar el funcionamiento**, pero no se añade un cron por defecto; evitar consultas repetidas innecesarias.
+La llamada lee la API pública con timeout de 7 segundos y publica un único objeto mediante `PUT_OBJECT`. Puede ejecutarse cada minuto, pero la escritura se omite mientras `sampledAt` no cambie. Si la fuente falla, conserva la última muestra válida y la marca como atrasada.
 
 ## Seguridad y limitaciones
 
