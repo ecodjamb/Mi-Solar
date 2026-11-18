@@ -49,7 +49,7 @@ const result = await jsonOrError(await fetch(hosts[region] + '/v1/datastore/comm
 }));
 const outcomes = Array.isArray(result.results) ? result.results : [];
 const failures = outcomes.filter(item => item.type !== 'SUCCESS');
-if (failures.length) {
+if (!outcomes.length || failures.length) {
   throw new Error('Alexa no entregó el widget a todos los destinos: ' +
     failures.map(item => item.type).join(', '));
 }
