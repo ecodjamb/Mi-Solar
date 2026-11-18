@@ -10,7 +10,7 @@ const {
 } = monitorSync;
 
 const manifest = JSON.parse(await readFile(new URL('../alexa/widget-manifest.json', import.meta.url)));
-assert.equal(manifest.manifest.version, '1.0.3');
+assert.equal(manifest.manifest.version, '1.0.4');
 assert.equal(manifest.manifest.installStateChanges, 'INFORM');
 assert.equal(manifest.manifest.updateStateChanges, 'INFORM');
 assert.deepEqual(Object.keys(manifest.publishingInformation.locales).sort(), ['es-ES', 'es-MX', 'es-US']);
@@ -18,7 +18,7 @@ for (const locale of Object.values(manifest.publishingInformation.locales)) {
   const metadata = locale[0].metadata;
   assert.equal(locale[0].targetViewport, 'WIDGET_M');
   assert.match(metadata.iconUri, /\/3a2f6193b3363b756bd00ac325cf1fab7babfaf2\/.*450|mi-solar-widget-icon\.png$/);
-  assert.match(metadata.previews[0], /mi-solar-widget-preview\.png$/);
+  assert.match(metadata.previews[0], /mi-solar-widget-preview-v2\.png$/);
   assert.doesNotMatch(metadata.iconUri, /default_icon/);
 }
 
@@ -33,6 +33,11 @@ const publicPayload = {
   sites: [{
     key: 'site:2', name: 'El Arrayán', available: true, provider: 'isolar',
     sampledAt: '2026-11-18T11:36:51+00:00',
+    forecastTodayKwh: 20,
+    history: [
+      { pvInputPower1: 1000, pvInputPower2: 500, aggregateHours: 2 },
+      { pvInputPower1: 600, pvInputPower2: 400, aggregateHours: 1 }
+    ],
     realtime: {
       pvInputPower1: 846, pvInputPower2: 1794,
       batteryCapacity: 39, acOutputActivePowerTotal: 2387,
@@ -46,6 +51,9 @@ assert.equal(compact.bateria, '39 %');
 assert.equal(compact.consumo, '2,4 kW');
 assert.equal(compact.red, '0,0 kW');
 assert.equal(compact.origen, 'isolar');
+assert.equal(compact.generadoHoy, '4,0 kWh');
+assert.equal(compact.esperadoHoy, '20,0 kWh');
+assert.equal(compact.progresoSolar, '20%');
 assert.equal(compact.disponible, true);
 assert.equal(compact.estado, 'Actualizado');
 assert.equal(snapshotFromMonitor(publicPayload, new Date('2026-11-18T12:00:00Z')).estado, 'Dato atrasado');

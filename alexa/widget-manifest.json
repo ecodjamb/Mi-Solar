@@ -1,7 +1,7 @@
 {
   "manifest": {
     "id": "MiSolar",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "presentationDefinitions": [
       {
         "url": "presentations/default.tpl"
@@ -28,7 +28,7 @@
             ],
             "iconUri": "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/3a2f6193b3363b756bd00ac325cf1fab7babfaf2/public/alexa/mi-solar-widget-icon.png",
             "previews": [
-              "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/3a2f6193b3363b756bd00ac325cf1fab7babfaf2/public/alexa/mi-solar-widget-preview.png"
+              "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/8c9f4e9607aa341d771749857aeaa90545375ef7/public/alexa/mi-solar-widget-preview-v2.png"
             ]
           }
         }
@@ -45,7 +45,7 @@
             ],
             "iconUri": "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/3a2f6193b3363b756bd00ac325cf1fab7babfaf2/public/alexa/mi-solar-widget-icon.png",
             "previews": [
-              "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/3a2f6193b3363b756bd00ac325cf1fab7babfaf2/public/alexa/mi-solar-widget-preview.png"
+              "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/8c9f4e9607aa341d771749857aeaa90545375ef7/public/alexa/mi-solar-widget-preview-v2.png"
             ]
           }
         }
@@ -62,7 +62,7 @@
             ],
             "iconUri": "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/3a2f6193b3363b756bd00ac325cf1fab7babfaf2/public/alexa/mi-solar-widget-icon.png",
             "previews": [
-              "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/3a2f6193b3363b756bd00ac325cf1fab7babfaf2/public/alexa/mi-solar-widget-preview.png"
+              "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/8c9f4e9607aa341d771749857aeaa90545375ef7/public/alexa/mi-solar-widget-preview-v2.png"
             ]
           }
         }

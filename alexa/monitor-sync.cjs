@@ -23,6 +23,19 @@ function formatPercent(value) {
   return `${Math.round(number(value))} %`;
 }
 
+function formatKwh(value) {
+  const kwh = Number(value);
+  return Number.isFinite(kwh) ? `${kwh.toFixed(1).replace('.', ',')} kWh` : '--';
+}
+
+function generatedTodayKwh(site) {
+  return (Array.isArray(site?.history) ? site.history : []).reduce((total, row) => {
+    const hours = Math.max(0, number(row?.aggregateHours));
+    const watts = Math.max(0, number(row?.pvInputPower1)) + Math.max(0, number(row?.pvInputPower2));
+    return total + watts * hours / 1000;
+  }, 0);
+}
+
 function formatTime(sampledAt) {
   const timestamp = Date.parse(sampledAt);
   if (!Number.isFinite(timestamp)) return '--:--';
@@ -48,6 +61,9 @@ function emptySnapshot(status = 'Sin datos') {
     consumo: '--',
     bateria: '--',
     red: '--',
+    generadoHoy: '--',
+    esperadoHoy: '--',
+    progresoSolar: '0%',
     estado: status,
     hora: '--:--',
     origen: '--',
@@ -75,12 +91,19 @@ function snapshotFromMonitor(payload, now = new Date()) {
   }
 
   const realtime = site.realtime;
+  const generated = generatedTodayKwh(site);
+  const expected = Number(site.forecastTodayKwh);
+  const hasExpected = Number.isFinite(expected) && expected > 0;
+  const progress = hasExpected ? Math.max(0, Math.min(100, Math.round(generated / expected * 100))) : 0;
   return {
     sitio: SITE_NAME,
     generacion: formatKw(number(realtime.pvInputPower1) + number(realtime.pvInputPower2)),
     consumo: formatKw(realtime.acOutputActivePowerTotal),
     bateria: formatPercent(realtime.batteryCapacity),
     red: formatKw(Math.max(0, number(realtime.gridPowerInputActiveTotal))),
+    generadoHoy: formatKwh(generated),
+    esperadoHoy: hasExpected ? formatKwh(expected) : '--',
+    progresoSolar: `${progress}%`,
     estado: isStale(site.sampledAt, now) ? 'Dato atrasado' : 'Actualizado',
     hora: formatTime(site.sampledAt),
     origen: String(site.provider || '--'),
@@ -184,6 +207,7 @@ module.exports = {
   MONITOR_URL,
   emptySnapshot,
   fetchMonitor,
+  generatedTodayKwh,
   isStale,
   readState,
   refreshSeconds,

@@ -4,9 +4,9 @@ Esta carpeta contiene dos documentos APL importables para la galería de widgets
 
 ## Estado
 
-- Diseño APL para pantallas grandes: `widget.json` (seis parámetros y estado).
-- Diseño de prueba compacto para Echo Show 5: `widget-show5.json` (generación, batería y estado).
-- Manifiesto del paquete: `widget-manifest.json`, con versión, tres locales y assets propios inmutables.
+- Diseño APL responsivo: cuadrícula 2×2 con paneles PV1+PV2, casa, batería y red, más generación diaria y barra de avance.
+- `widget-show5.json` y `widget.json` comparten el diseño compacto para escalar desde Echo Show 5 a pantallas mayores.
+- Manifiesto del paquete: `widget-manifest.json` v1.0.4, con tres locales, logo propio y vista previa 2×2.
 - Datos: `GET https://misolar.vercel.app/api/public/monitor`, API pública de solo lectura con caché de 60 segundos.
 - Fuente: `site:2` (El Arrayán), última telemetría ya respaldada por Mi Solar. No llama a i.Solar, WatchPower ni Supabase.
 - Sincronizador: `sync-datastore.mjs` actualiza `MiSolar/Indicadores` mediante la Data Store REST API.
