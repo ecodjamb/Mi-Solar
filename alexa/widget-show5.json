@@ -9,7 +9,7 @@
       {"type":"Frame","width":"100%","height":"100%","backgroundColor":"#B8061724"},
       {"type":"Container","width":"100%","height":"100%","direction":"column","paddingLeft":"${viewport.width >= 600 ? '24dp' : '14dp'}","paddingRight":"${viewport.width >= 600 ? '24dp' : '14dp'}","paddingTop":"${viewport.height >= 500 ? '18dp' : '10dp'}","paddingBottom":"${viewport.height >= 500 ? '15dp' : '8dp'}","items":[
         {"type":"Container","direction":"row","alignItems":"center","height":"${viewport.height >= 500 ? '48dp' : '34dp'}","items":[
-          {"type":"Image","source":"https://raw.githubusercontent.com/ecodjamb/Mi-Solar/feature/alexa-mi-solar-widget/public/alexa/mi-solar-widget-icon-v1.0.7.png","width":"${viewport.height >= 500 ? '38dp' : '27dp'}","height":"${viewport.height >= 500 ? '38dp' : '27dp'}","borderRadius":"10dp","scale":"best-fill"},
+          {"type":"Image","source":"https://raw.githubusercontent.com/ecodjamb/Mi-Solar/95156a26d4d39c34836b29699baabb5f40b4b43a/public/alexa/mi-solar-widget-icon-v1.0.7.png","width":"${viewport.height >= 500 ? '38dp' : '27dp'}","height":"${viewport.height >= 500 ? '38dp' : '27dp'}","borderRadius":"10dp","scale":"best-fill"},
           {"type":"Container","grow":1,"paddingLeft":"10dp","items":[
             {"type":"Text","text":"mi solar","fontSize":"${viewport.height >= 500 ? '23dp' : '17dp'}","fontWeight":"bold","color":"#FFFFFF","maxLines":1},
             {"type":"Text","text":"EL ARRAYÁN · ENERGÍA EN VIVO","fontSize":"${viewport.height >= 500 ? '9dp' : '7dp'}","letterSpacing":"1dp","color":"#B8D5E4","maxLines":1}
