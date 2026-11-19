@@ -21,6 +21,12 @@ jobs:
           node-version: "22"
       - name: Validar documentos APL
         run: |
-          node --input-type=module -e "import fs from 'node:fs'; for (const file of ['alexa/widget.json', 'alexa/widget-show5.json', 'alexa/test-datastore.json']) { const value=JSON.parse(fs.readFileSync(file,'utf8')); if(file.includes('widget') && !file.includes('datastore') && value.type!=='APL') throw new Error(file+' no es un APL importable'); console.log('OK',file) }"
+          node --input-type=module -e "import fs from 'node:fs'; for (const file of ['alexa/widget.json', 'alexa/widget-show5.json', 'alexa/widget-manifest.json', 'alexa/test-datastore.json']) { const value=JSON.parse(fs.readFileSync(file,'utf8')); if(file.includes('widget') && !file.includes('manifest') && !file.includes('datastore') && value.type!=='APL') throw new Error(file+' no es un APL importable'); console.log('OK',file) }"
+      - name: Validar sintaxis de Lambda
+        run: |
+          node --check alexa/datastore-client.cjs
+          node --check alexa/monitor-sync.cjs
+          node --check alexa/skill-handler.cjs
+          node --check alexa/sync-datastore.mjs
       - name: Probar lectura protegida y formato energético
         run: node tests/alexa-widget.test.js

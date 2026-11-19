@@ -7,61 +7,61 @@
     "type":"Frame","width":"100vw","height":"100vh","backgroundColor":"#061521","items":[
       {"type":"Image","source":"https://raw.githubusercontent.com/ecodjamb/Mi-Solar/refs/heads/feature/alexa-mi-solar-widget/public/alexa/mi-solar-widget-background-v3.png","width":"100%","height":"100%","scale":"best-fill","opacity":0.22},
       {"type":"Frame","width":"100%","height":"100%","backgroundColor":"#B8061724"},
-      {"type":"Container","width":"100%","height":"100%","direction":"column","paddingLeft":"${viewport.width >= 600 ? '24dp' : '14dp'}","paddingRight":"${viewport.width >= 600 ? '24dp' : '14dp'}","paddingTop":"${viewport.height >= 500 ? '18dp' : '10dp'}","paddingBottom":"${viewport.height >= 500 ? '15dp' : '8dp'}","items":[
+      {"type":"Container","width":"100%","height":"100%","direction":"column","paddingLeft":"${viewport.width >= 350 ? '22dp' : viewport.width >= 240 ? '14dp' : '9dp'}","paddingRight":"${viewport.width >= 350 ? '22dp' : viewport.width >= 240 ? '14dp' : '9dp'}","paddingTop":"${viewport.height >= 550 ? '16dp' : viewport.height >= 350 ? '10dp' : '6dp'}","paddingBottom":"${viewport.height >= 550 ? '12dp' : viewport.height >= 350 ? '8dp' : '5dp'}","spacing":"${viewport.height >= 550 ? '11dp' : viewport.height >= 350 ? '7dp' : '4dp'}","items":[
         {"type":"Container","direction":"row","alignItems":"center","height":"${viewport.height >= 500 ? '48dp' : '34dp'}","items":[
-          {"type":"Image","source":"https://raw.githubusercontent.com/ecodjamb/Mi-Solar/95156a26d4d39c34836b29699baabb5f40b4b43a/public/alexa/mi-solar-widget-icon-v1.0.7.png","width":"${viewport.height >= 500 ? '38dp' : '27dp'}","height":"${viewport.height >= 500 ? '38dp' : '27dp'}","borderRadius":"10dp","scale":"best-fill"},
+          {"type":"Image","source":"https://raw.githubusercontent.com/ecodjamb/Mi-Solar/refs/heads/feature/alexa-mi-solar-widget/public/alexa/mi-solar-widget-icon-v1.0.8.png","width":"${viewport.height >= 550 ? '38dp' : viewport.height >= 350 ? '29dp' : '22dp'}","height":"${viewport.height >= 550 ? '38dp' : viewport.height >= 350 ? '29dp' : '22dp'}","borderRadius":"9dp","scale":"best-fill"},
           {"type":"Container","grow":1,"paddingLeft":"10dp","items":[
-            {"type":"Text","text":"mi solar","fontSize":"${viewport.height >= 500 ? '23dp' : '17dp'}","fontWeight":"bold","color":"#FFFFFF","maxLines":1},
-            {"type":"Text","text":"EL ARRAYÁN · ENERGÍA EN VIVO","fontSize":"${viewport.height >= 500 ? '9dp' : '7dp'}","letterSpacing":"1dp","color":"#B8D5E4","maxLines":1}
+            {"type":"Text","text":"mi solar · El Arrayán","fontSize":"${viewport.width >= 350 ? '21dp' : viewport.width >= 240 ? '16dp' : '12dp'}","fontWeight":"bold","color":"#FFFFFF","maxLines":1},
+            {"type":"Text","text":"ENERGÍA EN VIVO","fontSize":"${viewport.width >= 350 ? '9dp' : '7dp'}","letterSpacing":"1dp","color":"#B8D5E4","maxLines":1}
           ]},
           {"type":"Container","alignItems":"end","items":[
-            {"type":"Text","text":"v1.0.7","fontSize":"${viewport.height >= 500 ? '11dp' : '8dp'}","fontWeight":"bold","color":"#FFE16A","maxLines":1},
-            {"type":"Text","text":"${MiSolarData ? '● DS OK' : '● DS VACÍO'}","fontSize":"${viewport.height >= 500 ? '8dp' : '7dp'}","fontWeight":"bold","color":"${MiSolarData ? '#65F4A3' : '#FF8B88'}","maxLines":1}
+            {"type":"Text","text":"v1.0.8","fontSize":"${viewport.width >= 350 ? '11dp' : '8dp'}","fontWeight":"bold","color":"#FFE16A","maxLines":1},
+            {"type":"Text","text":"${MiSolarData && MiSolarData.estado == 'Actualizado' ? '● EN LÍNEA' : MiSolarData ? '● ' + MiSolarData.estado.toUpperCase() : '● SIN DATOS'}","fontSize":"${viewport.width >= 350 ? '8dp' : '6dp'}","fontWeight":"bold","color":"${MiSolarData && MiSolarData.estado == 'Actualizado' ? '#65F4A3' : MiSolarData ? '#FFD56A' : '#FF8B88'}","maxLines":1}
           ]}
         ]},
-        {"type":"Container","direction":"row","height":"${viewport.height >= 500 ? '172dp' : '116dp'}","spacing":"${viewport.width >= 600 ? '14dp' : '8dp'}","items":[
-          {"type":"Frame","width":"49%","height":"100%","backgroundColor":"#EB24384A","borderRadius":"20dp","borderWidth":"1dp","borderColor":"#55FFD75A","items":[
+        {"type":"Container","direction":"row","grow":1,"spacing":"${viewport.width >= 350 ? '12dp' : '7dp'}","items":[
+          {"type":"Frame","grow":1,"height":"100%","backgroundColor":"#F024384A","borderRadius":"${viewport.width >= 350 ? '20dp' : '14dp'}","borderWidth":"1dp","borderColor":"#77FFD75A","items":[
             {"type":"Container","height":"100%","paddingLeft":"${viewport.width >= 600 ? '18dp' : '11dp'}","paddingRight":"10dp","paddingTop":"${viewport.height >= 500 ? '15dp' : '9dp'}","paddingBottom":"${viewport.height >= 500 ? '13dp' : '8dp'}","justifyContent":"spaceBetween","items":[
               {"type":"Text","text":"☀  PRODUCCIÓN SOLAR","fontSize":"${viewport.height >= 500 ? '13dp' : '9dp'}","fontWeight":"bold","color":"#FFE16A","maxLines":1},
-              {"type":"Text","text":"${MiSolarData && MiSolarData.generacion ? MiSolarData.generacion : '--'}","fontSize":"${viewport.height >= 500 ? '45dp' : '29dp'}","fontWeight":"bold","color":"#FFFFFF","maxLines":1},
-              {"type":"Text","text":"${'HOY  ' + (MiSolarData && MiSolarData.generadoHoy ? MiSolarData.generadoHoy : '--')}","fontSize":"${viewport.height >= 500 ? '13dp' : '9dp'}","fontWeight":"bold","color":"#FFD85B","maxLines":1}
+              {"type":"Text","text":"${MiSolarData && MiSolarData.generacion ? MiSolarData.generacion : '--'}","fontSize":"${viewport.width >= 350 && viewport.height >= 500 ? '47dp' : viewport.width >= 240 ? '32dp' : '24dp'}","fontWeight":"bold","color":"#FFFFFF","maxLines":1},
+              {"type":"Text","text":"${'PV1  ' + (MiSolarData && MiSolarData.pv1 ? MiSolarData.pv1 : '--') + ' · PV2  ' + (MiSolarData && MiSolarData.pv2 ? MiSolarData.pv2 : '--')}","fontSize":"${viewport.width >= 350 ? '10dp' : viewport.width >= 240 ? '7dp' : '6dp'}","fontWeight":"bold","color":"#FFD85B","maxLines":1}
             ]}
           ]},
-          {"type":"Frame","width":"49%","height":"100%","backgroundColor":"#EB2B294F","borderRadius":"20dp","borderWidth":"1dp","borderColor":"#557AC8FF","items":[
+          {"type":"Frame","grow":1,"height":"100%","backgroundColor":"#F02B294F","borderRadius":"${viewport.width >= 350 ? '20dp' : '14dp'}","borderWidth":"1dp","borderColor":"#777AC8FF","items":[
             {"type":"Container","height":"100%","paddingLeft":"${viewport.width >= 600 ? '18dp' : '11dp'}","paddingRight":"10dp","paddingTop":"${viewport.height >= 500 ? '15dp' : '9dp'}","paddingBottom":"${viewport.height >= 500 ? '13dp' : '8dp'}","justifyContent":"spaceBetween","items":[
               {"type":"Text","text":"⌂  CONSUMO CASA","fontSize":"${viewport.height >= 500 ? '13dp' : '9dp'}","fontWeight":"bold","color":"#E3B5FF","maxLines":1},
-              {"type":"Text","text":"${MiSolarData && MiSolarData.consumo ? MiSolarData.consumo : '--'}","fontSize":"${viewport.height >= 500 ? '45dp' : '29dp'}","fontWeight":"bold","color":"#FFFFFF","maxLines":1},
+              {"type":"Text","text":"${MiSolarData && MiSolarData.consumo ? MiSolarData.consumo : '--'}","fontSize":"${viewport.width >= 350 && viewport.height >= 500 ? '47dp' : viewport.width >= 240 ? '32dp' : '24dp'}","fontWeight":"bold","color":"#FFFFFF","maxLines":1},
               {"type":"Text","text":"DEMANDA INSTANTÁNEA","fontSize":"${viewport.height >= 500 ? '10dp' : '7dp'}","color":"#C1D3DF","maxLines":1}
             ]}
           ]}
         ]},
-        {"type":"Container","direction":"row","height":"${viewport.height >= 500 ? '172dp' : '116dp'}","spacing":"${viewport.width >= 600 ? '14dp' : '8dp'}","items":[
-          {"type":"Frame","width":"49%","height":"100%","backgroundColor":"#EB163F39","borderRadius":"20dp","borderWidth":"1dp","borderColor":"#5568F0A0","items":[
+        {"type":"Container","direction":"row","grow":1,"spacing":"${viewport.width >= 350 ? '12dp' : '7dp'}","items":[
+          {"type":"Frame","grow":1,"height":"100%","backgroundColor":"#F0163F39","borderRadius":"${viewport.width >= 350 ? '20dp' : '14dp'}","borderWidth":"1dp","borderColor":"#7768F0A0","items":[
             {"type":"Container","height":"100%","paddingLeft":"${viewport.width >= 600 ? '18dp' : '11dp'}","paddingRight":"10dp","paddingTop":"${viewport.height >= 500 ? '15dp' : '9dp'}","paddingBottom":"${viewport.height >= 500 ? '13dp' : '8dp'}","justifyContent":"spaceBetween","items":[
               {"type":"Text","text":"▰  BATERÍA","fontSize":"${viewport.height >= 500 ? '13dp' : '9dp'}","fontWeight":"bold","color":"#72F0A7","maxLines":1},
-              {"type":"Text","text":"${MiSolarData && MiSolarData.bateria ? MiSolarData.bateria : '--'}","fontSize":"${viewport.height >= 500 ? '45dp' : '29dp'}","fontWeight":"bold","color":"#FFFFFF","maxLines":1},
+              {"type":"Text","text":"${MiSolarData && MiSolarData.bateria ? MiSolarData.bateria : '--'}","fontSize":"${viewport.width >= 350 && viewport.height >= 500 ? '47dp' : viewport.width >= 240 ? '32dp' : '24dp'}","fontWeight":"bold","color":"#FFFFFF","maxLines":1},
               {"type":"Frame","width":"100%","height":"8dp","backgroundColor":"#355C776D","borderRadius":"4dp","items":[{"type":"Frame","width":"${MiSolarData && MiSolarData.bateriaValor ? MiSolarData.bateriaValor + '%' : '0%'}","height":"100%","backgroundColor":"#68ECA0","borderRadius":"4dp"}]}
             ]}
           ]},
-          {"type":"Frame","width":"49%","height":"100%","backgroundColor":"#EB173650","borderRadius":"20dp","borderWidth":"1dp","borderColor":"#557BC7FF","items":[
+          {"type":"Frame","grow":1,"height":"100%","backgroundColor":"#F0173650","borderRadius":"${viewport.width >= 350 ? '20dp' : '14dp'}","borderWidth":"1dp","borderColor":"#777BC7FF","items":[
             {"type":"Container","height":"100%","paddingLeft":"${viewport.width >= 600 ? '18dp' : '11dp'}","paddingRight":"10dp","paddingTop":"${viewport.height >= 500 ? '15dp' : '9dp'}","paddingBottom":"${viewport.height >= 500 ? '13dp' : '8dp'}","justifyContent":"spaceBetween","items":[
               {"type":"Text","text":"⌁  RED","fontSize":"${viewport.height >= 500 ? '13dp' : '9dp'}","fontWeight":"bold","color":"#80CBFF","maxLines":1},
-              {"type":"Text","text":"${MiSolarData && MiSolarData.red ? MiSolarData.red : '--'}","fontSize":"${viewport.height >= 500 ? '45dp' : '29dp'}","fontWeight":"bold","color":"#FFFFFF","maxLines":1},
+              {"type":"Text","text":"${MiSolarData && MiSolarData.red ? MiSolarData.red : '--'}","fontSize":"${viewport.width >= 350 && viewport.height >= 500 ? '47dp' : viewport.width >= 240 ? '32dp' : '24dp'}","fontWeight":"bold","color":"#FFFFFF","maxLines":1},
               {"type":"Text","text":"${MiSolarData && MiSolarData.redDireccion ? MiSolarData.redDireccion : 'INTERCAMBIO ACTUAL'}","fontSize":"${viewport.height >= 500 ? '10dp' : '7dp'}","color":"#BCD4E5","maxLines":1}
             ]}
           ]}
         ]},
-        {"type":"Frame","height":"${viewport.height >= 500 ? '92dp' : '62dp'}","backgroundColor":"#F0182D3D","borderRadius":"20dp","borderWidth":"1dp","borderColor":"#557AA0B7","items":[
+        {"type":"Frame","height":"${viewport.height >= 550 ? '94dp' : viewport.height >= 350 ? '70dp' : '50dp'}","backgroundColor":"#F0182D3D","borderRadius":"${viewport.width >= 350 ? '20dp' : '14dp'}","borderWidth":"1dp","borderColor":"#777AA0B7","items":[
           {"type":"Container","height":"100%","paddingLeft":"${viewport.width >= 600 ? '18dp' : '11dp'}","paddingRight":"${viewport.width >= 600 ? '18dp' : '11dp'}","paddingTop":"${viewport.height >= 500 ? '12dp' : '8dp'}","paddingBottom":"${viewport.height >= 500 ? '10dp' : '7dp'}","justifyContent":"spaceBetween","items":[
             {"type":"Container","direction":"row","justifyContent":"spaceBetween","items":[
-              {"type":"Text","text":"${'GENERADO  ' + (MiSolarData && MiSolarData.generadoHoy ? MiSolarData.generadoHoy : '--')}","fontSize":"${viewport.height >= 500 ? '14dp' : '10dp'}","fontWeight":"bold","color":"#FFE16A","maxLines":1},
+              {"type":"Text","text":"${'GENERADO HOY  ' + (MiSolarData && MiSolarData.generadoHoy ? MiSolarData.generadoHoy : '--')}","fontSize":"${viewport.width >= 350 ? '14dp' : viewport.width >= 240 ? '10dp' : '7dp'}","fontWeight":"bold","color":"#FFE16A","maxLines":1},
               {"type":"Text","text":"${MiSolarData && MiSolarData.tienePronostico ? 'ESPERADO  ' + MiSolarData.esperadoHoy : 'ESPERADO  --'}","fontSize":"${viewport.height >= 500 ? '13dp' : '9dp'}","fontWeight":"bold","color":"#FFFFFF","maxLines":1}
             ]},
             {"type":"Frame","width":"100%","height":"${viewport.height >= 500 ? '18dp' : '12dp'}","backgroundColor":"#35536B78","borderRadius":"9dp","items":[{"type":"Frame","width":"${MiSolarData && MiSolarData.progresoSolarValor ? MiSolarData.progresoSolarValor + '%' : '0%'}","height":"100%","backgroundColor":"#FFD84F","borderRadius":"9dp"}]},
-            {"type":"Text","text":"${MiSolarData && MiSolarData.progresoSolar ? MiSolarData.progresoSolar + ' de la meta diaria' : 'Esperando datos de producción'}","fontSize":"${viewport.height >= 500 ? '10dp' : '7dp'}","color":"#BBD2DE","maxLines":1}
+            {"type":"Text","text":"${MiSolarData && MiSolarData.tienePronostico ? MiSolarData.progresoSolar + ' de la producción esperada' : 'Pronóstico diario no disponible'}","fontSize":"${viewport.width >= 350 ? '9dp' : '6dp'}","color":"#BBD2DE","maxLines":1}
           ]}
         ]},
-        {"type":"Text","height":"${viewport.height >= 500 ? '22dp' : '15dp'}","text":"${(MiSolarData && MiSolarData.estado ? MiSolarData.estado : 'Sin datos') + ' · ' + (MiSolarData && MiSolarData.hora ? MiSolarData.hora : '--:--') + ' · widget v1.0.7'}","fontSize":"${viewport.height >= 500 ? '9dp' : '7dp'}","color":"#AFC5D1","textAlign":"center","textAlignVertical":"center","maxLines":1}
+        {"type":"Text","height":"${viewport.height >= 550 ? '19dp' : '13dp'}","text":"${(MiSolarData && MiSolarData.estado ? MiSolarData.estado : 'Sin datos') + ' · muestra ' + (MiSolarData && MiSolarData.hora ? MiSolarData.hora : '--:--') + ' · mi solar v1.0.8'}","fontSize":"${viewport.width >= 350 ? '9dp' : '6dp'}","color":"#AFC5D1","textAlign":"center","textAlignVertical":"center","maxLines":1}
       ]}
     ]
   }]}

@@ -2,27 +2,55 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { authorizedAlexaWidgetRequest, readAlexaWidgetSnapshot } from '../server/alexaWidget.js';
 import monitorSync from '../alexa/monitor-sync.cjs';
+import datastoreClient from '../alexa/datastore-client.cjs';
 
 const {
   fetchMonitor,
   snapshotFromMonitor,
   syncMonitorToDataStore
 } = monitorSync;
+const { failedDeliveries, isAlexaDeviceId, writeDataStore } = datastoreClient;
 const previousWidgetDataToken = process.env.ALEXA_WIDGET_DATA_TOKEN;
-process.env.ALEXA_WIDGET_DATA_TOKEN = 'test-widget-token';
+const previousWidgetToken = process.env.ALEXA_WIDGET_TOKEN;
+process.env.ALEXA_WIDGET_TOKEN = 'test-widget-token';
 
 const manifest = JSON.parse(await readFile(new URL('../alexa/widget-manifest.json', import.meta.url)));
-assert.equal(manifest.manifest.version, '1.0.7');
+assert.equal(manifest.manifest.version, '1.0.8');
 assert.equal(manifest.manifest.installStateChanges, 'INFORM');
 assert.equal(manifest.manifest.updateStateChanges, 'INFORM');
 assert.deepEqual(Object.keys(manifest.publishingInformation.locales).sort(), ['es-ES', 'es-MX', 'es-US']);
 for (const locale of Object.values(manifest.publishingInformation.locales)) {
   const metadata = locale[0].metadata;
   assert.equal(locale[0].targetViewport, 'WIDGET_M');
-  assert.equal(metadata.name, 'mi solar v1.0.7');
-  assert.match(metadata.iconUri, /mi-solar-widget-icon-v1\.0\.7\.png$/);
+  assert.equal(metadata.name, 'mi solar v1.0.8');
+  assert.match(metadata.iconUri, /mi-solar-widget-icon-v1\.0\.8\.png$/);
   assert.match(metadata.previews[0], /mi-solar-widget-preview-v2\.png$/);
   assert.doesNotMatch(metadata.iconUri, /default_icon/);
+}
+
+const widgetText = await readFile(new URL('../alexa/widget-show5.json', import.meta.url), 'utf8');
+const widget = JSON.parse(widgetText);
+assert.equal(widget.type, 'APL');
+assert.match(widgetText, /mi solar · El Arrayán/);
+assert.match(widgetText, /v1\.0\.8/);
+assert.match(widgetText, /PRODUCCIÓN SOLAR/);
+assert.doesNotMatch(widgetText, /PB1 \+ PB2/);
+assert.doesNotMatch(widgetText, /"width":"49%"/);
+assert.match(widgetText, /"grow":1/);
+
+// Límites oficiales de @hubWidgetMedium: 134–425 dp × 222–711 dp.
+for (const [width, height] of [[134, 222], [240, 350], [320, 480], [425, 711]]) {
+  const horizontalPadding = width >= 350 ? 44 : width >= 240 ? 28 : 18;
+  const cardGap = width >= 350 ? 12 : 7;
+  const verticalPadding = height >= 550 ? 28 : height >= 350 ? 18 : 11;
+  const verticalGap = height >= 550 ? 44 : height >= 350 ? 28 : 16;
+  const header = height >= 550 ? 48 : height >= 350 ? 36 : 34;
+  const summary = height >= 550 ? 94 : height >= 350 ? 70 : 50;
+  const footer = height >= 550 ? 19 : 13;
+  const cardWidth = (width - horizontalPadding - cardGap) / 2;
+  const rowHeight = (height - verticalPadding - verticalGap - header - summary - footer) / 2;
+  assert.ok(cardWidth >= 50, `ancho insuficiente ${width}×${height}`);
+  assert.ok(rowHeight >= 40, `alto insuficiente ${width}×${height}`);
 }
 
 assert.equal(authorizedAlexaWidgetRequest({ authorization: 'Bearer abc' }, 'abc'), true);
@@ -30,6 +58,8 @@ assert.equal(authorizedAlexaWidgetRequest({ authorization: 'Bearer abc' }, 'abcd
 assert.equal(authorizedAlexaWidgetRequest({ authorization: 'Bearer abcX' }, 'abc'), false);
 assert.equal(authorizedAlexaWidgetRequest({}, 'abc'), false);
 assert.equal(authorizedAlexaWidgetRequest({ authorization: 'Bearer abc' }, ''), false);
+assert.equal(isAlexaDeviceId('amzn1.ask.device.echoCocina'), true);
+assert.equal(isAlexaDeviceId('1234567890123'), false);
 
 const publicPayload = {
   refreshAfterSeconds: 90,
@@ -82,6 +112,25 @@ const fetched = await fetchMonitor({
   now: new Date('2026-11-18T11:40:00Z')
 });
 assert.equal(fetched.refreshAfterSeconds, 60);
+assert.equal(fetched.source, 'protected');
+
+let fallbackCalls = 0;
+const publicFallback = await fetchMonitor({
+  fetchImpl: async (url, options) => {
+    fallbackCalls += 1;
+    if (url.includes('/api/alexa/')) {
+      assert.match(options.headers.Authorization, /^Bearer /);
+      return { ok: false, status: 404, json: async () => ({}) };
+    }
+    assert.equal(options.headers.Authorization, undefined);
+    return { ok: true, status: 200, json: async () => publicPayload };
+  },
+  now: new Date('2026-11-18T11:40:00Z')
+});
+assert.equal(fallbackCalls, 2);
+assert.equal(publicFallback.source, 'public-fallback');
+assert.equal(publicFallback.snapshot.generacion, '2,6 kW');
+assert.equal(publicFallback.protectedError.status, 404);
 
 const statePath = `/tmp/mi-solar-alexa-test-${process.pid}.json`;
 let writes = 0;
@@ -108,11 +157,57 @@ try {
     ...syncOptions,
     fetchImpl: async () => { throw new Error('timeout'); }
   });
-  assert.equal(fallback.written, false);
+  assert.equal(fallback.written, true);
   assert.equal(fallback.snapshot.estado, 'Dato atrasado');
   assert.equal(fallback.snapshot.generacion, '2,6 kW');
+  assert.equal(writes, 3);
+  assert.equal((await syncMonitorToDataStore({
+    ...syncOptions,
+    fetchImpl: async () => { throw new Error('timeout'); }
+  })).written, false);
+  await assert.rejects(() => syncMonitorToDataStore({
+    ...syncOptions,
+    targetId: '1234567890123'
+  }), /deviceId válido/);
 } finally {
   await (await import('node:fs/promises')).unlink(statePath).catch(() => {});
+}
+
+assert.deepEqual(failedDeliveries({ results: [{ type: 'SUCCESS' }] }), []);
+assert.equal(failedDeliveries({ items: [{ type: 'DEVICE_UNAVAILABLE' }] }).length, 1);
+const datastoreEnv = {
+  ALEXA_LWA_CLIENT_ID: process.env.ALEXA_LWA_CLIENT_ID,
+  ALEXA_LWA_CLIENT_SECRET: process.env.ALEXA_LWA_CLIENT_SECRET,
+  ALEXA_API_REGION: process.env.ALEXA_API_REGION
+};
+process.env.ALEXA_LWA_CLIENT_ID = 'client-test';
+process.env.ALEXA_LWA_CLIENT_SECRET = 'secret-test';
+process.env.ALEXA_API_REGION = 'na';
+let datastoreCalls = 0;
+let datastoreRequest;
+try {
+  const delivery = await writeDataStore({ estado: 'Actualizado' }, 'amzn1.ask.device.echoCocina', {
+    now: new Date('2026-11-18T12:00:00Z'),
+    fetchImpl: async (url, options) => {
+      datastoreCalls += 1;
+      if (url.includes('/auth/o2/token')) {
+        assert.doesNotMatch(String(options.body), /secret-test.*secret-test/);
+        return { ok: true, status: 200, text: async () => JSON.stringify({ access_token: 'lwa-test' }) };
+      }
+      datastoreRequest = JSON.parse(options.body);
+      assert.equal(options.headers.Authorization, 'Bearer lwa-test');
+      return { ok: true, status: 200, text: async () => '' };
+    }
+  });
+  assert.equal(delivery.accepted, true);
+  assert.equal(datastoreCalls, 2);
+  assert.deepEqual(datastoreRequest.target.items, ['amzn1.ask.device.echoCocina']);
+  assert.equal(datastoreRequest.commands[0].namespace, 'MiSolar');
+  assert.equal(datastoreRequest.commands[0].key, 'Indicadores');
+} finally {
+  for (const [key, value] of Object.entries(datastoreEnv)) {
+    if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
 }
 
 const before = {
@@ -165,4 +260,6 @@ try {
   }
   if (previousWidgetDataToken === undefined) delete process.env.ALEXA_WIDGET_DATA_TOKEN;
   else process.env.ALEXA_WIDGET_DATA_TOKEN = previousWidgetDataToken;
+  if (previousWidgetToken === undefined) delete process.env.ALEXA_WIDGET_TOKEN;
+  else process.env.ALEXA_WIDGET_TOKEN = previousWidgetToken;
 }

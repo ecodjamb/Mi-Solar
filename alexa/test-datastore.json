@@ -11,6 +11,7 @@
       "consumo": "2,4 kW",
       "bateria": "90 %",
       "red": "0,0 kW",
+      "redDireccion": "SIN INTERCAMBIO",
       "generadoHoy": "31,4 kWh",
       "esperadoHoy": "42,0 kWh",
       "progresoSolar": "75%",
@@ -19,7 +20,8 @@
       "carga": "1,1 kW",
       "descarga": "0,0 kW",
       "estado": "Prueba (valores simulados)",
-      "hora": "12:00"
+      "hora": "12:00",
+      "widgetVersion": "1.0.8"
     }
   }
 ]
