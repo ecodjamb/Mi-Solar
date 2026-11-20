@@ -3,6 +3,7 @@
 // Controlador autocontenido para Alexa-hosted. Las credenciales se leen desde
 // variables de entorno configuradas por la consola y nunca se guardan aquí.
 const Alexa = require('ask-sdk-core');
+const https = require('node:https');
 
 const PUBLIC_MONITOR_URL = 'https://misolar.vercel.app/api/public/monitor';
 const SITE_KEY = 'site:2';
@@ -116,24 +117,45 @@ function buildSnapshot(payload) {
   };
 }
 
-async function responseJson(response, label) {
-  const body = await response.text();
-  if (!response.ok) {
-    const error = new Error(`${label} HTTP ${response.status}`);
-    error.status = response.status;
-    throw error;
-  }
-  return body ? JSON.parse(body) : {};
+function requestJson(url, {
+  method = 'GET',
+  headers = {},
+  body = null,
+  timeoutMs = 6500,
+  label = 'HTTP'
+} = {}) {
+  return new Promise((resolve, reject) => {
+    const request = https.request(url, { method, headers }, response => {
+      const chunks = [];
+      response.on('data', chunk => chunks.push(chunk));
+      response.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          const error = new Error(`${label} HTTP ${response.statusCode}`);
+          error.status = response.statusCode;
+          reject(error);
+          return;
+        }
+        try {
+          resolve(text ? JSON.parse(text) : {});
+        } catch {
+          reject(new Error(`${label} devolvió JSON inválido.`));
+        }
+      });
+    });
+    request.setTimeout(timeoutMs, () => request.destroy(new Error(`${label} agotó el tiempo de espera.`)));
+    request.on('error', reject);
+    if (body) request.write(body);
+    request.end();
+  });
 }
 
 async function fetchSnapshot() {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 6500);
   try {
-    const payload = await responseJson(await fetch(PUBLIC_MONITOR_URL, {
+    const payload = await requestJson(PUBLIC_MONITOR_URL, {
       headers: { Accept: 'application/json' },
-      signal: controller.signal
-    }), 'Mi Solar');
+      label: 'Mi Solar'
+    });
     lastValidSnapshot = buildSnapshot(payload);
     return lastValidSnapshot;
   } catch (error) {
@@ -141,8 +163,6 @@ async function fetchSnapshot() {
       return { ...lastValidSnapshot, estado: 'Último dato válido' };
     }
     throw error;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -155,35 +175,43 @@ async function writeDataStore(snapshot, deviceId) {
     throw new Error('Credenciales o región de Alexa Data Store incompletas.');
   }
 
-  const tokenPayload = await responseJson(await fetch('https://api.amazon.com/auth/o2/token', {
+  const tokenBody = new URLSearchParams({
+    grant_type: 'client_credentials',
+    client_id: clientId,
+    client_secret: clientSecret,
+    scope: 'alexa::datastore'
+  }).toString();
+  const tokenPayload = await requestJson('https://api.amazon.com/auth/o2/token', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: clientId,
-      client_secret: clientSecret,
-      scope: 'alexa::datastore'
-    })
-  }), 'LWA');
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Length': Buffer.byteLength(tokenBody)
+    },
+    body: tokenBody,
+    label: 'LWA'
+  });
   if (!tokenPayload.access_token) throw new Error('LWA no devolvió un token de Data Store.');
 
-  return responseJson(await fetch(`${host}/v1/datastore/commands`, {
+  const commandBody = JSON.stringify({
+    commands: [{
+      type: 'PUT_OBJECT',
+      namespace: 'MiSolar',
+      key: 'Indicadores',
+      content: snapshot
+    }],
+    target: { type: 'DEVICES', items: [deviceId] },
+    attemptDeliveryUntil: new Date(Date.now() + 60 * 60 * 1000).toISOString()
+  });
+  return requestJson(`${host}/v1/datastore/commands`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(commandBody),
       Authorization: `Bearer ${tokenPayload.access_token}`
     },
-    body: JSON.stringify({
-      commands: [{
-        type: 'PUT_OBJECT',
-        namespace: 'MiSolar',
-        key: 'Indicadores',
-        content: snapshot
-      }],
-      target: { type: 'DEVICES', items: [deviceId] },
-      attemptDeliveryUntil: new Date(Date.now() + 60 * 60 * 1000).toISOString()
-    })
-  }), 'Alexa Data Store');
+    body: commandBody,
+    label: 'Alexa Data Store'
+  });
 }
 
 async function syncDevice(deviceId) {
