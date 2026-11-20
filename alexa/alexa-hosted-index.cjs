@@ -299,6 +299,18 @@ const HelpHandler = {
   }
 };
 
+const AuxiliaryEventHandler = {
+  canHandle() {
+    return true;
+  },
+  handle(input) {
+    console.log('MiSolar: evento auxiliar atendido', {
+      type: Alexa.getRequestType(input.requestEnvelope)
+    });
+    return input.responseBuilder.getResponse();
+  }
+};
+
 const ErrorHandler = {
   canHandle() { return true; },
   handle(input, error) {
@@ -313,6 +325,13 @@ const ErrorHandler = {
 };
 
 exports.handler = Alexa.SkillBuilders.custom()
-  .addRequestHandlers(InstalledHandler, UpdatedHandler, RemovedHandler, LaunchHandler, HelpHandler)
+  .addRequestHandlers(
+    InstalledHandler,
+    UpdatedHandler,
+    RemovedHandler,
+    LaunchHandler,
+    HelpHandler,
+    AuxiliaryEventHandler
+  )
   .addErrorHandlers(ErrorHandler)
   .lambda();
