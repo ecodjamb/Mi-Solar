@@ -62,6 +62,20 @@ function deviceIdFromEnvelope(envelope) {
     : null;
 }
 
+function userIdFromEnvelope(envelope) {
+  const userId = envelope && envelope.context && envelope.context.System &&
+    envelope.context.System.user && envelope.context.System.user.userId;
+  const text = String(userId || '');
+  return /^amzn1\.ask\.account\.[A-Za-z0-9._-]+$/.test(text) ? text : null;
+}
+
+function targetFromEnvelope(envelope) {
+  const deviceId = deviceIdFromEnvelope(envelope);
+  if (deviceId) return { type: 'DEVICES', items: [deviceId] };
+  const userId = userIdFromEnvelope(envelope);
+  return userId ? { type: 'USER', id: userId } : null;
+}
+
 function generatedTodayKwh(site) {
   return (Array.isArray(site && site.history) ? site.history : []).reduce((total, row) => {
     const hours = Math.max(0, number(row && row.aggregateHours));
@@ -113,7 +127,7 @@ function buildSnapshot(payload) {
     origen: String(site.provider || '--'),
     disponible: true,
     sampledAt: site.sampledAt,
-    version: '1.0.8'
+    version: '1.0.9'
   };
 }
 
@@ -166,7 +180,7 @@ async function fetchSnapshot() {
   }
 }
 
-async function writeDataStore(snapshot, deviceId) {
+async function writeDataStore(snapshot, target) {
   const clientId = process.env.ALEXA_LWA_CLIENT_ID;
   const clientSecret = process.env.ALEXA_LWA_CLIENT_SECRET;
   const region = process.env.ALEXA_API_REGION || 'na';
@@ -199,7 +213,7 @@ async function writeDataStore(snapshot, deviceId) {
       key: 'Indicadores',
       content: snapshot
     }],
-    target: { type: 'DEVICES', items: [deviceId] },
+    target,
     attemptDeliveryUntil: new Date(Date.now() + 60 * 60 * 1000).toISOString()
   });
   return requestJson(`${host}/v1/datastore/commands`, {
@@ -214,16 +228,18 @@ async function writeDataStore(snapshot, deviceId) {
   });
 }
 
-async function syncDevice(deviceId) {
-  if (!deviceId) {
-    console.warn('MiSolar: evento sin Alexa deviceId válido.');
+async function syncTarget(target) {
+  if (!target) {
+    console.warn('MiSolar: evento sin destino Alexa válido.');
     return null;
   }
   try {
     const snapshot = await fetchSnapshot();
-    const result = await writeDataStore(snapshot, deviceId);
+    const result = await writeDataStore(snapshot, target);
+    const targetId = target.type === 'DEVICES' ? target.items[0] : target.id;
     console.log('MiSolar: Data Store aceptó la muestra', {
-      target: maskIdentifier(deviceId),
+      targetType: target.type,
+      target: maskIdentifier(targetId),
       sampledAt: snapshot.sampledAt,
       estado: snapshot.estado,
       queuedResultId: result && result.queuedResultId ? 'presente' : 'ausente'
@@ -245,9 +261,12 @@ const InstalledHandler = {
       'Alexa.DataStore.PackageManager.UsagesInstalled';
   },
   async handle(input) {
-    const deviceId = deviceIdFromEnvelope(input.requestEnvelope);
-    console.log('MiSolar: instalación detectada', { target: maskIdentifier(deviceId) });
-    await syncDevice(deviceId);
+    const target = targetFromEnvelope(input.requestEnvelope);
+    console.log('MiSolar: instalación detectada', {
+      targetType: target && target.type,
+      target: maskIdentifier(target && (target.items ? target.items[0] : target.id))
+    });
+    await syncTarget(target);
     return input.responseBuilder.getResponse();
   }
 };
@@ -258,7 +277,7 @@ const UpdatedHandler = {
       'Alexa.DataStore.PackageManager.UpdateRequest';
   },
   async handle(input) {
-    await syncDevice(deviceIdFromEnvelope(input.requestEnvelope));
+    await syncTarget(targetFromEnvelope(input.requestEnvelope));
     return input.responseBuilder.getResponse();
   }
 };
@@ -281,9 +300,11 @@ const LaunchHandler = {
     return Alexa.getRequestType(input.requestEnvelope) === 'LaunchRequest';
   },
   async handle(input) {
-    await syncDevice(deviceIdFromEnvelope(input.requestEnvelope));
+    const snapshot = await syncTarget(targetFromEnvelope(input.requestEnvelope));
     return input.responseBuilder
-      .speak('Mi Solar está listo para mostrar tus indicadores desde la galería de widgets.')
+      .speak(snapshot
+        ? `Mi Solar actualizó el widget. Producción solar ${snapshot.generacion}, batería ${snapshot.bateria}.`
+        : 'Mi Solar está listo, pero no pudo actualizar el widget en este momento.')
       .getResponse();
   }
 };

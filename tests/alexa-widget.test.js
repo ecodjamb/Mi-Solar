@@ -15,15 +15,15 @@ const previousWidgetToken = process.env.ALEXA_WIDGET_TOKEN;
 process.env.ALEXA_WIDGET_TOKEN = 'test-widget-token';
 
 const manifest = JSON.parse(await readFile(new URL('../alexa/widget-manifest.json', import.meta.url)));
-assert.equal(manifest.manifest.version, '1.0.8');
+assert.equal(manifest.manifest.version, '1.0.9');
 assert.equal(manifest.manifest.installStateChanges, 'INFORM');
 assert.equal(manifest.manifest.updateStateChanges, 'INFORM');
 assert.deepEqual(Object.keys(manifest.publishingInformation.locales).sort(), ['es-ES', 'es-MX', 'es-US']);
 for (const locale of Object.values(manifest.publishingInformation.locales)) {
   const metadata = locale[0].metadata;
   assert.equal(locale[0].targetViewport, 'WIDGET_M');
-  assert.equal(metadata.name, 'mi solar v1.0.8');
-  assert.match(metadata.iconUri, /mi-solar-widget-icon-v1\.0\.8\.png$/);
+  assert.equal(metadata.name, 'mi solar v1.0.9');
+  assert.match(metadata.iconUri, /mi-solar-widget-icon-v1\.0\.9\.png$/);
   assert.match(metadata.previews[0], /mi-solar-widget-preview-v2\.png$/);
   assert.doesNotMatch(metadata.iconUri, /default_icon/);
 }
@@ -32,11 +32,15 @@ const widgetText = await readFile(new URL('../alexa/widget-show5.json', import.m
 const widget = JSON.parse(widgetText);
 assert.equal(widget.type, 'APL');
 assert.match(widgetText, /mi solar · El Arrayán/);
-assert.match(widgetText, /v1\.0\.8/);
+assert.match(widgetText, /v1\.0\.9/);
 assert.match(widgetText, /PRODUCCIÓN SOLAR/);
 assert.doesNotMatch(widgetText, /PB1 \+ PB2/);
 assert.doesNotMatch(widgetText, /"width":"49%"/);
 assert.match(widgetText, /"grow":1/);
+const hostedLambda = await readFile(new URL('../alexa/alexa-hosted-index.cjs', import.meta.url), 'utf8');
+assert.match(hostedLambda, /type: 'USER', id: userId/);
+assert.match(hostedLambda, /targetFromEnvelope/);
+assert.match(hostedLambda, /Mi Solar actualizó el widget/);
 
 // Límites oficiales de @hubWidgetMedium: 134–425 dp × 222–711 dp.
 for (const [width, height] of [[134, 222], [240, 350], [320, 480], [425, 711]]) {
