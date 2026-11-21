@@ -41,6 +41,8 @@ const hostedLambda = await readFile(new URL('../alexa/alexa-hosted-index.cjs', i
 assert.match(hostedLambda, /type: 'USER', id: userId/);
 assert.match(hostedLambda, /targetFromEnvelope/);
 assert.match(hostedLambda, /function targetFromEnvelope[\s\S]*?if \(userId\) return \{ type: 'USER'[\s\S]*?const deviceId = deviceIdFromEnvelope/);
+assert.match(hostedLambda, /deliveryTypes\.includes\('SUCCESS'\)/);
+assert.match(hostedLambda, /Alexa Data Store rechazó la entrega/);
 assert.match(hostedLambda, /Mi Solar actualizó el widget/);
 
 // Límites oficiales de @hubWidgetMedium: 134–425 dp × 222–711 dp.

@@ -236,13 +236,22 @@ async function syncTarget(target) {
   try {
     const snapshot = await fetchSnapshot();
     const result = await writeDataStore(snapshot, target);
+    const deliveryTypes = Array.isArray(result && result.results)
+      ? result.results.map((item) => String(item && item.type || 'UNKNOWN')).slice(0, 20)
+      : [];
+    const accepted = Boolean(result && result.queuedResultId) ||
+      deliveryTypes.includes('SUCCESS');
+    if (deliveryTypes.length > 0 && !accepted) {
+      throw new Error(`Alexa Data Store rechazó la entrega: ${deliveryTypes.join(', ')}`);
+    }
     const targetId = target.type === 'DEVICES' ? target.items[0] : target.id;
     console.log('MiSolar: Data Store aceptó la muestra', {
       targetType: target.type,
       target: maskIdentifier(targetId),
       sampledAt: snapshot.sampledAt,
       estado: snapshot.estado,
-      queuedResultId: result && result.queuedResultId ? 'presente' : 'ausente'
+      queuedResultId: result && result.queuedResultId ? 'presente' : 'ausente',
+      delivery: deliveryTypes.length > 0 ? deliveryTypes : ['QUEUED']
     });
     return snapshot;
   } catch (error) {
