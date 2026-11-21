@@ -1,0 +1,27 @@
+[
+  {
+    "type": "PUT_OBJECT",
+    "namespace": "MiSolar",
+    "key": "Indicadores",
+    "content": {
+      "sitio": "El Arrayán",
+      "generacion": "5,2 kW",
+      "pv1": "2,6 kW",
+      "pv2": "2,6 kW",
+      "consumo": "2,4 kW",
+      "bateria": "90 %",
+      "red": "0,0 kW",
+      "redDireccion": "SIN INTERCAMBIO",
+      "generadoHoy": "31,4 kWh",
+      "esperadoHoy": "42,0 kWh",
+      "progresoSolar": "75%",
+      "progresoSolarValor": 75,
+      "tienePronostico": true,
+      "carga": "1,1 kW",
+      "descarga": "0,0 kW",
+      "estado": "Prueba (valores simulados)",
+      "hora": "12:00",
+      "widgetVersion": "1.0.9"
+    }
+  }
+]

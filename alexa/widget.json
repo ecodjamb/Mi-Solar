@@ -1,0 +1,7 @@
+{
+  "type": "APL",
+  "version": "2022.2",
+  "extensions": [{ "name": "DataStore", "uri": "alexaext:datastore:10" }],
+  "settings": { "DataStore": { "dataBindings": [{ "namespace": "MiSolar", "key": "Indicadores", "dataBindingName": "MiSolarData", "dataType": "OBJECT" }] } },
+  "mainTemplate": { "items": [{ "type": "Text", "text": "Use alexa/widget-show5.json as the widget presentation source." }] }
+}

@@ -1,4 +1,5 @@
 import { md5, tumRequest } from '../server/tumcapp.js';
+import { authorizedAlexaWidgetRequest, readAlexaWidgetSnapshot } from '../server/alexaWidget.js';
 import { clearCookie, openSession, sessionCookie, SESSION_IDLE_MS } from '../server/session.js';
 import { archiveRows, readArchive, readArchiveSeries, rest } from '../server/archive.js';
 import { getTuyaDevice, getTuyaDeviceProfile, listTuyaDevices, sendTuyaCommand, tuyaConfiguration } from '../server/tuya.js';
@@ -163,6 +164,18 @@ export default async function handler(req, res) {
   const route = routeOf(req);
 
   try {
+    // Lectura protegida y de solo consulta para el widget Alexa.
+    // Usa muestras archivadas; no llama a Tumcapp ni crea sesiones.
+    if (method === 'GET' && route === 'alexa/widget-data') {
+      if (!process.env.ALEXA_WIDGET_TOKEN || !process.env.ALEXA_WIDGET_DEVICE_SN) {
+        return sendJson(res, 503, { error: 'Integración Alexa aún no configurada.' });
+      }
+      if (!authorizedAlexaWidgetRequest(req.headers)) {
+        return sendJson(res, 401, { error: 'No autorizado.' });
+      }
+      return sendJson(res, 200, await readAlexaWidgetSnapshot());
+    }
+
     if (method === 'GET' && route === 'health') {
       const push = pushConfiguration();
       let archiveAuthorized = false;
