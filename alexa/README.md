@@ -11,7 +11,7 @@ Esta carpeta contiene dos documentos APL importables para la galería de widgets
 - El widget ya no necesita `ALEXA_WIDGET_TOKEN`; no abre consultas nuevas a i.Solar o WatchPower y no expone controles, usuarios ni información financiera.
 - Fuente: `site:2` (El Arrayán), última telemetría ya respaldada por Mi Solar. No llama a i.Solar, WatchPower ni Supabase.
 - Sincronizador: `sync-datastore.mjs` actualiza `MiSolar/Indicadores` mediante la Data Store REST API.
-- La Skill privada ya está instalada en el Echo Show Cocina. La Lambda prioriza el `deviceId` del evento y, si no viene informado, usa el `userId` de la misma Skill para actualizar todos los dispositivos compatibles de esa cuenta. Así no depende del serial del inversor ni de una credencial inexistente de Mi Solar.
+- La Skill privada ya está instalada en el Echo Show Cocina. La Lambda usa el `userId` de la misma Skill para actualizar todos los dispositivos compatibles de esa cuenta y conserva `deviceId` como respaldo. Así el simulador también puede alimentar el Echo real sin depender del serial del inversor ni de una credencial inexistente de Mi Solar.
 
 ## Configuración de la Lambda / sincronizador
 

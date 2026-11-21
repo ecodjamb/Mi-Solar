@@ -70,10 +70,10 @@ function userIdFromEnvelope(envelope) {
 }
 
 function targetFromEnvelope(envelope) {
-  const deviceId = deviceIdFromEnvelope(envelope);
-  if (deviceId) return { type: 'DEVICES', items: [deviceId] };
   const userId = userIdFromEnvelope(envelope);
-  return userId ? { type: 'USER', id: userId } : null;
+  if (userId) return { type: 'USER', id: userId };
+  const deviceId = deviceIdFromEnvelope(envelope);
+  return deviceId ? { type: 'DEVICES', items: [deviceId] } : null;
 }
 
 function generatedTodayKwh(site) {

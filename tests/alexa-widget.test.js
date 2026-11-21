@@ -40,6 +40,7 @@ assert.match(widgetText, /"grow":1/);
 const hostedLambda = await readFile(new URL('../alexa/alexa-hosted-index.cjs', import.meta.url), 'utf8');
 assert.match(hostedLambda, /type: 'USER', id: userId/);
 assert.match(hostedLambda, /targetFromEnvelope/);
+assert.match(hostedLambda, /function targetFromEnvelope[\s\S]*?if \(userId\) return \{ type: 'USER'[\s\S]*?const deviceId = deviceIdFromEnvelope/);
 assert.match(hostedLambda, /Mi Solar actualizó el widget/);
 
 // Límites oficiales de @hubWidgetMedium: 134–425 dp × 222–711 dp.
