@@ -40,7 +40,7 @@ assert.match(widgetText, /v1\.0\.10/);
 assert.match(widgetText, /PRODUCCIÓN SOLAR/);
 assert.doesNotMatch(widgetText, /PB1 \+ PB2/);
 assert.doesNotMatch(widgetText, /"width":"49%"/);
-assert.match(widgetText, /"grow":1/);
+assert.match(widgetText, /"height":"24%"/);
 const hostedLambda = await readFile(new URL('../alexa/alexa-hosted-index.cjs', import.meta.url), 'utf8');
 assert.match(hostedLambda, /type: 'USER', id: userId/);
 assert.match(hostedLambda, /targetFromEnvelope/);
