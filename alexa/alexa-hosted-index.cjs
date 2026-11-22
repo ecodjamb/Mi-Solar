@@ -110,6 +110,11 @@ async function rememberTarget(envelope) {
   };
   if (Object.keys(expressionNames).length) params.ExpressionAttributeNames = expressionNames;
   await documentClient.update(params).promise();
+  console.log('MiSolar: destino de Data Store guardado', {
+    table: CREDENTIALS_TABLE,
+    hasDeviceId: Boolean(deviceId),
+    hasUserId: Boolean(userId)
+  });
 }
 
 async function rememberTargetSafely(envelope) {
