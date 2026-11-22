@@ -1,7 +1,7 @@
 {
   "manifest": {
     "id": "MiSolar",
-    "version": "1.0.10",
+    "version": "1.0.11",
     "presentationDefinitions": [
       {
         "url": "presentations/default.tpl"
@@ -20,7 +20,7 @@
         {
           "targetViewport": "WIDGET_M",
           "metadata": {
-            "name": "mi solar v1.0.10",
+            "name": "mi solar v1.0.11",
             "description": "Generación solar y nivel de batería de El Arrayán.",
             "keywords": [
               "solar",
@@ -37,7 +37,7 @@
         {
           "targetViewport": "WIDGET_M",
           "metadata": {
-            "name": "mi solar v1.0.10",
+            "name": "mi solar v1.0.11",
             "description": "Generación solar y nivel de batería de El Arrayán.",
             "keywords": [
               "solar",
@@ -54,7 +54,7 @@
         {
           "targetViewport": "WIDGET_M",
           "metadata": {
-            "name": "mi solar v1.0.10",
+            "name": "mi solar v1.0.11",
             "description": "Generación solar y nivel de batería de El Arrayán.",
             "keywords": [
               "solar",
