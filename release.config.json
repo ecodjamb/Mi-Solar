@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "application": {
     "name": "Mi Solar",
-    "version": "8.79.7",
+    "version": "8.79.8",
     "productionUrl": "https://misolar.vercel.app",
     "healthUrl": "https://misolar.vercel.app/api/health"
   },
@@ -20,7 +20,7 @@
     "alexa": {
       "name": "Widget privado Alexa de Mi Solar",
       "path": "alexa",
-      "version": "1.0.12",
+      "version": "1.0.13",
       "deploysApplication": false,
       "dataSource": "https://misolar.vercel.app/api/public/monitor"
     }

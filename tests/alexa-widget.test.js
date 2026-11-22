@@ -15,15 +15,15 @@ const previousWidgetToken = process.env.ALEXA_WIDGET_TOKEN;
 process.env.ALEXA_WIDGET_TOKEN = 'test-widget-token';
 
 const manifest = JSON.parse(await readFile(new URL('../alexa/widget-manifest.json', import.meta.url)));
-assert.equal(manifest.manifest.version, '1.0.12');
+assert.equal(manifest.manifest.version, '1.0.13');
 assert.equal(manifest.manifest.installStateChanges, 'INFORM');
 assert.equal(manifest.manifest.updateStateChanges, 'INFORM');
 assert.deepEqual(Object.keys(manifest.publishingInformation.locales).sort(), ['es-ES', 'es-MX', 'es-US']);
 for (const locale of Object.values(manifest.publishingInformation.locales)) {
   const metadata = locale[0].metadata;
   assert.equal(locale[0].targetViewport, 'WIDGET_M');
-  assert.equal(metadata.name, 'mi solar v1.0.12');
-  assert.match(metadata.iconUri, /mi-solar-widget-icon-v1\.0\.10\.png$/);
+  assert.equal(metadata.name, 'mi solar v1.0.13');
+  assert.match(metadata.iconUri, /mi-solar-widget-icon-v1\.0\.13\.png$/);
   assert.match(metadata.previews[0], /mi-solar-widget-preview-v2\.png$/);
   assert.doesNotMatch(metadata.iconUri, /default_icon/);
 }
@@ -36,14 +36,15 @@ assert.equal(widget.mainTemplate.items[0].type, 'Frame');
 assert.equal(widget.mainTemplate.items[0].items.length, 1, 'Frame admite una sola capa hija; el contenido no debe quedar detrás del fondo');
 assert.equal(widget.mainTemplate.items[0].items[0].type, 'Container');
 assert.match(widgetText, /mi solar · El Arrayán/);
-assert.match(widgetText, /v1\.0\.12/);
+assert.match(widgetText, /v1\.0\.13/);
 assert.match(widgetText, /PRODUCCIÓN SOLAR/);
 assert.match(widgetText, /ABRIR MONITOR/);
 assert.match(widgetText, /https:\/\/misolar\.vercel\.app\/monitor/);
 assert.doesNotMatch(widgetText, /#F024384A|#F02B294F|#F0163F39|#F0173650/);
 assert.doesNotMatch(widgetText, /PB1 \+ PB2/);
 assert.doesNotMatch(widgetText, /"width":"49%"/);
-assert.match(widgetText, /"height":"24%"/);
+assert.match(widgetText, /ÚLTIMO DATO/);
+assert.match(widgetText, /"fontSize":"\$\{viewport\.width >= 350 && viewport\.height >= 500 \? '55dp'/);
 const hostedLambda = await readFile(new URL('../alexa/alexa-hosted-index.cjs', import.meta.url), 'utf8');
 assert.match(hostedLambda, /type: 'USER', id: userId/);
 assert.match(hostedLambda, /targetFromEnvelope/);

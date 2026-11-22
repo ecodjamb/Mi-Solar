@@ -47,6 +47,8 @@ assert.match(styles,/font-size:clamp\(48px,5\.6vw,78px\)/);
 assert.match(styles,/\.monitor-mode\.is-wide-silk/);
 assert.match(styles,/font-size:clamp\(54px,6\.3vw,88px\)/);
 assert.match(styles,/font-size:clamp\(40px,4\.4vw,62px\)/);
+assert.match(styles,/min-height:70px/);
+assert.match(styles,/min-width:54px;min-height:52px/);
 assert.match(styles,/@media\(min-width:681px\) and \(max-height:700px\)/);
 assert.match(styles,/@media\(max-width:680px\)/);
 assert.match(styles,/grid-template-columns:minmax\(0,1fr\) repeat\(4,42px\)/);

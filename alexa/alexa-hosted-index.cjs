@@ -179,7 +179,7 @@ function buildSnapshot(payload) {
     origen: String(site.provider || '--'),
     disponible: true,
     sampledAt: site.sampledAt,
-    version: '1.0.12'
+    version: '1.0.13'
   };
 }
 

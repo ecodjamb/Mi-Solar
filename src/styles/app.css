@@ -1098,3 +1098,35 @@
   .monitor-mode.is-wide-silk .is-monitor-presentation .simple-inverter-own-use em{font-size:clamp(10px,1vw,14px)}
   .monitor-mode.is-wide-silk .is-monitor-presentation .flow-details-trigger{min-width:36px;min-height:36px;padding:7px 9px}
 }
+
+/* v8.79.8 · barra operable a distancia en Echo Show 11: 2,5× el alto anterior. */
+@media(min-width:800px) and (min-aspect-ratio:7/5){
+  .monitor-mode.is-wide-silk .monitor-toolbar.monitor-toolbar-minimal,
+  .monitor-mode.is-echo-show-11 .monitor-toolbar.monitor-toolbar-minimal{
+    min-height:70px;
+    padding:8px 12px;
+    border-radius:15px;
+    border-color:rgba(83,154,173,.48);
+    background:linear-gradient(180deg,rgba(8,33,42,.98),rgba(3,17,23,.98));
+  }
+  .monitor-mode.is-wide-silk .monitor-minimal-status,
+  .monitor-mode.is-echo-show-11 .monitor-minimal-status{gap:12px}
+  .monitor-mode.is-wide-silk .monitor-minimal-status>i,
+  .monitor-mode.is-echo-show-11 .monitor-minimal-status>i{width:12px;height:12px}
+  .monitor-mode.is-wide-silk .monitor-minimal-status>strong,
+  .monitor-mode.is-echo-show-11 .monitor-minimal-status>strong{font-size:28px;min-width:116px;font-variant-numeric:tabular-nums}
+  .monitor-mode.is-wide-silk .monitor-minimal-status>small,
+  .monitor-mode.is-echo-show-11 .monitor-minimal-status>small{font-size:15px;max-width:245px}
+  .monitor-mode.is-wide-silk .monitor-compact-site,
+  .monitor-mode.is-echo-show-11 .monitor-compact-site{gap:9px;margin-left:9px}
+  .monitor-mode.is-wide-silk .monitor-compact-site>span,
+  .monitor-mode.is-echo-show-11 .monitor-compact-site>span{font-size:11px}
+  .monitor-mode.is-wide-silk .monitor-compact-site select,
+  .monitor-mode.is-echo-show-11 .monitor-compact-site select{min-width:190px;min-height:46px;padding:8px 34px 8px 12px;border-radius:11px;font-size:16px}
+  .monitor-mode.is-wide-silk .monitor-toolbar-minimal .monitor-actions,
+  .monitor-mode.is-echo-show-11 .monitor-toolbar-minimal .monitor-actions{gap:8px}
+  .monitor-mode.is-wide-silk .monitor-toolbar-minimal .monitor-actions button,
+  .monitor-mode.is-echo-show-11 .monitor-toolbar-minimal .monitor-actions button{min-width:54px;min-height:52px;padding:9px;border-radius:12px}
+  .monitor-mode.is-wide-silk .monitor-toolbar-minimal .monitor-actions svg,
+  .monitor-mode.is-echo-show-11 .monitor-toolbar-minimal .monitor-actions svg{width:25px;height:25px}
+}

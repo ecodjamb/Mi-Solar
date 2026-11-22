@@ -1,3 +1,9 @@
+# Mi Solar v8.79.8
+
+- `/monitor` amplía 2,5 veces la cabecera del Echo Show 11: hora, último dato, selector de instalación y controles quedan legibles y táctiles a distancia.
+- El widget Alexa v1.0.13 usa cuatro tarjetas simétricas, iconos equivalentes, valores más grandes y hora visible de la última muestra.
+- El manifiesto y el icono de galería quedan sincronizados en v1.0.13, sin reutilizar la insignia gráfica antigua.
+
 # Mi Solar v8.79.7
 
 - `/monitor` reconoce Silk por navegador, proporción y viewport real, sin depender de que el Echo Show 11 informe exactamente su resolución física.
