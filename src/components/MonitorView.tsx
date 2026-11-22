@@ -6,7 +6,33 @@ import type { DailyEnergy, Device, HistoryRow, Realtime } from '../types';
 
 type WakeLockSentinelLike={released:boolean;release:()=>Promise<void>;addEventListener:(type:'release',listener:()=>void)=>void};
 type WakeLockNavigator=Navigator&{wakeLock?:{request:(type:'screen')=>Promise<WakeLockSentinelLike>}};
-type AudioContextWindow=Window&{webkitAudioContext?:typeof AudioContext};
+
+function monitorToneUrl(){
+  const sampleRate=8_000;
+  const seconds=2;
+  const samples=sampleRate*seconds;
+  const buffer=new ArrayBuffer(44+samples*2);
+  const view=new DataView(buffer);
+  const write=(offset:number,value:string)=>{for(let index=0;index<value.length;index+=1)view.setUint8(offset+index,value.charCodeAt(index))};
+  write(0,'RIFF');
+  view.setUint32(4,36+samples*2,true);
+  write(8,'WAVE');
+  write(12,'fmt ');
+  view.setUint32(16,16,true);
+  view.setUint16(20,1,true);
+  view.setUint16(22,1,true);
+  view.setUint32(24,sampleRate,true);
+  view.setUint32(28,sampleRate*2,true);
+  view.setUint16(32,2,true);
+  view.setUint16(34,16,true);
+  write(36,'data');
+  view.setUint32(40,samples*2,true);
+  for(let index=0;index<samples;index+=1){
+    // 30 Hz y un nivel de un solo paso PCM: activa la canalización multimedia sin ser perceptible.
+    view.setInt16(44+index*2,Math.round(Math.sin(2*Math.PI*30*index/sampleRate)),true);
+  }
+  return URL.createObjectURL(new Blob([buffer],{type:'audio/wav'}));
+}
 
 function silkDisplayProfile(){
   const userAgent=window.navigator.userAgent;
@@ -15,8 +41,13 @@ function silkDisplayProfile(){
   const physicalHeight=Math.round(window.screen.height*(window.devicePixelRatio||1));
   const longSide=Math.max(physicalWidth,physicalHeight);
   const shortSide=Math.min(physicalWidth,physicalHeight);
-  const echoShow11=silk&&longSide>=1800&&longSide<=2040&&shortSide>=1100&&shortSide<=1280;
-  return {silk,echoShow11};
+  const viewportLong=Math.max(window.innerWidth,window.innerHeight);
+  const viewportShort=Math.min(window.innerWidth,window.innerHeight);
+  const viewportRatio=viewportShort>0?viewportLong/viewportShort:0;
+  const wideSilk=silk&&viewportLong>=900&&viewportRatio>=1.45;
+  const physicalEchoShow11=longSide>=1800&&longSide<=2040&&shortSide>=1050&&shortSide<=1280;
+  const echoShow11=silk&&(physicalEchoShow11||(viewportLong>=1180&&viewportRatio>=1.5&&viewportRatio<=1.85));
+  return {silk,wideSilk,echoShow11};
 }
 
 export default function MonitorView({
@@ -29,9 +60,9 @@ export default function MonitorView({
   inverterProfile:InverterProfile|null;forecastTodayKwh:number|null;
 }){
   const wakeLockRef=useRef<WakeLockSentinelLike|null>(null);
-  const mediaContextRef=useRef<AudioContext|null>(null);
-  const mediaOscillatorRef=useRef<OscillatorNode|null>(null);
-  const displayProfile=useRef(silkDisplayProfile()).current;
+  const mediaRef=useRef<HTMLAudioElement|null>(null);
+  const mediaUrlRef=useRef('');
+  const [displayProfile,setDisplayProfile]=useState(()=>silkDisplayProfile());
   const [wakeState,setWakeState]=useState<'active'|'media'|'unavailable'|'blocked'>('blocked');
   const [fullscreen,setFullscreen]=useState(Boolean(document.fullscreenElement));
   const sampleTimestamp=Date.parse(String(data.currentTime||''));
@@ -40,23 +71,27 @@ export default function MonitorView({
 
   const startMediaKeepAlive=useCallback(async()=>{
     try{
-      const AudioContextConstructor=window.AudioContext||(window as AudioContextWindow).webkitAudioContext;
-      if(!AudioContextConstructor)return false;
-      if(!mediaContextRef.current){
-        const context=new AudioContextConstructor();
-        const oscillator=context.createOscillator();
-        const gain=context.createGain();
-        oscillator.type='sine';
-        oscillator.frequency.value=30;
-        gain.gain.value=.00001;
-        oscillator.connect(gain);
-        gain.connect(context.destination);
-        oscillator.start();
-        mediaContextRef.current=context;
-        mediaOscillatorRef.current=oscillator;
+      if(!mediaRef.current){
+        const media=new Audio();
+        mediaUrlRef.current=monitorToneUrl();
+        media.src=mediaUrlRef.current;
+        media.loop=true;
+        media.preload='auto';
+        media.setAttribute('playsinline','');
+        media.volume=1;
+        media.setAttribute('aria-hidden','true');
+        media.style.display='none';
+        document.body.append(media);
+        mediaRef.current=media;
       }
-      if(mediaContextRef.current.state==='suspended')await mediaContextRef.current.resume();
-      const running=mediaContextRef.current.state==='running';
+      await mediaRef.current.play();
+      const running=!mediaRef.current.paused;
+      if('mediaSession' in navigator&&navigator.mediaSession){
+        navigator.mediaSession.metadata=new MediaMetadata({title:'Mi Solar · Estado monitor',artist:'Mi Solar',album:'Monitor público'});
+        navigator.mediaSession.playbackState=running?'playing':'paused';
+        navigator.mediaSession.setActionHandler('play',()=>{void mediaRef.current?.play()});
+        navigator.mediaSession.setActionHandler('pause',()=>{mediaRef.current?.pause();setWakeState('blocked')});
+      }
       if(running)setWakeState('media');
       return running;
     }catch{return false}
@@ -65,18 +100,19 @@ export default function MonitorView({
   const keepScreenAwake=useCallback(async()=>{
     const wakeLock=(navigator as WakeLockNavigator).wakeLock;
     if(document.visibilityState!=='visible')return false;
+    const mediaPromise=startMediaKeepAlive();
+    let wakeActive=Boolean(wakeLockRef.current&&!wakeLockRef.current.released);
     if(wakeLock){
-      try{
-        const sentinel=await wakeLock.request('screen');
-        wakeLockRef.current=sentinel;
-        setWakeState('active');
-        sentinel.addEventListener('release',()=>{wakeLockRef.current=null;setWakeState('blocked')});
-        return true;
-      }catch{/* Silk puede no implementar Screen Wake Lock aunque el sitio sea HTTPS. */}
+      if(!wakeActive)try{
+          const sentinel=await wakeLock.request('screen');
+          wakeLockRef.current=sentinel;
+          wakeActive=true;
+          sentinel.addEventListener('release',()=>{wakeLockRef.current=null;setWakeState(mediaRef.current&&!mediaRef.current.paused?'media':'blocked')});
+        }catch{/* Silk puede no implementar Screen Wake Lock aunque el sitio sea HTTPS. */}
     }
-    const mediaActive=await startMediaKeepAlive();
-    setWakeState(mediaActive?'media':wakeLock?'blocked':'unavailable');
-    return mediaActive;
+    const mediaActive=await mediaPromise;
+    setWakeState(wakeActive?'active':mediaActive?'media':wakeLock?'blocked':'unavailable');
+    return wakeActive||mediaActive;
   },[startMediaKeepAlive]);
 
   const enterFullscreen=useCallback(async()=>{
@@ -86,14 +122,16 @@ export default function MonitorView({
 
   useEffect(()=>{
     void keepScreenAwake();
-    const resume=()=>{if(document.visibilityState==='visible'&&!wakeLockRef.current)void keepScreenAwake()};
+    const resume=()=>{if(document.visibilityState==='visible')void keepScreenAwake()};
     const fullscreenChanged=()=>setFullscreen(Boolean(document.fullscreenElement));
     const silkFullscreen=()=>{
       if(displayProfile.silk&&!document.fullscreenElement)void enterFullscreen();
-      if(displayProfile.silk&&!wakeLockRef.current)void startMediaKeepAlive();
+      if(displayProfile.silk)void keepScreenAwake();
     };
     document.addEventListener('visibilitychange',resume);
     document.addEventListener('fullscreenchange',fullscreenChanged);
+    window.addEventListener('focus',resume);
+    window.addEventListener('pageshow',resume);
     if(displayProfile.silk){
       void enterFullscreen();
       document.addEventListener('pointerup',silkFullscreen);
@@ -102,16 +140,34 @@ export default function MonitorView({
     return()=>{
       document.removeEventListener('visibilitychange',resume);
       document.removeEventListener('fullscreenchange',fullscreenChanged);
+      window.removeEventListener('focus',resume);
+      window.removeEventListener('pageshow',resume);
       document.removeEventListener('pointerup',silkFullscreen);
       document.removeEventListener('keydown',silkFullscreen);
       void wakeLockRef.current?.release().catch(()=>undefined);
       wakeLockRef.current=null;
-      try{mediaOscillatorRef.current?.stop()}catch{/* El oscilador puede haberse detenido previamente. */}
-      mediaOscillatorRef.current=null;
-      void mediaContextRef.current?.close().catch(()=>undefined);
-      mediaContextRef.current=null;
+      mediaRef.current?.pause();
+      mediaRef.current?.remove();
+      mediaRef.current=null;
+      if(mediaUrlRef.current)URL.revokeObjectURL(mediaUrlRef.current);
+      mediaUrlRef.current='';
     };
-  },[displayProfile.silk,enterFullscreen,keepScreenAwake,startMediaKeepAlive]);
+  },[displayProfile.silk,enterFullscreen,keepScreenAwake]);
+
+  useEffect(()=>{
+    let frame=0;
+    const updateProfile=()=>{
+      window.cancelAnimationFrame(frame);
+      frame=window.requestAnimationFrame(()=>setDisplayProfile(silkDisplayProfile()));
+    };
+    window.addEventListener('resize',updateProfile);
+    window.addEventListener('orientationchange',updateProfile);
+    return()=>{
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('resize',updateProfile);
+      window.removeEventListener('orientationchange',updateProfile);
+    };
+  },[]);
 
   const toggleFullscreen=async()=>{
     try{
@@ -120,7 +176,7 @@ export default function MonitorView({
     }catch{/* El navegador puede reservar pantalla completa para su propio menú. */}
   };
 
-  return <main className={`monitor-mode${displayProfile.silk?' is-silk':''}${displayProfile.echoShow11?' is-echo-show-11':''}`}>
+  return <main className={`monitor-mode${displayProfile.silk?' is-silk':''}${displayProfile.wideSilk?' is-wide-silk':''}${displayProfile.echoShow11?' is-echo-show-11':''}`}>
     <header className="monitor-toolbar monitor-toolbar-minimal">
       <div className="monitor-minimal-status" aria-live="polite"><i className={transmissionTone} aria-label={sampleAgeMinutes>10?'Transmisión atrasada':sampleAgeMinutes>6?'Transmisión en espera':'Transmisión al día'}/><strong>{clock}</strong><small>Último dato {lastDataLabel}</small><label className="monitor-compact-site"><span>Instalación</span><select value={selected} onChange={event=>onSelect(event.target.value)}>{devices.map(device=><option key={device.deviceSn} value={device.deviceSn}>{device.nickName||device.deviceSn}</option>)}</select></label></div>
       <div className="monitor-actions">

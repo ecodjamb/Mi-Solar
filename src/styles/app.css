@@ -1069,3 +1069,32 @@
 .monitor-mode.is-echo-show-11 .is-monitor-presentation .simple-inverter>svg{width:clamp(39px,3.5vw,52px);height:clamp(39px,3.5vw,52px)}.monitor-mode.is-echo-show-11 .is-monitor-presentation .simple-inverter>small{font-size:clamp(13px,1.3vw,18px)}.monitor-mode.is-echo-show-11 .is-monitor-presentation .simple-inverter>strong{font-size:clamp(34px,3.5vw,50px)}.monitor-mode.is-echo-show-11 .is-monitor-presentation .simple-inverter>span{font-size:clamp(11px,1.1vw,16px)}
 .monitor-mode.is-echo-show-11 .is-monitor-presentation .simple-inverter-own-use b{font-size:clamp(14px,1.4vw,20px)}.monitor-mode.is-echo-show-11 .is-monitor-presentation .simple-inverter-own-use em{font-size:clamp(9px,.9vw,13px)}
 .monitor-mode.is-echo-show-11 .is-monitor-presentation .flow-details-trigger{min-width:34px;min-height:34px;padding:6px 8px}
+
+/* v8.79.7 · viewport real de Silk y lectura a distancia en Echo Show 11. */
+@media(min-width:800px) and (min-aspect-ratio:7/5){
+  .monitor-mode.is-wide-silk{padding:2px;gap:2px}
+  .monitor-mode.is-wide-silk .monitor-toolbar.monitor-toolbar-minimal{min-height:28px;padding:1px 5px;border-radius:9px}
+  .monitor-mode.is-wide-silk .monitor-stage,.monitor-mode.is-wide-silk .monitor-flow-column{height:100%;min-height:0}
+  .monitor-mode.is-wide-silk .monitor-flow-column>.simple-flow-panel.is-monitor-presentation{height:100%;min-height:0;padding:3px;border-radius:18px}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .simple-energy-flow{height:100%;min-height:0!important;border-radius:15px}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .simple-flow-node{width:39.5%;min-height:clamp(158px,30.5vh,250px);border-width:2px;border-radius:21px}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .simple-solar,.monitor-mode.is-wide-silk .is-monitor-presentation .simple-battery{left:.8%}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .simple-house,.monitor-mode.is-wide-silk .is-monitor-presentation .simple-grid{right:.8%}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .simple-solar,.monitor-mode.is-wide-silk .is-monitor-presentation .simple-house{top:.8%}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .simple-battery,.monitor-mode.is-wide-silk .is-monitor-presentation .simple-grid{bottom:.8%}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .simple-flow-node-main{gap:clamp(14px,1.55vw,24px);padding:clamp(16px,2vh,27px) clamp(18px,2vw,32px) clamp(11px,1.4vh,19px)}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .simple-flow-node-main svg{width:clamp(46px,4.2vw,66px);height:clamp(46px,4.2vw,66px)}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .simple-flow-node-main small{padding-right:38px;font-size:clamp(17px,1.6vw,25px)}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .simple-flow-node-main strong{margin:7px 0;font-size:clamp(54px,6.3vw,88px);line-height:.94;letter-spacing:-.04em}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .simple-flow-node-main span{font-size:clamp(16px,1.55vw,23px)}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .simple-flow-daily{min-height:46px;padding:clamp(10px,1.25vh,16px) clamp(18px,1.9vw,29px);font-size:clamp(13px,1.22vw,19px)}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .soc-battery-icon{width:clamp(54px,5vw,75px);height:clamp(44px,4.2vw,62px)}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .simple-inverter{width:clamp(190px,18vw,255px);height:clamp(190px,18vw,255px)}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .simple-inverter>svg{width:clamp(42px,3.8vw,58px);height:clamp(42px,3.8vw,58px)}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .simple-inverter>small{font-size:clamp(14px,1.35vw,20px)}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .simple-inverter>strong{font-size:clamp(40px,4.4vw,62px);line-height:1}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .simple-inverter>span{font-size:clamp(12px,1.2vw,17px)}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .simple-inverter-own-use b{font-size:clamp(16px,1.55vw,23px)}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .simple-inverter-own-use em{font-size:clamp(10px,1vw,14px)}
+  .monitor-mode.is-wide-silk .is-monitor-presentation .flow-details-trigger{min-width:36px;min-height:36px;padding:7px 9px}
+}

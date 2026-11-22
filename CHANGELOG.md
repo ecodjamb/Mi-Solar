@@ -1,3 +1,10 @@
+# Mi Solar v8.79.7
+
+- `/monitor` reconoce Silk por navegador, proporción y viewport real, sin depender de que el Echo Show 11 informe exactamente su resolución física.
+- Las cuatro tarjetas y el inversor aumentan tamaño, jerarquía y cifras para lectura a distancia, conservando únicamente el flujo energético y la cabecera mínima.
+- La permanencia combina Screen Wake Lock y una pista WAV HTML5 local de 30 Hz y amplitud PCM mínima; se reactiva al volver, recuperar foco o tocar la pantalla, sin consultas externas ni sonido perceptible.
+- Media Session identifica la reproducción como “Mi Solar · Estado monitor”; si Silk bloquea la reproducción automática, el primer toque activa simultáneamente multimedia, Wake Lock y pantalla completa.
+
 # Mi Solar v8.79.6
 
 - Estado monitor detecta específicamente el Echo Show 11 de 1920×1200 y amplía tarjetas, cifras, SOC, potencia de batería, red e inversor sin depender de los píxeles CSS que Silk reporte.
