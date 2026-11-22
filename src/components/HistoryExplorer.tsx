@@ -3,6 +3,7 @@ import { CalendarSearch, Database } from 'lucide-react';
 import EChart from './EChart';
 import PvAccumulatedBar from './PvAccumulatedBar';
 import { api } from '../services/api';
+import { fetchProviderSeries, type EnergyProvider } from '../services/providerHistory';
 import type { HistoryRow } from '../types';
 import { chileSiteRangeApiRange,dailyEnergy,effectiveGridPower,formatSiteDate,loadPower,parseApiTime,pvPower,siteRangeUtc,siteWeekDateRange,kwh,solarSystemToLoadPower } from '../utils/energy';
 
@@ -16,7 +17,7 @@ function rangeFor(mode:Mode,date:string,customEnd:string){
   return {start:date,end:addDays(customEnd||date,1)};
 }
 
-export default function HistoryExplorer({deviceSn,siteLabel,gridLabel='Red activa'}:{deviceSn:string;siteLabel:string;gridLabel?:string}){
+export default function HistoryExplorer({deviceSn,siteLabel,provider,gridLabel='Red activa'}:{deviceSn:string;siteLabel:string;provider:EnergyProvider;gridLabel?:string}){
   const [mode,setMode]=useState<Mode>('day'),[date,setDate]=useState(formatSiteDate()),[endDate,setEndDate]=useState(formatSiteDate());
   const [rows,setRows]=useState<HistoryRow[]>([]),[source,setSource]=useState(''),[message,setMessage]=useState('Elige un período para consultar y respaldar sus datos.'),[loading,setLoading]=useState(false);
   const energy=useMemo(()=>dailyEnergy(rows),[rows]);
@@ -24,8 +25,8 @@ export default function HistoryExplorer({deviceSn,siteLabel,gridLabel='Red activ
   const option=useMemo(()=>({tooltip:{trigger:'axis',confine:true},legend:{textStyle:{color:'#a9bdc3'}},grid:{left:48,right:18,top:54,bottom:42,containLabel:true},xAxis:{type:'category',data:parsed.map(item=>item.time.toLocaleString('es-CL',{timeZone:'America/Santiago',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})),axisLabel:{color:'#789099',hideOverlap:true}},yAxis:{type:'value',name:'W',axisLabel:{color:'#789099'},splitLine:{lineStyle:{color:'rgba(110,150,160,.12)'}}},series:[{name:'Producción fotovoltaica (PV1 + PV2)',type:'line',showSymbol:false,data:parsed.map(item=>pvPower(item.row,1)+pvPower(item.row,2)),lineStyle:{color:'#efbd34'},itemStyle:{color:'#efbd34'}},{name:'Aporte solar + batería a la casa',type:'line',showSymbol:false,data:parsed.map(item=>solarSystemToLoadPower(item.row)),lineStyle:{color:'#49d984'},itemStyle:{color:'#49d984'}},{name:'Consumo de la casa',type:'line',showSymbol:false,data:parsed.map(item=>loadPower(item.row)),lineStyle:{color:'#a96fff'},itemStyle:{color:'#a96fff'}},{name:gridLabel,type:'line',showSymbol:false,data:parsed.map(item=>effectiveGridPower(item.row)),lineStyle:{color:'#4f9fff'},itemStyle:{color:'#4f9fff'}}]}),[parsed,gridLabel]);
   async function search(){
     if(!deviceSn)return;const range=rangeFor(mode,date,endDate);if(range.end<=range.start){setMessage('La fecha final debe ser igual o posterior a la inicial.');return}
-    setLoading(true);setMessage('Consultando Tumcapp y respaldando en Mi Solar…');
-    try{const utc=siteRangeUtc(range.start,range.end);const resolution=mode==='year'?'day':'hour';const stored=await api<{list:HistoryRow[]}>(`devices/${deviceSn}/archive-series?start=${encodeURIComponent(utc.start)}&end=${encodeURIComponent(utc.end)}&resolution=${resolution}`);if(stored.list?.length){setRows(stored.list);setSource('Archivo permanente Mi Solar');setMessage(`${stored.list.length} períodos consolidados recuperados.`);return}const apiRange=chileSiteRangeApiRange(range.start,range.end);const fresh=await api<{list:HistoryRow[]}>(`devices/${deviceSn}/history?start=${encodeURIComponent(apiRange.start)}&end=${encodeURIComponent(apiRange.end)}&maxPages=50`);setRows(fresh.list||[]);setSource('Origen · nuevos datos respaldados');setMessage(`${fresh.list?.length||0} muestras nuevas encontradas.`)}
+    setLoading(true);setMessage(`Consultando el respaldo ${provider==='watchpower'?'WatchPower':'i.Solar'} de Mi Solar…`);
+    try{const utc=siteRangeUtc(range.start,range.end);const resolution=mode==='year'?'day':'hour';const stored=await fetchProviderSeries({deviceSn,provider,start:utc.start,end:utc.end,resolution});if(stored.list?.length){setRows(stored.list);setSource(`Archivo ${provider==='watchpower'?'WatchPower':'i.Solar'}`);setMessage(`${stored.list.length} períodos consolidados recuperados.`);return}if(provider==='watchpower'){setRows([]);setSource('Archivo WatchPower');setMessage('WatchPower aún no tiene muestras para este período.');return}const apiRange=chileSiteRangeApiRange(range.start,range.end);const fresh=await api<{list:HistoryRow[]}>(`devices/${deviceSn}/history?start=${encodeURIComponent(apiRange.start)}&end=${encodeURIComponent(apiRange.end)}&maxPages=50`);setRows(fresh.list||[]);setSource('i.Solar · nuevos datos respaldados');setMessage(`${fresh.list?.length||0} muestras nuevas encontradas.`)}
     catch(error){setRows([]);setSource('');setMessage(error instanceof Error?error.message:'No fue posible consultar el período.')}finally{setLoading(false)}
   }
   const dateType=mode==='month'?'month':mode==='year'?'number':'date';

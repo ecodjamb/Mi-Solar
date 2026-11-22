@@ -141,3 +141,23 @@ export async function sendTuyaCommand(deviceId,code,value){
   const payload=await tuyaRequest(`/v1.0/iot-03/devices/${encodeURIComponent(deviceId)}/commands`,{method:'POST',body:{commands:[{code,value}]}});
   return Boolean(payload.result);
 }
+
+export async function readTuyaBooleanState(deviceId,code){
+  const device=await getTuyaDevice(deviceId);
+  const row=(Array.isArray(device.status)?device.status:[]).find(item=>item.code===code);
+  if(!row||typeof row.value!=='boolean'){const error=new Error(`Tuya no informó el estado ${code}.`);error.status=502;error.code='TUYA_STATE_UNAVAILABLE';throw error}
+  return {on:row.value,online:Boolean(device.online??device.isOnline??true),device};
+}
+
+const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+export async function sendTuyaBooleanCommandConfirmed(deviceId,code,value,{timeoutMs=12000}={}){
+  if(typeof value!=='boolean'){const error=new Error('La orden del contactor debe ser ON u OFF.');error.status=400;throw error}
+  const accepted=await sendTuyaCommand(deviceId,code,value);
+  if(!accepted){const error=new Error('Tuya no aceptó la orden del contactor.');error.status=502;error.code='TUYA_COMMAND_REJECTED';throw error}
+  const started=Date.now();let lastError=null;
+  while(Date.now()-started<timeoutMs){
+    await pause(1800);
+    try{const state=await readTuyaBooleanState(deviceId,code);if(state.on===value)return state}catch(error){lastError=error}
+  }
+  const error=new Error(lastError?.message||`No fue posible confirmar que el contactor quedó ${value?'encendido':'apagado'}.`);error.status=502;error.code='TUYA_STATE_NOT_CONFIRMED';throw error;
+}

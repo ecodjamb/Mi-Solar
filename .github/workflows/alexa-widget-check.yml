@@ -1,0 +1,42 @@
+name: Alexa widget (pruebas sin credenciales)
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "alexa/**"
+      - "public/alexa/**"
+      - "tests/alexa-widget.test.js"
+      - ".github/workflows/alexa-widget-check.yml"
+  pull_request:
+    paths:
+      - "server/alexaWidget.js"
+      - "alexa/**"
+      - "tests/alexa-widget.test.js"
+      - "api/index.js"
+      - ".github/workflows/alexa-widget-check.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - name: Validar documentos APL
+        run: |
+          node --input-type=module -e "import fs from 'node:fs'; for (const file of ['alexa/widget.json', 'alexa/widget-show5.json', 'alexa/widget-manifest.json', 'alexa/test-datastore.json']) { const value=JSON.parse(fs.readFileSync(file,'utf8')); if(file.includes('widget') && !file.includes('manifest') && !file.includes('datastore') && value.type!=='APL') throw new Error(file+' no es un APL importable'); console.log('OK',file) }"
+      - name: Validar sintaxis de Lambda
+        run: |
+          node --check alexa/datastore-client.cjs
+          node --check alexa/monitor-sync.cjs
+          node --check alexa/skill-handler.cjs
+          node --check alexa/sync-datastore.mjs
+      - name: Probar lectura protegida y formato energético
+        run: node tests/alexa-widget.test.js

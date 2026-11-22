@@ -30,9 +30,10 @@ const KEYS = {
   outputVoltage:['acOutputVoltageR','acOutputVoltage','outputVoltage'],
   outputFrequency:['acOutputFrequency','outputFrequency'],
   temperature:['innerTemperature','inverterTemperature','temperature','temperature1'],
-  heatsinkTemperature:['radiatorTemperature','heatSinkTemperature','temperature2'],
-  loadPercent:['loadPercent','outputLoadPercent'],
+  heatsinkTemperature:['maxTemperature','radiatorTemperature','heatSinkTemperature','heatsinkTemperature','temperature2'],
+  loadPercent:['acOutputLoadTotal','loadPercent','outputLoadPercent'],
   workMode:['workMode','workModeName','mode'],
+  outputSourcePriority:['outputSourcePriority','outputPriority','acOutputSourcePriority'],
   statusInverter:['statusInverter','inverterStatus'],
   statusGrid:['statusGrid','gridStatus'],
   statusBattery:['statusBattery','batteryStatus'],
@@ -42,6 +43,19 @@ const KEYS = {
   fault1:['fault1','faultCode','errorCode'],
   warning1:['warning1','warningCode']
 } as const;
+
+/** Prioridad real de salida configurada en el inversor (programa 01). */
+export function inverterOutputPriority(d:Record<string,unknown>){
+  const direct=firstText(d,[...KEYS.outputSourcePriority]).value;
+  const canonical=d.canonical as {inverter?:{output_priority?:unknown}}|undefined;
+  const raw=String(direct||canonical?.inverter?.output_priority||'').trim();
+  if(!raw)return '—';
+  const normalized=raw.toUpperCase().replace(/[\s._-]+/g,'');
+  if(normalized==='0'||normalized==='POP00'||normalized==='UTILITY'||normalized==='UTI'||normalized==='GRID')return 'Utility';
+  if(normalized==='1'||normalized==='POP01'||normalized==='SOL'||normalized==='SOLAR')return 'SOL';
+  if(normalized==='2'||normalized==='POP02'||normalized==='SBU'||normalized==='SOLARBATTERYUTILITY')return 'SBU';
+  return raw;
+}
 
 export const pvPower=(d:Record<string,unknown>,index:1|2)=>firstNumber(d,index===1?[...KEYS.pv1Power]:[...KEYS.pv2Power]);
 export const pvVoltage=(d:Record<string,unknown>,index:1|2)=>firstNumber(d,index===1?[...KEYS.pv1Voltage]:[...KEYS.pv2Voltage]);
@@ -82,6 +96,46 @@ export const batteryDischargePower=(d:Record<string,unknown>)=>firstNumber(d,[..
 export const batterySoc=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.soc]);
 export const batteryVoltage=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.batteryVoltage]);
 export const batteryCurrent=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.batteryCurrent]);
+
+export function inverterFlowMetrics(d:Record<string,unknown>){
+  const solar=Math.max(0,pvPower(d,1)+pvPower(d,2));
+  const grid=effectiveGridPower(d);
+  const gridImport=Math.max(0,grid);
+  const gridExport=Math.max(0,-grid);
+  const discharge=Math.max(0,batteryDischargePower(d));
+  const charge=Math.max(0,batteryChargePower(d));
+  const load=Math.max(0,loadPower(d));
+  const sourcePowerW=solar+gridImport+discharge;
+  const deliveredPowerW=load+charge+gridExport;
+  const processedPowerW=Math.max(sourcePowerW,deliveredPowerW);
+  const residualW=sourcePowerW-deliveredPowerW;
+  const plausibleLimitW=Math.max(150,processedPowerW*.15);
+  const coherent=!(charge>50&&discharge>50)&&residualW>=0&&residualW<=plausibleLimitW;
+  return {
+    processedPowerW,
+    estimatedOwnConsumptionW:coherent?residualW:null,
+    coherent,
+    sourcePowerW,
+    deliveredPowerW
+  };
+}
+
+export function isEnergyBalanceCoherent(d:Record<string,unknown>){
+  const canonical=d.canonical as {quality?:{energy_balance?:{status?:string};battery_conflict?:boolean}}|undefined;
+  if(canonical?.quality?.energy_balance?.status==='inconsistent'||canonical?.quality?.battery_conflict===true)return false;
+  const solar=Math.max(0,pvPower(d,1)+pvPower(d,2));
+  const load=Math.max(0,loadPower(d));
+  const grid=Math.max(0,effectiveGridPower(d));
+  const charge=Math.max(0,batteryChargePower(d));
+  const discharge=Math.max(0,batteryDischargePower(d));
+  // i.Solar no puede cargar y descargar la misma batería al mismo tiempo. Si
+  // ambos campos vienen activos, pertenecen a ciclos de actualización distintos.
+  if(charge>50&&discharge>50)return false;
+  const sources=solar+grid+discharge;
+  const sinks=load+charge;
+  const tolerance=Math.max(250,Math.round(Math.max(sources,sinks)*0.12));
+  return sinks-sources<=tolerance;
+}
 export const gridVoltage=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.gridVoltage]);
 export const gridFrequency=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.gridFrequency]);
 export const outputVoltage=(d:Record<string,unknown>)=>firstNumber(d,[...KEYS.outputVoltage]);
@@ -215,7 +269,8 @@ export function technicalCatalog(d:Record<string,unknown>,summary:Record<string,
     {title:'Salida / cargas',items:[item(merged,'loadPower','Potencia de carga',[...KEYS.loadPower],'W'),item(merged,'loadPercent','Carga del inversor',[...KEYS.loadPercent],'%'),item(merged,'outputVoltage','Voltaje de salida',[...KEYS.outputVoltage],'V'),item(merged,'outputFrequency','Frecuencia de salida',[...KEYS.outputFrequency],'Hz')]},
     {title:gridLabel,items:[item(merged,'gridPower',`Potencia de ${gridLabel.toLocaleLowerCase('es-CL')}`,[...KEYS.gridPower],'W'),item(merged,'statusGrid',`Uso efectivo de ${gridLabel.toLocaleLowerCase('es-CL')}`,[...KEYS.statusGrid]),item(merged,'gridVoltage',`Voltaje de ${gridLabel.toLocaleLowerCase('es-CL')}`,[...KEYS.gridVoltage],'V'),item(merged,'gridFrequency',`Frecuencia de ${gridLabel.toLocaleLowerCase('es-CL')}`,[...KEYS.gridFrequency],'Hz')]},
     {title:'Batería',items:[item(merged,'soc','Estado de carga',[...KEYS.soc],'%'),item(merged,'batteryVoltage','Voltaje de batería',[...KEYS.batteryVoltage],'V'),item(merged,'batteryCurrent','Corriente de batería',[...KEYS.batteryCurrent],'A'),item(merged,'chargePower','Potencia de carga',[...KEYS.chargePower],'W'),item(merged,'dischargePower','Potencia de descarga',[...KEYS.dischargePower],'W')]},
-    {title:'Inversor',items:[textItem(merged,'workMode','Modo de trabajo',[...KEYS.workMode]),item(merged,'temperature','Temperatura interna',[...KEYS.temperature],'°C'),item(merged,'heatsinkTemperature','Temperatura disipador',[...KEYS.heatsinkTemperature],'°C'),item(merged,'statusInverter','Estado inversor',[...KEYS.statusInverter]),item(merged,'fault','Código de falla',[...KEYS.fault1]),item(merged,'warning','Código de advertencia',[...KEYS.warning1])]},
+    {title:'Inversor',items:[textItem(merged,'model','Modelo',['deviceModel','model']),textItem(merged,'workMode','Modo de trabajo',[...KEYS.workMode]),textItem(merged,'outputPriority','Prioridad de salida',[...KEYS.outputSourcePriority]),item(merged,'ratedPower','Potencia nominal',['ratedOutputPowerW'],'W'),item(merged,'mpptTrackers','Seguidores MPPT',['mpptTrackerCount']),item(merged,'temperature','Temperatura interna',[...KEYS.temperature],'°C'),item(merged,'heatsinkTemperature','Temperatura máxima informada',[...KEYS.heatsinkTemperature],'°C'),item(merged,'statusInverter','Estado inversor',[...KEYS.statusInverter]),item(merged,'fault','Código de falla',[...KEYS.fault1]),item(merged,'warning','Código de advertencia',[...KEYS.warning1])]},
+    {title:'Firmware',items:[textItem(merged,'firmwareMain','Firmware principal',['mainCpuFirmware','mainVersion']),textItem(merged,'firmwareSecondary','Firmware secundario',['secondaryCpuFirmware','remoteVersion']),textItem(merged,'firmwareLogger','Firmware Wi‑Fi / logger',['loggerFirmware','wifiVersion'])]},
     {title:'Estados digitales',items:[item(merged,'statusSolar1','Estado PV1',[...KEYS.statusSolar1]),item(merged,'statusSolar2','Estado PV2',[...KEYS.statusSolar2]),item(merged,'statusGrid',`Estado ${gridLabel.toLocaleLowerCase('es-CL')}`,[...KEYS.statusGrid]),item(merged,'statusBattery','Estado batería',[...KEYS.statusBattery]),item(merged,'statusLoad','Estado carga',[...KEYS.statusLoad])]}];
 }
 export function dataQuality(rows:HistoryRow[],expectedDate=formatSiteDate()){

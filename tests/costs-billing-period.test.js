@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { solarBatteryToLoadW } from '../server/utilityBills.js';
 
 const source = readFileSync(new URL('../src/components/CostsPage.tsx', import.meta.url), 'utf8');
+const billsSource = readFileSync(new URL('../src/components/EnelBillsSection.tsx', import.meta.url), 'utf8');
 
 assert.match(source, /day\.gridImport/, 'El gráfico debe usar el acumulado de red validado por statusGrid=1.');
 assert.match(source, /day\.solar/, 'El gráfico debe incluir la producción solar total diaria.');
@@ -10,6 +12,27 @@ assert.match(source, /nextMonthSameDay\(currentStart\)/, 'El siguiente cierre de
 assert.match(source, /Mes calendario actual/, 'Debe poder compararse con el mes calendario actual.');
 assert.match(source, /Período Enel actual/, 'Debe existir la vista del período Enel actual.');
 assert.match(source, /chartAverage\*30/, 'La proyección de 30 días debe usar el promedio diario.');
-assert.match(source, /<EnelBillsSection deviceSn=\{deviceSn\} siteLabel=\{siteLabel\}\/\>/, 'El historial y carga de cuentas Enel deben conservarse intactos.');
+assert.match(source, /<EnelBillsSection deviceSn=\{deviceSn\} siteLabel=\{siteLabel\} dailyChart=\{dailyChart\}\/\>/, 'El historial y carga de cuentas Enel deben conservarse intactos junto al gráfico diario.');
+assert.equal(solarBatteryToLoadW({ loadW: 5000, gridW: 2000, gridActive: true }), 3000, 'El aporte local debe ser load menos la red activa.');
+assert.equal(solarBatteryToLoadW({ loadW: 5000, gridW: 7000, gridActive: true }), 0, 'La red no puede restar más energía que el consumo de la casa.');
+assert.equal(solarBatteryToLoadW({ loadW: 5000, gridW: 2000, gridActive: false }), 5000, 'La red inactiva no debe descontarse del aporte solar y batería.');
+assert.match(billsSource, /observedSolarBatteryToLoadKwh/, 'El mes en curso debe mostrar los kWh aportados por solar y batería.');
+assert.match(billsSource, /observedSolarBatteryValueClp/, 'El mes en curso debe mostrar el valor económico del aporte local.');
+assert.match(billsSource, /\$250 por kWh/, 'El ahorro debe valorizarse explícitamente a 250 pesos por kWh.');
+assert.match(billsSource, /Ingresar lectura de hoy/, 'La primera acción debe ser el ingreso simple de la lectura.');
+assert.match(billsSource, /Visualizar últimas lecturas/, 'Las últimas lecturas deben abrirse a demanda.');
+assert.match(billsSource, /utility-period-comparison/, 'El período actual debe resumirse en una comparación compacta.');
+assert.match(billsSource, /<b>Mi Solar<\/b>/, 'La primera fila debe corresponder a Mi Solar.');
+assert.match(billsSource, /<b>Lecturas reales<\/b>/, 'La segunda fila debe corresponder a las lecturas del medidor.');
+assert.match(billsSource, /Consumo a la fecha/, 'Cada método debe mostrar el consumo acumulado a la fecha.');
+assert.match(billsSource, /Gasto a la fecha/, 'Cada método debe mostrar el costo acumulado a la fecha.');
+assert.match(billsSource, /Proyección al cierre/, 'Cada método debe mostrar los kWh proyectados al cierre.');
+assert.match(billsSource, /Costo al cierre/, 'Cada método debe mostrar el costo proyectado al cierre.');
+assert.match(billsSource, /projection\.observedGridKwh \* projection\.unitRateClp/, 'El gasto Mi Solar a la fecha debe usar su consumo acumulado y tarifa vigente.');
+assert.match(billsSource, /tracking\.projection\.consumedKwh \* tracking\.projection\.unitRateClp/, 'El gasto por lecturas debe usar el consumo real acumulado y tarifa vigente.');
+assert.match(billsSource, /Última lectura/, 'La fila real debe identificar la última lectura usada.');
+assert.doesNotMatch(source, /Ahorro conseguido hoy/);
+assert.doesNotMatch(source, /Monto a la fecha/, 'El pie del gráfico diario no debe duplicar el monto del período actual.');
+assert.doesNotMatch(source, /Monto proyectado · 30 días/, 'El pie del gráfico diario no debe duplicar el monto proyectado.');
 
 console.log('cost billing-period chart tests: ok');

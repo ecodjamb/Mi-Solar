@@ -7,15 +7,29 @@ type QueueTask = {
 const priorityQueue: QueueTask[] = [];
 const normalQueue: QueueTask[] = [];
 let requestRunning = false;
+const inFlightInternalReads = new Map<string, Promise<unknown>>();
 
 const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
 
+/**
+ * Solo las llamadas que realmente pueden tocar i.Solar/WatchPower comparten
+ * el carril regulado. Consultas propias de Mi Solar (Aguas, equipos, familia,
+ * Tuya, notificaciones y archivo Supabase) pueden ejecutarse en paralelo.
+ */
+function usesProviderLane(path: string) {
+  if (/^sites\/\d+\/providers\/(isolar|watchpower)\/(refresh|sync|test|history-repair|force-transmit|history-day)(?:\?|$)/.test(path)) return true;
+  if (/^devices\/[^/]+\/(live|realtime|history)(?:\?|$)/.test(path)) return true;
+  if (/^devices\/[^/]+\/(settings-check|settings-apply)(?:\?|$)/.test(path)) return true;
+  return false;
+}
+
 function requiresMiSolarSession(path: string) {
-  if (path === 'family' || path.startsWith('family/')) return true;
+  if (path === 'family' || path.startsWith('family?') || path.startsWith('family/')) return true;
   if (path.startsWith('admin/')) return true;
+  if (path.startsWith('ai/')) return true;
   if (path === 'app-auth/change-password') return true;
   if (path === 'provider-accounts') return true;
-  return /^sites\/\d+\/providers\/(isolar|watchpower)\/(credentials|test|sync|refresh)$/.test(path);
+  return /^sites\/\d+\/providers\/(isolar|watchpower)\/(credentials|test|sync|refresh|history-repair|force-transmit|history-day)$/.test(path);
 }
 
 function sleep(ms: number) {
@@ -95,17 +109,44 @@ function enqueue<T>(path: string, options: RequestInit, priority: boolean): Prom
   });
 }
 
+function executeInternal<T>(path:string,options:RequestInit={}){
+  const method=String(options.method||'GET').toUpperCase();
+  if(method!=='GET')return execute<T>(path,options);
+  const existing=inFlightInternalReads.get(path);
+  if(existing)return existing as Promise<T>;
+  const request=execute<T>(path,options).finally(()=>inFlightInternalReads.delete(path));
+  inFlightInternalReads.set(path,request);
+  return request;
+}
+
 /**
  * Tumcapp puede renovar el token en cada respuesta. Se mantiene una sola
  * solicitud activa, pero las lecturas instantáneas saltan delante del trabajo
  * histórico pendiente para que la pantalla nunca espere una descarga larga.
  */
 export function api<T>(path: string, options: RequestInit = {}): Promise<T> {
-  return enqueue<T>(path, options, false);
+  return usesProviderLane(path) ? enqueue<T>(path, options, false) : executeInternal<T>(path, options);
 }
 
 export function apiLive<T>(path: string, options: RequestInit = {}): Promise<T> {
   return enqueue<T>(path, options, true);
+}
+
+/**
+ * Operaciones contra proveedores que no deben reintentarse automáticamente.
+ * Se mantienen dentro de la cola única del navegador, pero una pérdida de red
+ * nunca duplica una reparación histórica ya iniciada en el servidor.
+ */
+export function apiSingle<T>(path: string, options: RequestInit = {}, timeoutMs = 60_000): Promise<T> {
+  if (!usesProviderLane(path)) return executeOnce<T>(path, options, timeoutMs);
+  return new Promise<T>((resolve, reject) => {
+    normalQueue.push({
+      run: () => executeOnce<T>(path, options, timeoutMs),
+      resolve: (value) => resolve(value as T),
+      reject
+    });
+    drainQueue();
+  });
 }
 
 /**

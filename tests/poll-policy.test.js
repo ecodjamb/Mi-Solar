@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {readPollPolicy,providerClaimSeconds} from '../server/pollPolicy.js';
+import {readPollPolicy,providerBackgroundIntervalSeconds,providerClaimSeconds} from '../server/pollPolicy.js';
 const original=global.fetch;
 const keys=['SUPABASE_URL','SUPABASE_SECRET_KEY','SUPABASE_SERVICE_ROLE_KEY','SUPABASE_PUBLISHABLE_KEY','MISOLAR_DB_KEY'];
 const env=Object.fromEntries(keys.map(k=>[k,process.env[k]]));
@@ -27,3 +27,6 @@ console.log('visible/background polling and monitoring fallback passed');
 assert.equal(providerClaimSeconds(300),270);
 assert.equal(providerClaimSeconds(900),870);
 assert.equal(providerClaimSeconds(10),30);
+assert.equal(providerBackgroundIntervalSeconds('isolar',900),300,'i.Solar must keep one shared five-minute sample for daily totals');
+assert.equal(providerBackgroundIntervalSeconds('watchpower',900),900,'WatchPower keeps the idle saving policy');
+assert.equal(providerBackgroundIntervalSeconds('watchpower',300),300);

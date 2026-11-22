@@ -1,5 +1,6 @@
 // Mi Solar V6 — archivo actualizado para reemplazo completo del repositorio.
 import crypto from 'node:crypto';
+import { privateProviderQueryControlStatus } from './privateRpc.js';
 
 export const BASE_URL = 'https://www.tumcapp.com/app/api/mobile';
 
@@ -41,6 +42,13 @@ function encodeBody(params) {
 }
 
 export async function tumRequest(path, { params = {}, token = '', vrtKey = '', method = 'POST' } = {}) {
+  const queryControl = await privateProviderQueryControlStatus('isolar');
+  if (queryControl?.paused) {
+    const error = new Error('Las consultas a i.Solar están suspendidas manualmente desde Mi Solar.');
+    error.code = 'PROVIDER_MANUALLY_PAUSED';
+    error.status = 423;
+    throw error;
+  }
   const upperMethod = method.toUpperCase();
   const encoded = encodeBody(params);
   const url = upperMethod === 'GET' && encoded
@@ -56,8 +64,12 @@ export async function tumRequest(path, { params = {}, token = '', vrtKey = '', m
     vrt: calculateVrt(params, vrtKey)
   };
 
+  // El coordinador global decide cuándo volver a consultar. No se permiten
+  // reintentos HTTP internos porque convertirían un solo ciclo visible en una
+  // ráfaga de solicitudes a i.Solar con pocos segundos de separación.
+  const maximumAttempts = 1;
   let lastError;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 15000);
@@ -92,12 +104,7 @@ export async function tumRequest(path, { params = {}, token = '', vrtKey = '', m
       };
     } catch (error) {
       lastError = error;
-      const status = Number(error?.status || 0);
-      // Un 429 nunca se repite dentro de la misma operación: insistir en ese
-      // momento solo prolonga el límite impuesto por i.Solar.
-      const retryable = !status || [408, 500, 502, 503, 504].includes(status);
-      if (!retryable || attempt === 2) break;
-      await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+      break;
     }
   }
   throw lastError;

@@ -20,11 +20,39 @@
       "destination": "/api/index?path=:path*"
     },
     {
+      "source": "/monitor",
+      "destination": "/monitor.html"
+    },
+    {
+      "source": "/monitor/",
+      "destination": "/monitor.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
   ],
   "headers": [
+    {
+      "source": "/",
+      "headers": [{"key":"Cache-Control","value":"no-cache, no-store, must-revalidate"}]
+    },
+    {
+      "source": "/index.html",
+      "headers": [{"key":"Cache-Control","value":"no-cache, no-store, must-revalidate"}]
+    },
+    {
+      "source": "/monitor",
+      "headers": [{"key":"Cache-Control","value":"no-cache, no-store, must-revalidate"}]
+    },
+    {
+      "source": "/monitor/",
+      "headers": [{"key":"Cache-Control","value":"no-cache, no-store, must-revalidate"}]
+    },
+    {
+      "source": "/monitor.html",
+      "headers": [{"key":"Cache-Control","value":"no-cache, no-store, must-revalidate"}]
+    },
     {
       "source": "/assets/(.*)",
       "headers": [

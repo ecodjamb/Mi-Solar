@@ -12,7 +12,7 @@ async function run(route,authorized){
  return {status:res.statusCode,body};
 }
 try{
- for(const route of ['forecast/run','notifications/reminders','automation/run']){
+ for(const route of ['forecast/run','notifications/reminders','automation/run','providers/isolar/history-day']){
   const result=await run(route,false);assert.equal(result.status,401);assert.equal(paths.length,0);
  }
  let result=await run('automation/run',true);

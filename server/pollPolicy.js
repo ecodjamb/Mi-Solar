@@ -19,3 +19,10 @@ export async function readPollPolicy({monitor=false}={}) {
 export function providerClaimSeconds(intervalSeconds){
   return Math.max(30,Number(intervalSeconds)-30);
 }
+
+/** i.Solar alimenta los acumulados del día y debe conservar una muestra por
+ * ciclo aun sin una pestaña visible. WatchPower sí mantiene la cadencia
+ * adaptativa para ahorrar ejecuciones cuando nadie usa la aplicación. */
+export function providerBackgroundIntervalSeconds(provider,requestedSeconds){
+  return provider==='isolar'?300:Math.max(300,Number(requestedSeconds)||300);
+}

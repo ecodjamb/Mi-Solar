@@ -148,6 +148,12 @@ function chileMidnightUtc(date) {
   return guess.toISOString();
 }
 
+export function solarBatteryToLoadW({ loadW, gridW, gridActive }) {
+  const load = Math.max(0, Number(loadW || 0));
+  const gridToLoad = gridActive ? Math.min(load, Math.max(0, Number(gridW || 0))) : 0;
+  return Math.max(0, load - gridToLoad);
+}
+
 async function theoreticalGrid(deviceSn, periodStart, periodEnd) {
   const siteId = await ensureSite(deviceSn);
   const start = chileMidnightUtc(periodStart);
@@ -156,6 +162,7 @@ async function theoreticalGrid(deviceSn, periodStart, periodEnd) {
   let gridKwh = 0;
   let loadKwh = 0;
   let solarKwh = 0;
+  let solarBatteryToLoadKwh = 0;
   let coveredHours = 0;
   for (const row of rows) {
     const coverage = Math.max(0, Math.min(1, Number(row.coverage_hours || 0)));
@@ -165,6 +172,7 @@ async function theoreticalGrid(deviceSn, periodStart, periodEnd) {
     gridKwh += Math.min(Math.max(0, load - battery), grid) * coverage / 1000;
     loadKwh += load * coverage / 1000;
     solarKwh += Math.max(0, Number(row.solar_w || 0)) * coverage / 1000;
+    solarBatteryToLoadKwh += solarBatteryToLoadW({ loadW: load, gridW: row.grid_w, gridActive: Boolean(row.grid_active) }) * coverage / 1000;
     coveredHours += coverage;
   }
   const expectedHours = Math.max(1, (Date.parse(end) - Date.parse(start)) / 3_600_000);
@@ -172,6 +180,7 @@ async function theoreticalGrid(deviceSn, periodStart, periodEnd) {
     kwh: Number(gridKwh.toFixed(3)),
     loadKwh: Number(loadKwh.toFixed(3)),
     solarKwh: Number(solarKwh.toFixed(3)),
+    solarBatteryToLoadKwh: Number(solarBatteryToLoadKwh.toFixed(3)),
     coveragePct: Number(Math.min(100, coveredHours / expectedHours * 100).toFixed(1)),
     coveredHours: Number(coveredHours.toFixed(3)),
     expectedHours,
@@ -377,6 +386,8 @@ export async function projectUtilityBill(deviceSn, bills = null, unitRateClp = 2
     observedThrough,
     observedGridKwh: observed.kwh,
     observedLoadKwh: observed.loadKwh,
+    observedSolarBatteryToLoadKwh: observed.solarBatteryToLoadKwh,
+    observedSolarBatteryValueClp: Math.round(observed.solarBatteryToLoadKwh * unitRateClp),
     averageDailyLoadKwh: linear.averageDailyGridKwh,
     averageDailyGridKwh: linear.averageDailyGridKwh,
     averageHourlyGridKwh: linear.averageHourlyGridKwh,
@@ -395,6 +406,48 @@ export async function projectUtilityBill(deviceSn, bills = null, unitRateClp = 2
     coveredHours: observed.coveredHours,
     lastDataAt: observed.lastSampleAt,
     calculatedAt: new Date().toISOString()
+  };
+}
+
+/**
+ * Resumen económico de solo lectura para Estado monitor. A diferencia de la
+ * proyección de la cuenta, también funciona cuando la cuenta más reciente ya
+ * contiene el período en curso (o cuando todavía no existe una cuenta).
+ */
+export async function monitorUtilityEconomics(deviceSn, now = new Date(), unitRateClp = 250) {
+  const today = todayChile(now);
+  // Un sitio sin cuentas de Enel igualmente obtiene un período calendario y
+  // sus acumulados energéticos; la ausencia de una boleta no invalida Monitor.
+  const bills = await listUtilityBills(deviceSn).catch(() => []);
+  const rate = Math.max(0, Number(unitRateClp || 250));
+  const projection = await projectUtilityBill(deviceSn, bills, rate).catch(() => null);
+  const containing = bills.find((bill) => bill.periodStart <= today && bill.periodEnd >= today);
+  const latest = bills[0] || null;
+  let periodStart;
+  let periodEnd;
+  if (containing) {
+    periodStart = containing.periodStart;
+    periodEnd = containing.periodEnd;
+  } else if (latest && latest.periodEnd < today) {
+    periodStart = dateAdd(latest.periodEnd, 1);
+    periodEnd = nextMonthSameDay(periodStart);
+  } else {
+    const [year, month] = today.split('-').map(Number);
+    periodStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    periodEnd = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+  }
+  const observedThrough = today < periodEnd ? today : periodEnd;
+  const emptyEnergy = { kwh: 0, solarBatteryToLoadKwh: 0 };
+  const [period, last30] = await Promise.all([
+    theoreticalGrid(deviceSn, periodStart, observedThrough).catch(() => emptyEnergy),
+    theoreticalGrid(deviceSn, dateAdd(today, -29), today).catch(() => emptyEnergy)
+  ]);
+  return {
+    periodStart: projection?.periodStart || periodStart,
+    periodEnd: projection?.periodEnd || periodEnd,
+    gridSpendClp: projection ? Math.round(Math.max(0, projection.observedGridKwh) * rate) : Math.round(period.kwh * rate),
+    periodSavingsClp: projection ? Math.round(Math.max(0, projection.observedSolarBatteryValueClp)) : Math.round(period.solarBatteryToLoadKwh * rate),
+    last30SavingsClp: Math.round(last30.solarBatteryToLoadKwh * rate)
   };
 }
 

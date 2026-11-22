@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { reconcileWaterBill } from '../server/waterBillAi.js';
-import { calculateWaterConsumptionAcrossMeterCycles, calculateWaterProjection, classifyWaterConsumption, deleteWaterReading, normalizeWaterReadingM3 } from '../server/waterCosts.js';
+import { reconcileWaterBill, validateWaterBillDocuments } from '../server/waterBillAi.js';
+import { calculateWaterConsumptionAcrossMeterCycles, calculateWaterProjection, classifyWaterConsumption, deleteWaterReading, normalizeWaterReadingM3, waterPeriodFromBill } from '../server/waterCosts.js';
+
+const waterUi = readFileSync(new URL('../src/components/WaterCostsPage.tsx', import.meta.url), 'utf8');
+assert.doesNotMatch(waterUi, /Proyección por historial/, 'Aguas no debe mostrar una proyección histórica duplicada.');
+assert.match(waterUi, /projection\.consumedM3 \* \(settingsDraft\?\.unitServiceRateClp \|\| projection\.unitServiceRateClp\)/, 'El consumo a la fecha debe incluir el valor editable del m³.');
+assert.match(waterUi, /Valor del metro cúbico de agua/, 'Aguas debe mostrar una celda editable para el valor del m³.');
+assert.match(waterUi, /projection\.readingProjectedM3 \* \(settingsDraft\?\.unitServiceRateClp \|\| projection\.unitServiceRateClp\)/, 'La proyección por lecturas debe usar el valor editable del m³.');
 
 const bill = reconcileWaterBill({
   periodStart: '2026-08-07', periodEnd: '2026-08-11', amountClp: 784570,
@@ -69,10 +75,17 @@ const currentPeriodProjection = calculateWaterProjection({
   periodStart: '2026-08-11', expectedCloseDate: '2026-09-09', openingReadingM3: 7876
 }, [{ readingAt: '2026-08-19T02:14:40.783Z', readingM3: 7892.713 }], [], new Date('2026-08-19T02:20:00.000Z'));
 assert.equal(currentPeriodProjection.consumedM3, 16.713);
-assert.equal(currentPeriodProjection.elapsedDays, 7);
-assert.equal(currentPeriodProjection.averageDailyM3, 2.388);
-assert.equal(currentPeriodProjection.projectedM3, 69.24);
-assert.equal(currentPeriodProjection.projectedAmountClp, 103859);
+assert.equal(currentPeriodProjection.elapsedDays, 8);
+assert.equal(currentPeriodProjection.averageDailyM3, 2.089);
+assert.equal(currentPeriodProjection.projectedM3, 62.67);
+assert.equal(currentPeriodProjection.unitServiceRateClp, 1500);
+assert.equal(currentPeriodProjection.projectedAmountClp, 94011);
+const customRateProjection = calculateWaterProjection({
+  periodStart: '2026-08-11', expectedCloseDate: '2026-09-09', openingReadingM3: 7876
+}, [{ readingAt: '2026-08-19T02:14:40.783Z', readingM3: 7892.713 }], [], new Date('2026-08-19T02:20:00.000Z'), 1800);
+assert.equal(customRateProjection.unitServiceRateClp, 1800);
+assert.equal(customRateProjection.projectedAmountClp, 112813);
+assert.deepEqual(waterPeriodFromBill('2026-09-10'), { periodStart: '2026-09-11', expectedCloseDate: '2026-10-10' });
 assert.equal(Number((7899.410 - 7897.593).toFixed(3)), 1.817);
 const replacementReadings = [
   { readingAt: '2026-08-25T18:01:00.000Z', readingM3: 0, meterCycle: 2, isMeterChange: true },
@@ -80,6 +93,18 @@ const replacementReadings = [
   { readingAt: '2026-08-22T21:04:15.778Z', readingM3: 7897.593, meterCycle: 1, isMeterChange: false }
 ];
 assert.equal(calculateWaterConsumptionAcrossMeterCycles({ openingReadingM3: 7876 }, replacementReadings), 23.410);
+const octoberConsumption = calculateWaterConsumptionAcrossMeterCycles({ openingReadingM3: 22.840 }, [
+  { readingAt: '2026-09-21T20:48:00.000Z', readingM3: 37.670, meterCycle: 2, isMeterChange: false }
+]);
+assert.equal(octoberConsumption, 14.830);
+const octoberProjection = calculateWaterProjection({
+  periodStart: '2026-09-11', expectedCloseDate: '2026-10-10', openingReadingM3: 22.840
+}, [{ readingAt: '2026-09-21T20:48:00.000Z', readingM3: 37.670, meterCycle: 2, isMeterChange: false }], [], new Date('2026-09-21T22:12:00.000Z'));
+assert.equal(octoberProjection.consumedM3, 14.830);
+assert.equal(octoberProjection.elapsedDays, 11);
+assert.equal(octoberProjection.averageDailyM3, 1.348);
+assert.equal(octoberProjection.readingProjectedM3, 40.45);
+assert.equal(octoberProjection.readingProjectedAmountClp, 60668);
 const replacementProjection = calculateWaterProjection({
   periodStart: '2026-08-11', expectedCloseDate: '2026-09-09', openingReadingM3: 7876
 }, replacementReadings, [], new Date('2026-08-25T18:02:00.000Z'));
@@ -92,10 +117,24 @@ assert.equal(normalizeWaterReadingM3('7893,125'), 7893.125);
 assert.equal(normalizeWaterReadingM3(7893.1254), 7893.125);
 assert.ok(Number.isNaN(normalizeWaterReadingM3('lectura')));
 await assert.rejects(() => deleteWaterReading('96342509120972', 'no-valida'), /no es válida/);
+assert.equal(validateWaterBillDocuments([{ name: 'cuenta.pdf', mimeType: 'application/pdf', dataUrl: 'data:application/pdf;base64,JVBERi0xLjQK' }]).length, 1);
+assert.throws(() => validateWaterBillDocuments([{ name: 'cuenta.txt', mimeType: 'text/plain', dataUrl: 'data:text/plain;base64,SG9sYQ==' }]), /fotografía JPG/);
 const waterInterface = readFileSync(new URL('../src/components/WaterCostsPage.tsx', import.meta.url), 'utf8');
 assert.match(waterInterface, /<h1>Aguas<\/h1>/);
 assert.match(waterInterface, /Consumo diario del período/);
 assert.match(waterInterface, /Ingresa el número · foto opcional/);
+assert.match(waterInterface, /Sacar foto/);
+assert.match(waterInterface, /Elegir del rollo/);
+assert.match(waterInterface, /Subir archivo PDF/);
+assert.match(waterInterface, /Boleta original respaldada/);
+assert.match(waterInterface, /Lecturas conservadas en este período/);
+assert.match(waterInterface, /Editar cuenta/);
+assert.match(waterInterface, /Guardar cambios/);
 assert.doesNotMatch(waterInterface, /Ingresar número lectura de hoy/);
 assert.doesNotMatch(waterInterface, /Ocultar detalles y lecturas/);
+const waterServer = readFileSync(new URL('../server/waterCosts.js', import.meta.url), 'utf8');
+assert.match(waterServer, /Toda lectura posterior al cierre facturado pertenece al nuevo ciclo/);
+assert.match(waterServer, /actual_close_date: latest\.period_end/);
+assert.match(waterServer, /period_id: current\.id/);
+assert.match(waterInterface, /Fecha vencida/);
 console.log('water bill AI reconciliation tests: ok');

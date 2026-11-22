@@ -2,9 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { birthdayMessage,birthdayToday,chileParts,dayPhase,moonPhase,seasonalTheme,weatherCodeToMood } from '../utils/living';
 import type { WeatherData } from '../services/weather';
 import arrayanDay from '../assets/scenes/arrayan-day.webp';
-import arrayanDawn from '../assets/scenes/arrayan-dawn.webp';
-import arrayanSunset from '../assets/scenes/arrayan-sunset.webp';
-import arrayanNight from '../assets/scenes/arrayan-night.webp';
 import puertoDay from '../assets/scenes/puerto-montt-day.webp';
 import puertoDawn from '../assets/scenes/puerto-montt-dawn.webp';
 import puertoSunset from '../assets/scenes/puerto-montt-sunset.webp';
@@ -14,7 +11,9 @@ type SiteKey='arrayan'|'puerto-montt';
 type SceneKey='dawn'|'day'|'sunset'|'night';
 
 const SCENES:Record<SiteKey,Record<SceneKey,string>>={
-  arrayan:{dawn:arrayanDawn,day:arrayanDay,sunset:arrayanSunset,night:arrayanNight},
+  // Una sola fotografía vigente mantiene la configuración física actual en
+  // todas las horas; la ambientación visual se aplica mediante capas y filtros.
+  arrayan:{dawn:arrayanDay,day:arrayanDay,sunset:arrayanDay,night:arrayanDay},
   'puerto-montt':{dawn:puertoDawn,day:puertoDay,sunset:puertoSunset,night:puertoNight}
 };
 
@@ -71,7 +70,7 @@ export default function HouseIllustration({weather,funMode=true,siteName='Casa E
   },[]);
 
   const phaseLabel=useMemo(()=>phase==='night'?moon.label:mood==='rain'?'Lluvia':mood==='storm'?'Tormenta':mood==='cloudy'?'Nublado':mood==='partly-cloudy'?'Parcialmente nublado':phase==='dawn'?'Amanecer':phase==='sunset'?'Atardecer':'Día', [phase,mood,moon.label]);
-  const placeLabel=site==='puerto-montt'?'Casa Puerto Montt':'Casa ECO Arrayán';
+  const placeLabel=site==='puerto-montt'?'Casa ECO Quillaipe':'Casa ECO Arrayán';
 
   return <section className="panel house-illustration-card">
     <header className="section-head house-title-row"><div><small>Gemelo visual de tu hogar</small><h2>Casa viva · {placeLabel}</h2></div><div className="house-badges"><span className="status-dot">{phaseLabel}</span>{funMode&&<span className="season-badge">{themeLabel(theme)}</span>}</div></header>

@@ -41,7 +41,10 @@ function HouseScene({phase,weather,theme,birthday,funMode}:{phase:string;weather
 export default function LivingHome({data,history,weather,funMode=true}:{data:Realtime;history:HistoryRow[];weather:WeatherMood;funMode?:boolean}){
  const p1=pvPower(data,1),p2=pvPower(data,2),total=p1+p2,grid=effectiveGridPower(data),load=loadPower(data),charge=batteryChargePower(data),discharge=batteryDischargePower(data),soc=batterySoc(data),count=detectPvCount(data,history);
  const phase=dayPhase(),theme=seasonalTheme(),birthday=birthdayToday(),isDay=phase!=='night';
- const nominalTotal=Number(localStorage.getItem('installedWp'))||8680;
+ // El Arrayán opera con 17 paneles / 10,54 kWp desde el 01-10-2026.
+ // No usar el valor histórico guardado en localStorage: podría mantener la
+ // configuración anterior y distorsionar los porcentajes de cada string.
+ const nominalTotal=10540;
  const share1=nominalTotal?Math.max(0,p1/(nominalTotal/Math.max(1,count))*100):0;
  const share2=nominalTotal?Math.max(0,p2/(nominalTotal/Math.max(1,count))*100):0;
  const mood1=panelMood(share1,isDay),mood2=panelMood(share2,isDay);

@@ -1,4 +1,4 @@
-export const NORMALIZER_VERSION = '1.0.0';
+export const NORMALIZER_VERSION = '1.4.0';
 
 const number = (value) => {
   const parsed = Number(value);
@@ -52,13 +52,19 @@ export function normalizeISolar(row = {}, summary = {}) {
   const merged = { ...summary, ...row };
   const pv1Power = read(merged, ['pvInputPower1','pvPower1','powerPv1','solarPower1','pv1Power','pvPowerInput1']);
   const pv2Power = read(merged, ['pvInputPower2','pvPower2','powerPv2','solarPower2','pv2Power','pvPowerInput2']);
-  const batteryVoltage = read(merged, ['batteryVoltage','batteryVolt']);
-  const chargeCurrent = read(merged, ['batteryChargingCurrent','batteryChargeCurrent']);
-  const dischargeCurrent = read(merged, ['batteryDischargingCurrent','batteryDischargeCurrent']);
+  const batteryVoltage = read(merged, ['batteryVoltage','batteryVolt','batVoltage']);
+  const chargeCurrent = read(merged, ['batteryChargingCurrent','batteryChargeCurrent','chargingCurrent','batChargingCurrent']);
+  const dischargeCurrent = read(merged, ['batteryDischargingCurrent','batteryDischargeCurrent','dischargingCurrent','batDischargingCurrent']);
   const chargePower = read(merged, ['batteryChargingPower','batteryChargePower','chargingPower']);
   const dischargePower = read(merged, ['batteryDischargingPower','batteryDischargePower','dischargingPower']);
-  const batteryPower = chargePower != null || dischargePower != null ? (dischargePower || 0) - (chargePower || 0) : null;
-  return {
+  const batteryConflict = (chargePower || 0) > 50 && (dischargePower || 0) > 50;
+  const reportedBatteryPower = chargePower != null || dischargePower != null ? (dischargePower || 0) - (chargePower || 0) : null;
+  const explicitBatteryCurrent = read(merged, ['batteryCurrent','batCurrent']);
+  const batteryCurrent = explicitBatteryCurrent
+    ?? (chargeCurrent != null || dischargeCurrent != null ? (dischargeCurrent || 0) - (chargeCurrent || 0) : null)
+    ?? (reportedBatteryPower != null && batteryVoltage ? reportedBatteryPower / batteryVoltage : null);
+  const batteryPower = reportedBatteryPower ?? (batteryVoltage != null && batteryCurrent != null ? batteryVoltage * batteryCurrent : null);
+  const canonical = {
     grid: {
       active: merged.statusGrid == null ? null : Number(merged.statusGrid) === 1,
       voltage: read(merged,['gridVoltage','acInputVoltage']), current: read(merged,['gridCurrent','acInputCurrent']),
@@ -67,29 +73,73 @@ export function normalizeISolar(row = {}, summary = {}) {
     },
     pv: {
       total_power: pv1Power == null && pv2Power == null ? null : (pv1Power || 0) + (pv2Power || 0),
-      mppt1_voltage: read(merged,['pvInputVoltage1','pvVoltage1']), mppt1_current: read(merged,['pvInputCurrent1','pvCurrent1']), mppt1_power: pv1Power,
-      mppt2_voltage: read(merged,['pvInputVoltage2','pvVoltage2']), mppt2_current: read(merged,['pvInputCurrent2','pvCurrent2']), mppt2_power: pv2Power,
+      mppt1_voltage: read(merged,['pvInputVoltage1','pvVoltage1','voltageInput1','pv1Voltage']), mppt1_current: read(merged,['pvInputCurrent1','pvCurrent1','currentInput1','pv1Current']), mppt1_power: pv1Power,
+      mppt2_voltage: read(merged,['pvInputVoltage2','pvVoltage2','voltageInput2','pv2Voltage']), mppt2_current: read(merged,['pvInputCurrent2','pvCurrent2','currentInput2','pv2Current']), mppt2_power: pv2Power,
       energy_today: read(merged,['pvEnergyToday','solarEnergyToday']), energy_month: read(merged,['pvEnergyMonth','solarEnergyMonth']), energy_total: read(merged,['pvEnergyTotal','solarEnergyTotal'])
     },
     battery: {
-      voltage: batteryVoltage, current: batteryPower != null && batteryVoltage ? batteryPower / batteryVoltage : read(merged,['batteryCurrent']), power: batteryPower,
+      voltage: batteryVoltage, current: batteryCurrent, power: batteryPower,
       soc: read(merged,['batteryCapacity','batterySoc','soc','batteryPercent']), direction: batteryPower == null ? null : batteryPower > 0 ? 'discharging' : batteryPower < 0 ? 'charging' : 'idle',
       charge_current: chargeCurrent, discharge_current: dischargeCurrent, temperature: read(merged,['batteryTemperature'])
     },
-    output: { voltage: read(merged,['acOutputVoltage','outputVoltage']), frequency: read(merged,['acOutputFrequency','outputFrequency']) },
+    output: { voltage: read(merged,['acOutputVoltageR','acOutputVoltage','outputVoltage']), current: read(merged,['acOutputCurrentR','acOutputCurrent','outputCurrent']), frequency: read(merged,['acOutputFrequency','outputFrequency']) },
     load: {
       active_power: read(merged,['acOutputActivePowerTotal','loadPower','outputActivePower','acOutputPower']), apparent_power: read(merged,['acOutputApparentPowerTotal','outputApparentPower']),
-      reactive_power: read(merged,['acOutputReactivePowerTotal','outputReactivePower']), percent: read(merged,['outputLoadPercent','loadPercent']),
+      reactive_power: read(merged,['acOutputReactivePowerTotal','outputReactivePower']), percent: read(merged,['acOutputLoadTotal','outputLoadPercent','loadPercent']),
       energy_today: read(merged,['loadEnergyToday','outputEnergyToday']), energy_total: read(merged,['loadEnergyTotal','outputEnergyTotal'])
     },
     inverter: {
       mode: merged.workMode ?? merged.inverterMode ?? null, output_priority: merged.outputSourcePriority ?? null, charging_priority: merged.chargerSourcePriority ?? null,
-      status: merged.deviceStatus ?? merged.status ?? null, temperature: read(merged,['inverterTemperature','temperature']), warning_code: merged.warningCode ?? null, fault_code: merged.faultCode ?? null
+      status: merged.statusInverter ?? merged.deviceStatus ?? merged.status ?? null,
+      temperature: read(merged,['innerTemperature','inverterTemperature','temperature','temperature1']),
+      heatsink_temperature: read(merged,['maxTemperature','radiatorTemperature','heatSinkTemperature','heatsinkTemperature','temperature2']),
+      warning_code: merged.warningCode ?? merged.warning1 ?? null,
+      fault_code: merged.faultCode ?? merged.fault1 ?? null
     },
-    device: { model: merged.deviceModel ?? merged.model ?? null, serial: merged.deviceSn ?? null, firmware_main: merged.mainCpuFirmware ?? null, firmware_secondary: merged.secondaryCpuFirmware ?? null },
+    device: {
+      model: merged.deviceModel ?? merged.model ?? null,
+      serial: merged.deviceSn ?? null,
+      firmware_main: merged.mainCpuFirmware ?? merged.mainVersion ?? null,
+      firmware_secondary: merged.secondaryCpuFirmware ?? merged.remoteVersion ?? null,
+      rated_power_w: read(merged,['ratedOutputPowerW','outputPowerW']),
+      rated_power_va: read(merged,['ratedOutputPowerVa','outputPowerVa']),
+      mppt_trackers: read(merged,['mpptTrackerCount','mpptTrack']),
+      firmware_observed_at: merged.firmwareObservedAt ?? null
+    },
     logger: { serial: merged.loggerSn ?? null, status: merged.loggerStatus ?? null, firmware: merged.loggerFirmware ?? null },
     time: timestampInfo(merged.currentTime ?? merged.createTime ?? merged.collectTime ?? merged.dataTime ?? merged.time, 'Asia/Shanghai'),
-    quality: { derived: batteryPower == null ? [] : ['battery.current_when_missing'], provider: 'isolar', normalizer_version: NORMALIZER_VERSION }
+    quality: { derived: [explicitBatteryCurrent == null && batteryCurrent != null ? 'battery.current_when_missing' : null, reportedBatteryPower == null && batteryPower != null ? 'battery.power=voltage×current' : null].filter(Boolean), provider: 'isolar', normalizer_version: NORMALIZER_VERSION, battery_conflict: batteryConflict }
+  };
+  canonical.quality.energy_balance = evaluateEnergyBalance(canonical);
+  return canonical;
+}
+
+// Comprueba que una única fotografía temporal del inversor sea físicamente
+// posible. No intenta "arreglar" potencias: identifica muestras cuyos campos
+// llegaron de instantes diferentes para conservarlas como evidencia cruda y
+// evitar que reemplacen en pantalla una muestra coherente.
+export function evaluateEnergyBalance(canonical = {}) {
+  const solar = Math.max(0, Number(canonical.pv?.total_power) || 0);
+  const load = Math.max(0, Number(canonical.load?.active_power) || 0);
+  const battery = Number(canonical.battery?.power) || 0;
+  const charge = Math.max(0, -battery);
+  const discharge = Math.max(0, battery);
+  const grid = canonical.grid?.active === false ? 0 : Math.max(0, Number(canonical.grid?.power) || 0);
+  const sources = solar + grid + discharge;
+  const sinks = load + charge;
+  const residual = sources - sinks;
+  // Las pérdidas de conversión hacen normalmente que sources sea algo mayor.
+  // Solo rechazamos un déficit grande, que sí es físicamente imposible sin
+  // otra fuente de energía informada por el proveedor.
+  const tolerance = Math.max(250, Math.round(Math.max(sources, sinks) * 0.12));
+  const status = canonical.quality?.battery_conflict === true || sinks - sources > tolerance ? 'inconsistent' : 'coherent';
+  return {
+    status,
+    sources_w: Math.round(sources),
+    sinks_w: Math.round(sinks),
+    residual_w: Math.round(residual),
+    tolerance_w: tolerance,
+    formula: 'solar + red activa + descarga batería - carga casa - carga batería'
   };
 }
 
@@ -131,10 +181,23 @@ export function normalizeWatchPower(payload = {}) {
   const reactive = active != null && apparent != null && apparent >= Math.abs(active) ? Math.sqrt(apparent ** 2 - active ** 2) : null;
   const pv1Voltage = read(values,['bt_voltage_1','pv_input_voltage','pv1_voltage']);
   const pv1Current = read(values,['pv_input_current','bt_pv_input_current','pv1_current']);
-  const pv1Power = read(values,['bt_input_power_1','bt_input_power','pv_input_power','pv1_power']) ?? (pv1Voltage != null && pv1Current != null ? pv1Voltage * pv1Current : null);
   const pv2Voltage = read(values,['bt_voltage_2','pv2_voltage']);
   const pv2Current = read(values,['pv_input_current2','pv2_input_current','pv2_current']);
-  const pv2Power = read(values,['bt_input_power_2','pv2_input_power','pv2_power']) ?? (pv2Voltage != null && pv2Current != null ? pv2Voltage * pv2Current : null);
+  // En el perfil real WatchPower/ShineMonitor de este inversor Hybrid los
+  // nombres del protocolo son contraintuitivos: bt_output_power_1 sigue a
+  // MPPT1 y bt_input_power_1 sigue a MPPT2. La comparación simultánea con
+  // i.Solar confirmó ambos campos muestra por muestra. Solo se activa esta
+  // equivalencia cuando los dos existen; otros perfiles conservan el mapeo
+  // genérico y sus fórmulas de respaldo.
+  const protocolPv1Power = read(values,['bt_output_power_1']);
+  const protocolPv2Power = read(values,['bt_input_power_1']);
+  const hasHybridPowerPair = protocolPv1Power != null && protocolPv2Power != null;
+  const pv1Power = protocolPv1Power
+    ?? read(values,['bt_input_power_1','bt_input_power','pv_input_power','pv1_power'])
+    ?? (pv1Voltage != null && pv1Current != null ? pv1Voltage * pv1Current : null);
+  const pv2Power = read(values,['bt_input_power_2','pv2_input_power','pv2_power'])
+    ?? (hasHybridPowerPair ? protocolPv2Power : null)
+    ?? (pv2Voltage != null && pv2Current != null ? pv2Voltage * pv2Current : null);
   const operatingMode = values.bc_model ?? values.sy_work_mode ?? values.bt_work_mode ?? null;
   const gridActive = operatingMode == null ? null : /line|utility/i.test(String(operatingMode));
   const directGridPower = read(values,['bt_grid_active_power']);
@@ -143,19 +206,21 @@ export function normalizeWatchPower(payload = {}) {
     : null;
   const gridPower = gridActive === false ? 0 : directGridPower ?? derivedGridPower;
   const timestamp = watchPowerTimestamp(payload?.dat?.gts);
-  return {
+  const canonical = {
     grid: { active: gridActive, voltage: read(values,['bt_grid_voltage']), current: read(values,['bt_grid_current']), frequency: read(values,['bt_grid_frequency']), power: gridPower, energy_today: read(values,['gd_grid_energy_today']), energy_total: read(values,['gd_grid_energy_total']) },
     pv: { total_power: pv1Power == null && pv2Power == null ? null : (pv1Power || 0) + (pv2Power || 0), mppt1_voltage: pv1Voltage, mppt1_current: pv1Current, mppt1_power: pv1Power, mppt2_voltage: pv2Voltage, mppt2_current: pv2Current, mppt2_power: pv2Power, energy_today: read(values,['gd_pv_energy_today','pv_energy_today']), energy_month: read(values,['gd_pv_energy_month']), energy_total: read(values,['gd_pv_energy_total']) },
     battery: { voltage: batteryVoltage, current: batteryCurrent, power: batteryPower, soc: read(values,['bt_battery_capacity']), direction: batteryCurrent == null ? null : batteryCurrent > 0 ? 'discharging' : batteryCurrent < 0 ? 'charging' : 'idle', charge_current: chargeCurrent, discharge_current: dischargeCurrent, temperature: read(values,['bt_battery_temperature']) },
-    output: { voltage: read(values,['bt_ac_output_voltage']), frequency: read(values,['bt_grid_ac_frequency','bt_grid_AC_frequency','bt_ac_output_frequency']) },
+    output: { voltage: read(values,['bt_ac_output_voltage']), current: read(values,['bt_ac_output_current']), frequency: read(values,['bt_grid_ac_frequency','bt_grid_AC_frequency','bt_ac_output_frequency']) },
     load: { active_power: active, apparent_power: apparent, reactive_power: reactive, percent: read(values,['bt_output_load_percent']), energy_today: read(values,['gd_load_energy_today']), energy_total: read(values,['gd_load_energy_total']) },
-    inverter: { mode: operatingMode, output_priority: values.bse_output_source_priority ?? null, charging_priority: values.bse_charger_source_priority ?? null, status: values.sy_status ?? values.bc_load_status ?? null, temperature: read(values,['bt_inverter_temperature']), warning_code: values.sy_warning_code ?? null, fault_code: values.sy_fault_code ?? null },
+    inverter: { mode: operatingMode, output_priority: values.bse_output_source_priority ?? null, charging_priority: values.bse_charger_source_priority ?? null, status: values.sy_status ?? values.bc_load_status ?? null, temperature: read(values,['bt_inverter_temperature','bt_inner_temperature']), heatsink_temperature: read(values,['bt_radiator_temperature','bt_heatsink_temperature','bt_heat_sink_temperature','bt_dc_dc_temperature']), warning_code: values.sy_warning_code ?? null, fault_code: values.sy_fault_code ?? null },
     device: { model: values.sy_model ?? null, serial: payload?.device?.sn ?? null, firmware_main: values.sy_main_cpu1_firmware_version ?? null, firmware_secondary: values.sy_main_cpu2_firmware_version ?? null },
     logger: { serial: payload?.device?.pn ?? null, status: values.logger_status ?? null, firmware: values.logger_firmware ?? null },
     time: timestamp.time,
-    quality: { derived: [batteryPower != null ? 'battery.power=voltage×current' : null, reactive != null ? 'load.reactive_power=sqrt(apparent²-active²)' : null, derivedGridPower != null ? 'grid.power=load+charge-pv-discharge' : null].filter(Boolean), provider: 'watchpower', normalizer_version: NORMALIZER_VERSION, timestamp_assumption: timestamp.correctionSeconds ? 'Se detectó la firma real del datalogger: epoch 12 h detrás de la respuesta. Se aplicó +12 h; el epoch y la hora UTC original quedan conservados.' : 'America/Santiago assumed from the El Arrayán site; original provider timestamp is preserved for audit and comparison.', timestamp_correction_seconds: timestamp.correctionSeconds, original_sampled_at_utc: timestamp.originalSampledAtUtc },
+    quality: { derived: [batteryPower != null ? 'battery.power=voltage×current' : null, reactive != null ? 'load.reactive_power=sqrt(apparent²-active²)' : null, derivedGridPower != null ? 'grid.power=load+charge-pv-discharge' : null].filter(Boolean), provider: 'watchpower', normalizer_version: NORMALIZER_VERSION, pv_power_mapping: hasHybridPowerPair ? 'mppt1=bt_output_power_1;mppt2=bt_input_power_1' : 'generic', timestamp_assumption: timestamp.correctionSeconds ? 'Se detectó la firma real del datalogger: epoch 12 h detrás de la respuesta. Se aplicó +12 h; el epoch y la hora UTC original quedan conservados.' : 'America/Santiago assumed from the El Arrayán site; original provider timestamp is preserved for audit and comparison.', timestamp_correction_seconds: timestamp.correctionSeconds, original_sampled_at_utc: timestamp.originalSampledAtUtc },
     provider_fields: values
   };
+  canonical.quality.energy_balance = evaluateEnergyBalance(canonical);
+  return canonical;
 }
 
 export function canonicalToLegacy(canonical = {}) {
@@ -164,19 +229,45 @@ export function canonicalToLegacy(canonical = {}) {
     currentTime: canonical.time?.sampled_at_utc,
     pvInputPower1: canonical.pv?.mppt1_power ?? 0,
     pvInputPower2: canonical.pv?.mppt2_power ?? 0,
+    pvInputVoltage1: canonical.pv?.mppt1_voltage,
+    pvInputCurrent1: canonical.pv?.mppt1_current,
+    pvInputVoltage2: canonical.pv?.mppt2_voltage,
+    pvInputCurrent2: canonical.pv?.mppt2_current,
     acOutputActivePowerTotal: canonical.load?.active_power ?? 0,
     acOutputApparentPowerTotal: canonical.load?.apparent_power ?? 0,
     acOutputReactivePowerTotal: canonical.load?.reactive_power ?? 0,
+    outputLoadPercent: canonical.load?.percent,
     gridPowerInputActiveTotal: canonical.grid?.power ?? 0,
     statusGrid: canonical.grid?.active == null ? (Math.abs(Number(canonical.grid?.power || 0)) > 10 ? 1 : 0) : canonical.grid.active ? 1 : 0,
+    gridVoltage: canonical.grid?.voltage,
+    gridCurrent: canonical.grid?.current,
+    gridFrequency: canonical.grid?.frequency,
     batteryChargingPower: batteryPower < 0 ? Math.abs(batteryPower) : 0,
     batteryDischargingPower: batteryPower > 0 ? batteryPower : 0,
     batteryCapacity: canonical.battery?.soc,
     batteryVoltage: canonical.battery?.voltage,
+    batteryCurrent: canonical.battery?.current,
+    batteryChargingCurrent: canonical.battery?.charge_current,
+    batteryDischargingCurrent: canonical.battery?.discharge_current,
     acOutputVoltage: canonical.output?.voltage,
+    acOutputCurrent: canonical.output?.current,
     acOutputFrequency: canonical.output?.frequency,
     inverterTemperature: canonical.inverter?.temperature,
+    radiatorTemperature: canonical.inverter?.heatsink_temperature,
+    statusInverter: canonical.inverter?.status,
+    fault1: canonical.inverter?.fault_code,
+    warning1: canonical.inverter?.warning_code,
     workMode: canonical.inverter?.mode,
+    outputSourcePriority: canonical.inverter?.output_priority,
+    chargerSourcePriority: canonical.inverter?.charging_priority,
+    deviceModel: canonical.device?.model,
+    mainCpuFirmware: canonical.device?.firmware_main,
+    secondaryCpuFirmware: canonical.device?.firmware_secondary,
+    loggerFirmware: canonical.logger?.firmware,
+    ratedOutputPowerW: canonical.device?.rated_power_w,
+    ratedOutputPowerVa: canonical.device?.rated_power_va,
+    mpptTrackerCount: canonical.device?.mppt_trackers,
+    firmwareObservedAt: canonical.device?.firmware_observed_at,
     provider: canonical.quality?.provider,
     canonical
   };

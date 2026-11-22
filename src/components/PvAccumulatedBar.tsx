@@ -1,7 +1,7 @@
 import type { DailyEnergy } from '../types';
 import { kwh } from '../utils/energy';
 
-export default function PvAccumulatedBar({ energy, title, compact = false }: { energy: DailyEnergy; title: string; compact?: boolean }) {
+export default function PvAccumulatedBar({ energy, title, compact = false, daySolarPotentialKwh = null }: { energy: DailyEnergy; title: string; compact?: boolean; daySolarPotentialKwh?:number|null }) {
   const pv1 = Math.max(0, energy.pv1);
   const pv2 = Math.max(0, energy.pv2);
   const total = pv1 + pv2;
@@ -14,6 +14,7 @@ export default function PvAccumulatedBar({ energy, title, compact = false }: { e
       <i className="pv2" style={{ width: `${pv2Pct}%` }}>{compact && pv2Pct >= 14 ? <span>PV2</span> : null}</i>
     </div>
     <div className="pv-accumulated-values"><span><i className="pv1"/><small>PV1</small><b>{kwh(pv1)}</b><em>{pv1Pct.toFixed(1)}%</em></span><span><i className="pv2"/><small>PV2</small><b>{kwh(pv2)}</b><em>{pv2Pct.toFixed(1)}%</em></span></div>
+    {daySolarPotentialKwh!=null?<div className="pv-day-potential"><small>Producción prevista hoy · configuración actual</small><strong>{kwh(daySolarPotentialKwh)}</strong></div>:null}
     {!compact ? <p>Energía generada por cada string durante el período consultado.</p> : null}
   </section>;
 }

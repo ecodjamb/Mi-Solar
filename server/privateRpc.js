@@ -1,6 +1,6 @@
 import { rest } from './archive.js';
 
-const ALLOWED = new Set(['provider','identity','family','family_access','family_mutations','tuya_rules']);
+const ALLOWED = new Set(['provider','identity','family','family_access','family_mutations','tuya_rules','pool_automation','pool_mode']);
 
 export async function privateRpc(namespace, operation, payload = {}) {
   if (!ALLOWED.has(namespace)) throw new Error('RPC privado no permitido.');
@@ -28,6 +28,13 @@ export async function privateFamilyMovementUpdate(payload) {
   });
 }
 
+export async function privateFamilyMovementCreateIdempotent(payload) {
+  return await rest('rpc/misolar_family_movement_create_idempotent_backend', {
+    method: 'POST',
+    body: JSON.stringify({ p_payload: payload })
+  });
+}
+
 export async function privateFamilyPushClaim(userId, category, cooldownSeconds = 300) {
   return await rest('rpc/misolar_family_push_claim_backend', {
     method: 'POST',
@@ -39,14 +46,43 @@ export async function privateFamilyPushClaim(userId, category, cooldownSeconds =
   });
 }
 
-export async function privateProviderSyncClaim({ siteId, provider, minimumSeconds = 90, force = false }) {
-  return await rest('rpc/misolar_provider_sync_claim_backend', {
+export async function privateProviderSyncLease({ siteId, provider, minimumSeconds = 60 }) {
+  return await rest('rpc/misolar_provider_sync_lease_backend', {
     method: 'POST',
     body: JSON.stringify({
       p_site_id: Number(siteId),
       p_provider: String(provider || ''),
-      p_minimum_seconds: Math.max(30, Number(minimumSeconds) || 90),
-      p_force: Boolean(force)
+      p_minimum_seconds: Math.max(30, Number(minimumSeconds) || 60)
     })
+  });
+}
+
+export async function privateProviderSyncRelease({ siteId, provider, token }) {
+  if (!token) return false;
+  return await rest('rpc/misolar_provider_sync_release_backend', {
+    method: 'POST',
+    body: JSON.stringify({
+      p_site_id: Number(siteId),
+      p_provider: String(provider || ''),
+      p_token: String(token)
+    })
+  });
+}
+
+export async function privateProviderQueryControl(provider, paused, actorUserId = null) {
+  return await rest('rpc/misolar_provider_query_control_backend', {
+    method: 'POST',
+    body: JSON.stringify({
+      p_provider: String(provider || ''),
+      p_paused: Boolean(paused),
+      p_actor_user_id: actorUserId || null
+    })
+  });
+}
+
+export async function privateProviderQueryControlStatus(provider) {
+  return await rest('rpc/misolar_provider_query_control_status_backend', {
+    method: 'POST',
+    body: JSON.stringify({ p_provider: String(provider || '') })
   });
 }

@@ -51,6 +51,12 @@ function validImage(image) {
   return image && typeof image.dataUrl === 'string' && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(image.dataUrl);
 }
 
+function validPdf(document) {
+  return document && typeof document.dataUrl === 'string'
+    && /^data:application\/pdf;base64,[A-Za-z0-9+/=]+$/.test(document.dataUrl)
+    && String(document.name || '').toLowerCase().endsWith('.pdf');
+}
+
 const SPANISH_MONTHS = { ENE: '01', FEB: '02', MAR: '03', ABR: '04', MAY: '05', JUN: '06', JUL: '07', AGO: '08', SEP: '09', OCT: '10', NOV: '11', DIC: '12' };
 
 function isoSpanishDate(day, month, year) {
@@ -113,10 +119,39 @@ export function validateWaterImages(images, max = 4) {
   return images;
 }
 
-async function structuredVision(images, prompt, schema, schemaName, maxTokens = 2200) {
+export function validateWaterBillDocuments(documents, max = 4) {
+  if (!Array.isArray(documents) || documents.length < 1 || documents.length > max) {
+    throw Object.assign(new Error(`Selecciona entre uno y ${max} archivos de la boleta.`), { status: 400 });
+  }
+  let totalBytes = 0;
+  for (const document of documents) {
+    if (!validImage(document) && !validPdf(document)) {
+      throw Object.assign(new Error('La boleta debe ser una fotografía JPG, PNG o WebP, o un archivo PDF.'), { status: 400 });
+    }
+    const bytes = Math.floor((document.dataUrl.length - document.dataUrl.indexOf(',') - 1) * 0.75);
+    const limit = validPdf(document) ? 2_800_000 : 1_200_000;
+    if (bytes > limit) {
+      throw Object.assign(new Error(validPdf(document)
+        ? 'El PDF debe pesar menos de 2,8 MB.'
+        : 'Cada fotografía debe pesar menos de 1,2 MB después de optimizarla.'), { status: 413 });
+    }
+    totalBytes += bytes;
+  }
+  if (totalBytes > 2_800_000) {
+    throw Object.assign(new Error('Los archivos de la boleta superan el límite conjunto de 2,8 MB.'), { status: 413 });
+  }
+  return documents;
+}
+
+async function structuredVision(documents, prompt, schema, schemaName, maxTokens = 2200) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw Object.assign(new Error('La lectura inteligente todavía no está configurada.'), { status: 503 });
-  const content = [{ type: 'input_text', text: prompt }, ...images.map((image) => ({ type: 'input_image', image_url: image.dataUrl, detail: 'high' }))];
+  const content = [
+    { type: 'input_text', text: prompt },
+    ...documents.map((document) => document.mimeType === 'application/pdf'
+      ? { type: 'input_file', filename: String(document.name || 'boleta-agua.pdf').slice(0, 180), file_data: document.dataUrl, detail: 'high' }
+      : { type: 'input_image', image_url: document.dataUrl, detail: 'high' })
+  ];
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
@@ -139,9 +174,9 @@ async function structuredVision(images, prompt, schema, schemaName, maxTokens = 
   }
 }
 
-export async function extractWaterBill(images) {
-  validateWaterImages(images, 4);
-  return structuredVision(images, `Analiza todas las imágenes como páginas de una sola boleta chilena de agua potable, normalmente Aguas Andinas. Extrae solo información visible y consolida páginas repetidas. Usa fechas ISO YYYY-MM-DD y montos CLP sin separadores.
+export async function extractWaterBill(documents) {
+  validateWaterBillDocuments(documents, 4);
+  return structuredVision(documents, `Analiza todos los archivos como páginas de una sola boleta chilena de agua potable, normalmente Aguas Andinas. Pueden ser fotografías o un PDF. Extrae solo información visible y consolida páginas repetidas. Usa fechas ISO YYYY-MM-DD y montos CLP sin separadores.
 
 billingMonth identifica el mes comercial de esta única boleta y debe usar formato YYYY-MM-01. Derívalo del mes de emisión o del mes de la lectura actual; cada mes tiene una boleta independiente. El período periodStart/periodEnd es distinto: representa exactamente el intervalo entre los campos rotulados LECTURA ANTERIOR y LECTURA ACTUAL. Nunca uses emisión, vencimiento, último pago ni próxima lectura como intervalo de lecturas. Interpreta sin ambigüedad los meses españoles: ENE=01, FEB=02, MAR=03, ABR=04, MAY=05, JUN=06, JUL=07, AGO=08, SEP=09, OCT=10, NOV=11, DIC=12. Por ejemplo, 17-ENE-2026 es 2026-01-17 y jamás julio. En números chilenos, un punto entre miles es separador de miles: "7.876 m3" significa 7876 m3, no 7.876. previousReadingM3 y currentReadingM3 son lecturas acumuladas. readingDifferenceM3 es su diferencia visible. deductibleM3 son m3 ya cobrados mediante estimaciones de boletas mensuales anteriores. billedM3 es el consumo finalmente facturado en esta boleta: diferencia menos esos consumos estimados cuando corresponda. No confundas estos valores ni distribuyas billedM3 entre todos los meses del intervalo.
 

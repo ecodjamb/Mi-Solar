@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { privateFamilyMovementUpdate, privateRpc } from './privateRpc.js';
+import { privateFamilyMovementCreateIdempotent, privateFamilyMovementUpdate, privateRpc } from './privateRpc.js';
 import { validateFinancialImage } from './financialReceiptAi.js';
 import { sendFamilyPushThrottled } from './pushNotifications.js';
 
@@ -9,6 +9,36 @@ const familyDb = (operation, payload = {}) => privateRpc('family', operation, pa
 const familyAccessDb = (operation, payload = {}) => privateRpc('family_access', operation, payload);
 const familyMutationsDb = (operation, payload = {}) => privateRpc('family_mutations', operation, payload);
 const isAdmin = (session) => session.access.role === 'superadmin' || session.access.permissions.includes('family.approve');
+const movementCreateFlights = new Map();
+
+function missingIdempotentMovementRpc(error) {
+  return Number(error?.status) === 404 && /misolar_family_movement_create_idempotent_backend|PGRST202|schema cache/i.test(String(error?.message || ''));
+}
+
+async function createMovementCompatibly(session, payload, idempotencyKey) {
+  try {
+    return await privateFamilyMovementCreateIdempotent(payload);
+  } catch (error) {
+    if (!missingIdempotentMovementRpc(error)) throw error;
+    // Compatibilidad para una publicación que llegue antes que la migración:
+    // la llave queda persistida en movement_type y se consulta antes de insertar.
+    // Al existir el RPC nuevo, esta rama deja de utilizarse automáticamente.
+    const marker = `${payload.movement_type || 'movement'}:once:${idempotencyKey}`;
+    const snapshot = await familyDb('dashboard', { user_id: session.user.id, admin: isAdmin(session) });
+    const existing = (snapshot?.movements || []).find((movement) => movement.movement_type === marker);
+    if (existing) return { record: existing, duplicate: true, compatibility: true };
+    return await familyDb('movement_create', { ...payload, movement_type: marker });
+  }
+}
+
+async function createMovementOnce(session, payload, idempotencyKey) {
+  const active = movementCreateFlights.get(idempotencyKey);
+  if (active) return await active;
+  const request = createMovementCompatibly(session, payload, idempotencyKey);
+  movementCreateFlights.set(idempotencyKey, request);
+  try { return await request; }
+  finally { setTimeout(() => movementCreateFlights.delete(idempotencyKey), 5 * 60_000).unref?.(); }
+}
 
 function money(value) {
   const amount = Number(value);
@@ -143,18 +173,28 @@ export async function createExpenseMovement(session, input) {
   if (!isAdmin(session) && account.user_id !== session.user.id && !access?.member) { const error = new Error('Esta cuenta no está compartida contigo.');error.status = 403;throw error; }
   const expectedAccountUser = income > 0 ? input.recipientUserId : input.depositorUserId;
   if (account.user_id !== expectedAccountUser) { const error = new Error(income > 0 ? 'El depósito debe abonarse a la cuenta de quien recibe.' : 'El gasto debe cargarse a la cuenta de quien lo presenta.');error.status = 400;throw error; }
+  const idempotencyKey=String(input.idempotencyKey||crypto.randomUUID()).trim();
+  if(!/^[a-zA-Z0-9:_-]{16,160}$/.test(idempotencyKey)){const error=new Error('La operación no tiene una llave de seguridad válida.');error.status=400;throw error;}
   const attachment = input.image ? await uploadFinancialImage(session.user.id, 'movements', input.image) : null;
   let created;
   try {
-    const payload = { account_id: account.id, movement_date: input.date, detail: input.detail, income_minor: income, expense_minor: expense, currency: account.currency, movement_type: input.movementType || (expense ? 'expense_report' : 'deposit'), depositor_user_id: input.depositorUserId, recipient_user_id: input.recipientUserId, merchant_name: input.merchant || '', created_by: session.user.id, ai_proposal: input.aiProposal || undefined, ai_model: input.aiModel || '', corrected_values: input.correctedValues || {} };
+    const payload = { account_id: account.id, movement_date: input.date, detail: input.detail, income_minor: income, expense_minor: expense, currency: account.currency, movement_type: input.movementType || (expense ? 'expense_report' : 'deposit'), depositor_user_id: input.depositorUserId, recipient_user_id: input.recipientUserId, merchant_name: input.merchant || '', created_by: session.user.id, idempotency_key:idempotencyKey, ai_proposal: input.aiProposal || undefined, ai_model: input.aiModel || '', corrected_values: input.correctedValues || {} };
     if (attachment) payload.attachment = attachment;
-    created = await familyDb('movement_create', payload);
+    created = await createMovementOnce(session, payload, idempotencyKey);
+    if(created?.duplicate){if(attachment)await removeStored(attachment.storage_path);return created;}
+    const pendingRow = created?.record || created;
+    const selfDepositByAdmin = isAdmin(session) && income > 0 && input.depositorUserId === session.user.id;
+    if (selfDepositByAdmin && pendingRow?.id && pendingRow.status === 'pending') {
+      const approved = await familyDb('movement_review', { movement_id: Number(pendingRow.id), decision: 'approved', reviewed_by: session.user.id, note: 'Aprobación automática: movimiento ingresado por superadministrador.' });
+      if (approved) created = created?.record ? { ...created, record: approved } : approved;
+    }
   } catch (error) { if (attachment) await removeStored(attachment.storage_path);throw error; }
   const movementRow = created?.record || created;
-  await audit(session.user.id, 'expense.created', 'expense_movement', movementRow?.id, null, created);
+  const automaticallyApproved = movementRow?.status === 'approved';
+  await audit(session.user.id, automaticallyApproved ? 'expense.created_and_approved' : 'expense.created', 'expense_movement', movementRow?.id, null, created);
   const admins = await adminUsers();
   const recipients = new Set([input.depositorUserId,input.recipientUserId,...admins.map((user) => user.id)]);
-  await Promise.all([...recipients].map((userId) => notify(userId, 'expense_pending', income > 0 ? 'Depósito pendiente' : 'Gasto pendiente', `${input.detail}: requiere revisión.`, 'expense_movement', movementRow?.id)));
+  await Promise.all([...recipients].map((userId) => notify(userId, automaticallyApproved ? 'expense_approved' : 'expense_pending', automaticallyApproved ? (income > 0 ? 'Depósito registrado' : 'Gasto registrado') : (income > 0 ? 'Depósito pendiente' : 'Gasto pendiente'), automaticallyApproved ? `${input.detail}: aplicado al saldo.` : `${input.detail}: requiere revisión.`, 'expense_movement', movementRow?.id)));
   if (expense > 0 && !isAdmin(session)) {
     await Promise.allSettled(admins.map((admin) => sendFamilyPushThrottled(
       admin.id,

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarRange, ZoomIn } from 'lucide-react';
 import EChart from './EChart';
-import { api } from '../services/api';
+import { fetchProviderSeries, type EnergyProvider } from '../services/providerHistory';
 import type { HistoryRow } from '../types';
-import { batteryDischargePower, effectiveGridPower, loadPower, parseApiTime, pvPower, solarSystemToLoadPower } from '../utils/energy';
+import { batteryDischargePower, effectiveGridPower, groupDailyEnergy, loadPower, parseApiTime, pvPower, solarSystemToLoadPower } from '../utils/energy';
+import { isReliableSolarAnalysisDay } from '../utils/solarForecast';
 
 type Period='5h'|'12h'|'24h'|'7d'|'14d'|'1m'|'6m'|'1y';
 const PERIODS:{key:Period;label:string;hours:number}[]=[
@@ -12,7 +13,7 @@ const PERIODS:{key:Period;label:string;hours:number}[]=[
   {key:'6m',label:'6 meses',hours:24*183},{key:'1y',label:'1 año',hours:24*366}
 ];
 
-export default function EnergyRangeChart({deviceSn,siteLabel,gridLabel='Red activa'}:{deviceSn:string;siteLabel:string;gridLabel?:string}){
+export default function EnergyRangeChart({deviceSn,siteLabel,siteKey,provider,gridLabel='Red activa'}:{deviceSn:string;siteLabel:string;siteKey:'arrayan'|'puerto-montt';provider:EnergyProvider;gridLabel?:string}){
   const [period,setPeriod]=useState<Period>('24h');
   const [rows,setRows]=useState<HistoryRow[]>([]);
   const [loading,setLoading]=useState(false);
@@ -25,13 +26,20 @@ export default function EnergyRangeChart({deviceSn,siteLabel,gridLabel='Red acti
     const start=new Date(end.getTime()-selected.hours*3600000);
     const resolution=selected.hours>24*14?'day':'hour';
     setLoading(true);setMessage('');
-    api<{list:HistoryRow[]}>(`devices/${deviceSn}/archive-series?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}&resolution=${resolution}`)
+    fetchProviderSeries({deviceSn,provider,start:start.toISOString(),end:end.toISOString(),resolution})
       .then(result=>{setRows(result.list||[]);if(!result.list?.length)setMessage('Este período aún no tiene datos respaldados. Usa “Carga histórica” para importarlos desde el origen.');})
       .catch(error=>{setRows([]);setMessage(error instanceof Error?error.message:'No fue posible cargar el período.');})
       .finally(()=>setLoading(false));
-  },[deviceSn,period,selected.hours]);
+  },[deviceSn,provider,period,selected.hours]);
 
-  const seriesRows=useMemo(()=>rows.map(row=>({row,time:parseApiTime(row.currentTime??row.createTime??row.collectTime??row.dataTime??row.time)})).filter((item):item is {row:HistoryRow;time:Date}=>Boolean(item.time)),[rows]);
+  const seriesRows=useMemo(()=>{
+    const validDates=new Set(groupDailyEnergy(rows).filter(day=>isReliableSolarAnalysisDay(day,siteKey)).map(day=>day.date));
+    const filterWholeDays=siteKey==='arrayan'&&selected.hours>24*14;
+    return rows.map(row=>({row,time:parseApiTime(row.currentTime??row.createTime??row.collectTime??row.dataTime??row.time)})).filter((item):item is {row:HistoryRow;time:Date}=>{
+      if(!item.time)return false;
+      return !filterWholeDays||validDates.has(item.time.toLocaleDateString('en-CA',{timeZone:'America/Santiago'}));
+    });
+  },[rows,selected.hours,siteKey]);
   const option=useMemo(()=>({
     animationDuration:350,
     tooltip:{trigger:'axis',confine:true,valueFormatter:(value:unknown)=>`${Number(value).toLocaleString('es-CL',{maximumFractionDigits:0})} W`},
@@ -49,5 +57,5 @@ export default function EnergyRangeChart({deviceSn,siteLabel,gridLabel='Red acti
     ]
   }),[seriesRows,gridLabel]);
 
-  return <section className="panel range-chart-panel"><header><div><small>Exploración flexible · {siteLabel}</small><h2><CalendarRange size={21}/> Energía en el tiempo</h2></div><span><ZoomIn size={15}/> Arrastra la barra inferior o usa dos dedos para ampliar</span></header><div className="energy-series-explanation"><p><b>Producción fotovoltaica:</b> PV1 + PV2 antes de distribuirse entre casa y batería.</p><p><b>Aporte solar + batería a la casa:</b> consumo cubierto sin usar la red o el generador.</p></div><div className="period-selector" role="group" aria-label="Período del gráfico">{PERIODS.map(item=><button type="button" key={item.key} className={period===item.key?'active':''} onClick={()=>setPeriod(item.key)}>{item.label}</button>)}</div>{loading?<div className="chart-loading">Cargando {selected.label}…</div>:message?<div className="chart-loading">{message}</div>:<EChart className="range-energy-chart" option={option}/>}</section>;
+  return <section className="panel range-chart-panel"><header><div><small>Exploración flexible · {siteLabel} · {provider==='watchpower'?'WatchPower':'i.Solar'}</small><h2><CalendarRange size={21}/> Energía en el tiempo</h2></div><span><ZoomIn size={15}/> Arrastra la barra inferior o usa dos dedos para ampliar</span></header><div className="energy-series-explanation"><p><b>Producción fotovoltaica:</b> PV1 + PV2 antes de distribuirse entre casa y batería.</p><p><b>Aporte solar + batería a la casa:</b> consumo cubierto sin usar la red o el generador.</p></div><div className="period-selector" role="group" aria-label="Período del gráfico">{PERIODS.map(item=><button type="button" key={item.key} className={period===item.key?'active':''} onClick={()=>setPeriod(item.key)}>{item.label}</button>)}</div>{loading?<div className="chart-loading">Cargando {selected.label}…</div>:message?<div className="chart-loading">{message}</div>:<EChart className="range-energy-chart" option={option}/>}</section>;
 }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { normalizeWatchPower } from '../server/canonicalTelemetry.js';
+import { canonicalToLegacy, normalizeISolar, normalizeWatchPower } from '../server/canonicalTelemetry.js';
 import { looksLikeExpiredISolarSession, shouldRecordProviderFailure } from '../server/providerStore.js';
 import { ISolarProvider } from '../server/providers/isolarProvider.js';
 import { WatchPowerProvider, WATCHPOWER_WRITES_ENABLED } from '../server/providers/watchPowerProvider.js';
@@ -9,9 +9,58 @@ const response = (payload, status = 200) => new Response(JSON.stringify(payload)
 assert.equal(shouldRecordProviderFailure({ code: 'CIRCUIT_OPEN', status: 423 }), false);
 assert.equal(shouldRecordProviderFailure({ code: 'PROVIDER_DISABLED', status: 409 }), false);
 assert.equal(shouldRecordProviderFailure({ code: 'RATE_LIMIT', status: 429 }), true);
+assert.equal(shouldRecordProviderFailure({ code: 'ARCHIVE_STORAGE_ERROR', status: 500, message: 'Archivo permanente HTTP 500' }), false);
+assert.equal(shouldRecordProviderFailure({ message: 'Archivo permanente HTTP 500: canceling statement due to statement timeout' }), false);
 assert.equal(looksLikeExpiredISolarSession({ status: 401 }), true);
 assert.equal(looksLikeExpiredISolarSession({ message: 'Login required' }), true);
 assert.equal(looksLikeExpiredISolarSession({ code: 'RATE_LIMIT', status: 429 }), false);
+
+{
+  const coherent = normalizeISolar({
+    currentTime: '2026-08-30 20:00:00', statusGrid: 0,
+    pvInputPower1: 2000, pvInputPower2: 1800,
+    acOutputActivePowerTotal: 600, batteryChargingPower: 3000, batteryDischargingPower: 0
+  });
+  assert.equal(coherent.quality.energy_balance.status, 'coherent');
+  const inconsistent = normalizeISolar({
+    currentTime: '2026-08-30 20:00:00', statusGrid: 0,
+    pvInputPower1: 1280, pvInputPower2: 1172,
+    acOutputActivePowerTotal: 756, batteryChargingPower: 2703, batteryDischargingPower: 0
+  });
+  assert.equal(inconsistent.quality.energy_balance.status, 'inconsistent');
+  assert.equal(inconsistent.quality.energy_balance.residual_w, -1007);
+}
+
+{
+  const canonical = normalizeISolar({
+    currentTime: '2026-10-02 12:00:00', statusGrid: 0,
+    pvInputPower1: 1816, pvInputVoltage1: 307.4, pvInputCurrent1: 5.91,
+    pvInputPower2: 1740, voltageInput2: 296.8, currentInput2: 5.86,
+    batteryVoltage: 51.2, batteryDischargingPower: 1024, batteryChargingPower: 0,
+    acOutputActivePowerTotal: 2500, acOutputApparentPowerTotal: 2700,
+    acOutputVoltageR: 229.7, acOutputFrequency: 50,
+    innerTemperature: 41.3, maxTemperature: 47.8, acOutputLoadTotal: 21,
+    deviceModel: 'VII PREMIUM PLUS Series', mainCpuFirmware: '69.02', secondaryCpuFirmware: '02.33', loggerFirmware: 'FC41_R11',
+    ratedOutputPowerW: 12000, ratedOutputPowerVa: 12000, mpptTrackerCount: 2, outputSourcePriority: 'SBU', fault1: 0, warning1: 0
+  });
+  const legacy = canonicalToLegacy(canonical);
+  assert.equal(legacy.pvInputVoltage1, 307.4);
+  assert.equal(legacy.pvInputCurrent1, 5.91);
+  assert.equal(legacy.pvInputVoltage2, 296.8);
+  assert.equal(legacy.pvInputCurrent2, 5.86);
+  assert.equal(legacy.batteryCurrent, 20);
+  assert.equal(legacy.acOutputVoltage, 229.7);
+  assert.equal(legacy.inverterTemperature, 41.3);
+  assert.equal(legacy.radiatorTemperature, 47.8);
+  assert.equal(legacy.outputLoadPercent, 21);
+  assert.equal(legacy.deviceModel, 'VII PREMIUM PLUS Series');
+  assert.equal(legacy.mainCpuFirmware, '69.02');
+  assert.equal(legacy.secondaryCpuFirmware, '02.33');
+  assert.equal(legacy.loggerFirmware, 'FC41_R11');
+  assert.equal(legacy.ratedOutputPowerW, 12000);
+  assert.equal(legacy.mpptTrackerCount, 2);
+  assert.equal(legacy.outputSourcePriority, 'SBU');
+}
 
 {
   const provider = new ISolarProvider({ request: async () => { const error = new Error('limited'); error.status = 429; throw error; } });
@@ -86,6 +135,28 @@ assert.equal(looksLikeExpiredISolarSession({ code: 'RATE_LIMIT', status: 429 }),
   const missing = normalizeWatchPower({ dat: { gts: '2026-01-15 12:00:00', pars: { a: [{ id: 'bt_voltage_1', val: '100' }] } } });
   assert.equal(missing.pv.total_power, null);
   assert.equal(missing.load.reactive_power, null);
+}
+
+{
+  const canonical = normalizeWatchPower({ dat: { gts: '2026-08-30 12:51:43', pars: { a: [
+    { id: 'bc_model', val: 'Battery Mode' },
+    { id: 'bt_output_power_1', val: '3215' }, { id: 'bt_input_power_1', val: '2061' },
+    { id: 'bt_voltage_1', val: '268' }, { id: 'pv_input_current', val: '11' },
+    { id: 'bt_voltage_2', val: '293' }, { id: 'pv_input_current2', val: '7' },
+    { id: 'bt_battery_voltage', val: '54' }, { id: 'bt_battery_charging_current', val: '87' }, { id: 'bt_battery_discharge_current', val: '0' },
+    { id: 'bt_load_active_power_sole', val: '315' }
+  ] } } });
+  assert.equal(canonical.pv.mppt1_power, 3215);
+  assert.equal(canonical.pv.mppt2_power, 2061);
+  assert.equal(canonical.pv.total_power, 5276);
+  assert.equal(canonical.quality.pv_power_mapping, 'mppt1=bt_output_power_1;mppt2=bt_input_power_1');
+  assert.equal(canonical.quality.energy_balance.status, 'coherent');
+  const legacy = canonicalToLegacy(canonical);
+  assert.equal(legacy.pvInputVoltage1, 268);
+  assert.equal(legacy.pvInputCurrent1, 11);
+  assert.equal(legacy.pvInputVoltage2, 293);
+  assert.equal(legacy.pvInputCurrent2, 7);
+  assert.equal(legacy.batteryCurrent, -87);
 }
 
 {

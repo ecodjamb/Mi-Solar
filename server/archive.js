@@ -38,7 +38,12 @@ export async function rest(path,options={}){
     signal:options.signal||controller.signal,
     headers:{apikey:value.key,Authorization:`Bearer ${value.key}`,...(!value.serverKey?{'x-misolar-key':value.appKey}:{}),'Content-Type':'application/json',...(options.headers||{})}
   });
-  if(!response.ok)throw new Error(`Archivo permanente HTTP ${response.status}: ${(await response.text()).slice(0,180)}`);
+  if(!response.ok){
+    const error=new Error(`Archivo permanente HTTP ${response.status}: ${(await response.text()).slice(0,180)}`);
+    error.code='ARCHIVE_STORAGE_ERROR';
+    error.status=response.status;
+    throw error;
+  }
   if(response.status===204)return null;
   const text=await response.text();
   return text?JSON.parse(text):null;
@@ -76,7 +81,7 @@ export async function ensureSite(deviceSn,name=deviceSn){
   return created?.[0]?.id||null;
 }
 
-function sample(siteId,row,{bucketMinutes=0}={}){
+function sample(siteId,row,{bucketMinutes=0,source='tumcapp'}={}){
   const date=timestamp(row);
   if(!date)return null;
   if(bucketMinutes){const size=bucketMinutes*60_000;date.setTime(Math.floor(date.getTime()/size)*size)}
@@ -84,17 +89,27 @@ function sample(siteId,row,{bucketMinutes=0}={}){
   const statusKey=KEYS.gridStatus.find(key=>row?.[key]!==undefined&&row?.[key]!==null&&row?.[key]!=='');
   const rawGrid=first(row,KEYS.grid);
   const gridActive=statusKey?first(row,[statusKey])===1:Math.abs(rawGrid)>10;
-  return {site_id:siteId,sample_at:date.toISOString(),solar_w:pv1+pv2,pv1_w:pv1,pv2_w:pv2,load_w:first(row,KEYS.load),grid_w:gridActive?rawGrid:0,grid_active:gridActive,battery_charge_w:first(row,KEYS.charge),battery_discharge_w:first(row,KEYS.discharge),battery_soc:first(row,KEYS.soc),raw:row};
+  return {site_id:siteId,sample_at:date.toISOString(),solar_w:pv1+pv2,pv1_w:pv1,pv2_w:pv2,load_w:first(row,KEYS.load),grid_w:gridActive?rawGrid:0,grid_active:gridActive,battery_charge_w:first(row,KEYS.charge),battery_discharge_w:first(row,KEYS.discharge),battery_soc:first(row,KEYS.soc),source:String(source||'tumcapp').slice(0,80),raw:row};
 }
 
 export async function archiveRows(deviceSn,rows,options={}){
   if(!config()||!deviceSn||!rows?.length)return {stored:0,configured:Boolean(config())};
   const siteId=await ensureSite(deviceSn,options.siteName||deviceSn);
-  const records=rows.map(row=>sample(siteId,row,options)).filter(Boolean);
-  for(let offset=0;offset<records.length;offset+=500){
-    await rest('energy_samples?on_conflict=site_id,sample_at',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(records.slice(offset,offset+500))});
+  const normalized=rows.map(row=>sample(siteId,row,options)).filter(Boolean);
+  // i.Solar puede repetir la misma marca de tiempo dentro de una página o
+  // entre páginas. Postgres no permite actualizar dos veces la misma clave en
+  // un único INSERT ... ON CONFLICT, así que dejamos una sola muestra por
+  // instalación e intervalo antes de formar los lotes. La última respuesta
+  // gana porque suele contener los acumulados más recientes del inversor.
+  const records=[...new Map(normalized.map(record=>[`${record.site_id}:${record.sample_at}`,record])).values()];
+  // Los payloads históricos incluyen la muestra cruda completa. Lotes de 500
+  // podían superar el statement_timeout de PostgREST y, antes de v8.59.2,
+  // ese fallo interno terminaba confundido con una caída de i.Solar.
+  const batchSize=100;
+  for(let offset=0;offset<records.length;offset+=batchSize){
+    await rest('energy_samples?on_conflict=site_id,sample_at',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(records.slice(offset,offset+batchSize))});
   }
-  return {stored:records.length,configured:true};
+  return {stored:records.length,received:normalized.length,deduplicated:normalized.length-records.length,configured:true};
 }
 
 export async function readArchive(deviceSn,startIso,endIso){
@@ -109,9 +124,23 @@ export async function readArchiveSeries(deviceSn,startIso,endIso,resolution='hou
   if(!config())return {rows:[],configured:false};
   const siteId=await findSiteId(deviceSn);
   if(!siteId)return {rows:[],configured:true};
-  const rows=await rest('rpc/misolar_energy_series_backend',{
-    method:'POST',body:JSON.stringify({p_site_id:siteId,p_from:startIso,p_to:endIso,p_resolution:resolution})
-  });
+  let rows;
+  try{
+    rows=await rest('rpc/misolar_energy_series_backend',{
+      method:'POST',body:JSON.stringify({p_site_id:siteId,p_from:startIso,p_to:endIso,p_resolution:resolution})
+    });
+  }catch(error){
+    const message=String(error?.message||'');
+    if(!/404|PGRST202|Could not find the function/i.test(message))throw error;
+    try{
+      rows=await rest('rpc/misolar_archive_series_backend',{method:'POST',body:JSON.stringify({p_site_id:Number(siteId),p_start:startIso,p_end:endIso,p_resolution:resolution==='day'?'day':'hour'})});
+    }catch(fallbackError){
+      const fallbackMessage=String(fallbackError?.message||'');
+      if(!/404|PGRST202|Could not find the function/i.test(fallbackMessage))throw fallbackError;
+      const view=resolution==='day'?'energy_daily':'energy_hourly';
+      rows=await rest(`${view}?site_id=eq.${siteId}&bucket_at=gte.${encodeURIComponent(startIso)}&bucket_at=lt.${encodeURIComponent(endIso)}&select=bucket_at,solar_w,pv1_w,pv2_w,load_w,grid_w,grid_active,battery_charge_w,battery_discharge_w,battery_soc,samples,coverage_hours&order=bucket_at.asc&limit=10000`);
+    }
+  }
   return {rows:(rows||[]).map(row=>({
     currentTime:row.bucket_at,
     pvInputPower1:Number(row.pv1_w||0),

@@ -1,0 +1,72 @@
+{
+  "manifest": {
+    "id": "MiSolar",
+    "version": "1.0.9",
+    "presentationDefinitions": [
+      {
+        "url": "presentations/default.tpl"
+      }
+    ],
+    "appliesTo": "${viewport.mode == 'HUB'}",
+    "installStateChanges": "INFORM",
+    "updateStateChanges": "INFORM"
+  },
+  "packageVersion": "1.0",
+  "packageType": "APL_PACKAGE",
+  "publishingInformation": {
+    "schemaVersion": "1.0",
+    "locales": {
+      "es-MX": [
+        {
+          "targetViewport": "WIDGET_M",
+          "metadata": {
+            "name": "mi solar v1.0.9",
+            "description": "Generación solar y nivel de batería de El Arrayán.",
+            "keywords": [
+              "solar",
+              "batería"
+            ],
+            "iconUri": "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/refs/heads/main/public/alexa/mi-solar-widget-icon-v1.0.9.png",
+            "previews": [
+              "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/8c9f4e9607aa341d771749857aeaa90545375ef7/public/alexa/mi-solar-widget-preview-v2.png"
+            ]
+          }
+        }
+      ],
+      "es-ES": [
+        {
+          "targetViewport": "WIDGET_M",
+          "metadata": {
+            "name": "mi solar v1.0.9",
+            "description": "Generación solar y nivel de batería de El Arrayán.",
+            "keywords": [
+              "solar",
+              "batería"
+            ],
+            "iconUri": "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/refs/heads/main/public/alexa/mi-solar-widget-icon-v1.0.9.png",
+            "previews": [
+              "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/8c9f4e9607aa341d771749857aeaa90545375ef7/public/alexa/mi-solar-widget-preview-v2.png"
+            ]
+          }
+        }
+      ],
+      "es-US": [
+        {
+          "targetViewport": "WIDGET_M",
+          "metadata": {
+            "name": "mi solar v1.0.9",
+            "description": "Generación solar y nivel de batería de El Arrayán.",
+            "keywords": [
+              "solar",
+              "batería"
+            ],
+            "iconUri": "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/refs/heads/main/public/alexa/mi-solar-widget-icon-v1.0.9.png",
+            "previews": [
+              "https://raw.githubusercontent.com/ecodjamb/Mi-Solar/8c9f4e9607aa341d771749857aeaa90545375ef7/public/alexa/mi-solar-widget-preview-v2.png"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

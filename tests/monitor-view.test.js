@@ -1,0 +1,48 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+const app=readFileSync(new URL('../src/App.tsx',import.meta.url),'utf8');
+const monitor=readFileSync(new URL('../src/components/MonitorView.tsx',import.meta.url),'utf8');
+const styles=readFileSync(new URL('../src/styles/app.css',import.meta.url),'utf8');
+
+assert.match(app,/Estado monitor/);
+assert.match(app,/new URLSearchParams\(window\.location\.search\)\.get\('monitor'\)==='1'/);
+assert.match(app,/<MonitorView/);
+assert.match(monitor,/navigator as WakeLockNavigator/);
+assert.match(monitor,/wakeLock\.request\('screen'\)/);
+assert.match(monitor,/startMediaKeepAlive/);
+assert.match(monitor,/createOscillator\(\)/);
+assert.match(monitor,/Modo multimedia activo/);
+assert.match(monitor,/document\.documentElement\.requestFullscreen/);
+assert.match(monitor,/navigationUI:'hide'/);
+assert.match(monitor,/Silk\\\//);
+assert.match(monitor,/is-echo-show-11/);
+assert.match(monitor,/pointerup/);
+assert.match(monitor,/Toca una vez para usar toda la pantalla/);
+assert.match(monitor,/devices\.map\(device=>/);
+assert.match(monitor,/<SimpleEnergyFlow/);
+assert.match(monitor,/hideHeader/);
+assert.match(monitor,/presentationMode/);
+assert.match(monitor,/sampleAgeMinutes>10/);
+assert.match(monitor,/is-critical/);
+assert.match(monitor,/monitor-compact-site/);
+assert.doesNotMatch(monitor,/<HomeWeatherTimeline/);
+assert.doesNotMatch(monitor,/<LoadCoverageBar/);
+assert.doesNotMatch(monitor,/monitor-data-strip/);
+assert.doesNotMatch(monitor,/monitor-support-row/);
+assert.doesNotMatch(monitor,/72 horas|respaldo permanente|Día cargado/);
+assert.doesNotMatch(monitor,/Período actual|Red gastada a la fecha|Ahorro durante el período|Ahorro últimos 30 días/);
+assert.doesNotMatch(monitor,/Producción actual|Solar acumulado|Producción prevista hoy/);
+assert.match(styles,/\.monitor-mode/);
+assert.match(styles,/\.is-monitor-presentation \.simple-flow-node-main strong/);
+assert.match(styles,/font-size:42px/);
+assert.match(styles,/\.monitor-mode\.is-echo-show-11/);
+assert.match(styles,/font-size:clamp\(48px,5\.6vw,78px\)/);
+assert.match(styles,/@media\(min-width:681px\) and \(max-height:700px\)/);
+assert.match(styles,/@media\(max-width:680px\)/);
+assert.match(styles,/grid-template-columns:minmax\(0,1fr\) repeat\(4,42px\)/);
+assert.match(styles,/\.topbar>\.monitor-launch-button\{grid-column:4;grid-row:2\}/);
+assert.match(styles,/\.refresh-button:not\(\.day-sync-button\):not\(\.monitor-launch-button\)\{grid-column:5;grid-row:2\}/);
+assert.match(styles,/@media\(max-width:360px\)/);
+
+console.log('monitor view tests: ok');

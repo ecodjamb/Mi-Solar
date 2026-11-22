@@ -188,7 +188,7 @@
 .water-source-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 10000;
+  z-index: 2147483500;
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -198,6 +198,9 @@
 }
 .water-source-sheet {
   width: min(560px, 100%);
+  max-height: calc(100dvh - max(24px, env(safe-area-inset-top)) - max(24px, env(safe-area-inset-bottom)));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 20px;
   border: 1px solid rgba(73, 159, 187, 0.48);
   border-radius: 22px;
@@ -250,6 +253,11 @@
 .water-source-sheet > div > button:last-child {
   border-color: rgba(74, 211, 154, 0.38);
   background: rgba(10, 66, 52, 0.54);
+}
+.water-source-sheet > div > button.pdf {
+  grid-column: 1 / -1;
+  border-color: rgba(194, 139, 255, 0.46);
+  background: rgba(80, 42, 111, 0.42);
 }
 .water-source-sheet > div > button svg {
   width: 28px;
@@ -407,7 +415,7 @@
 }
 .water-current-glance {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 9px;
   margin: 15px 0;
 }
@@ -427,14 +435,64 @@
     rgba(5, 31, 31, 0.72)
   );
 }
-.water-current-glance b {
-  font-size: 17px;
+.water-current-glance b,
+.water-current-glance em {
+  font-size: clamp(19px, 2.2vw, 28px);
+  line-height: 1.1;
+  font-weight: 850;
 }
 .water-current-glance em {
   color: #75dca9;
+  font-style: normal;
+}
+.water-current-glance i {
+  color: #7f9aa3;
   font-size: 9px;
   font-style: normal;
 }
+.water-unit-rate-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  margin: 14px 0;
+  padding: 13px;
+  border: 1px solid rgba(90, 206, 153, 0.34);
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(27, 104, 74, 0.2), rgba(5, 27, 32, 0.58));
+}
+.water-unit-rate-control label,
+.water-unit-rate-control label > span:first-child {
+  display: grid;
+  gap: 4px;
+}
+.water-unit-rate-control small { color: #76dca9; text-transform: uppercase; letter-spacing: .07em; font-size: 9px; }
+.water-unit-rate-control b { color: #9db2b7; font-size: 10px; font-weight: 600; }
+.water-unit-rate-input { display: grid; grid-template-columns: auto minmax(100px, 170px) auto; align-items: center; gap: 8px; margin-top: 8px; }
+.water-unit-rate-input i { color: #75dca9; font-size: 15px; font-style: normal; font-weight: 850; }
+.water-unit-rate-input input {
+  width: 100%; min-height: 42px; padding: 8px 10px; border: 1px solid rgba(91, 190, 150, .55); border-radius: 10px;
+  background: #061b22; color: #effaf7; font-size: 20px; font-weight: 850; color-scheme: dark;
+}
+.water-unit-rate-control > button {
+  display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 42px; padding: 9px 13px;
+  border: 1px solid #3f9c73; border-radius: 10px; background: rgba(31, 131, 84, .28); color: #90e9bb; font-weight: 800; cursor: pointer;
+}
+.water-unit-rate-control > button:disabled { cursor: wait; opacity: .6; }
+@media (max-width: 600px) {
+  .water-unit-rate-control { grid-template-columns: 1fr; }
+  .water-unit-rate-control > button { width: 100%; }
+}
+.water-projection-update {
+  margin: 0 0 14px;
+  padding: 9px 11px;
+  border: 1px solid rgba(58, 132, 155, 0.22);
+  border-radius: 10px;
+  background: rgba(5, 23, 30, 0.38);
+  color: #8ca4ab;
+  font-size: 9px;
+}
+.water-projection-update b { color: #cfe2e6; }
 .water-current-details {
   border-top: 1px solid rgba(67, 114, 128, 0.24);
   padding-top: 11px;
@@ -485,7 +543,7 @@
     min-height: 54px;
   }
   .water-current-glance {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
   .water-quick-reading-form {
     grid-template-columns: 1fr 1fr;
@@ -502,10 +560,11 @@
     min-height: 62px;
   }
   .water-current-glance {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
-  .water-current-glance b {
-    font-size: 14px;
+  .water-current-glance b,
+  .water-current-glance em {
+    font-size: 22px;
   }
   .water-quick-reading {
     padding: 15px;
@@ -524,7 +583,7 @@
     grid-template-columns: 1fr;
   }
   .water-source-backdrop {
-    padding: 10px;
+    padding: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom));
   }
   .water-source-sheet {
     padding: 17px;
@@ -534,3 +593,27 @@
     min-height: 68px;
   }
 }
+
+/* v8.74 · cuentas básicas: el resumen real abre la vista y la boleta queda junto al archivo. */
+.water-current {
+  display: flex;
+  flex-direction: column;
+  order: 1;
+}
+.water-current > header { order: 0; }
+.water-current-glance { order: 1; }
+.water-current-details { order: 2; }
+.water-unit-rate-control {
+  order: 3;
+  margin-top: 16px;
+}
+.water-costs-page > .water-quick-actions,
+.water-costs-page > .water-quick-reading { order: 2; }
+.water-costs-page > .water-message,
+.water-costs-page > .water-error { order: 3; }
+.water-costs-page > .water-chart-card { order: 4; }
+.water-costs-page > .water-notifications { order: 5; }
+.water-costs-page > .water-bill-add-action { order: 6; }
+.water-costs-page > .water-bill-entry { order: 7; }
+.water-costs-page > .water-bill-history { order: 8; }
+.water-quick-actions { grid-template-columns: 1fr !important; }

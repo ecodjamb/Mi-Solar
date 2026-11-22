@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import EChart from './EChart';
-import { api } from '../services/api';
+import { fetchProviderSeries, type EnergyProvider } from '../services/providerHistory';
 import type { HistoryRow } from '../types';
 import { dailyEnergy, groupDailyEnergy, integrate, pvPower } from '../utils/energy';
+import { isReliableSolarAnalysisDay } from '../utils/solarForecast';
 
 type Period = '1d' | '7d' | '14d' | '1m' | '6m' | '1y';
 const PERIODS: Array<{ key: Period; label: string; days: number }> = [
@@ -11,7 +12,7 @@ const PERIODS: Array<{ key: Period; label: string; days: number }> = [
   { key: '6m', label: '6 meses', days: 183 }, { key: '1y', label: '1 año', days: 366 }
 ];
 
-export default function PvStringComparisonChart({ deviceSn, siteLabel }: { deviceSn: string; siteLabel: string }) {
+export default function PvStringComparisonChart({ deviceSn, siteLabel, siteKey, provider }: { deviceSn: string; siteLabel: string; siteKey: 'arrayan'|'puerto-montt'; provider: EnergyProvider }) {
   const [period, setPeriod] = useState<Period>('1d');
   const [rows, setRows] = useState<HistoryRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -24,20 +25,24 @@ export default function PvStringComparisonChart({ deviceSn, siteLabel }: { devic
     const start = new Date(end.getTime() - selected.days * 86400000);
     const resolution = period === '1d' ? 'hour' : 'day';
     setLoading(true); setMessage('');
-    api<{ list: HistoryRow[] }>(`devices/${deviceSn}/archive-series?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}&resolution=${resolution}`)
+    fetchProviderSeries({deviceSn,provider,start:start.toISOString(),end:end.toISOString(),resolution})
       .then((result) => { setRows(result.list || []); if (!result.list?.length) setMessage('Este período aún no tiene datos respaldados.'); })
       .catch((error) => { setRows([]); setMessage(error instanceof Error ? error.message : 'No fue posible cargar este período.'); })
       .finally(() => setLoading(false));
-  }, [deviceSn, period, selected.days]);
+  }, [deviceSn, provider, period, selected.days]);
 
   const data = useMemo(() => {
     if (period === '1d') return rows.map((row, index) => ({
       label: String(row.currentTime || row.createTime || row.collectTime || row.dataTime || row.time || index).slice(11, 16),
       pv1: integrate([row], (item) => pvPower(item, 1)), pv2: integrate([row], (item) => pvPower(item, 2))
     }));
-    return groupDailyEnergy(rows).map((day) => ({ label: day.date.slice(5), pv1: day.pv1, pv2: day.pv2 }));
-  }, [period, rows]);
-  const totals = useMemo(() => dailyEnergy(rows), [rows]);
+    return groupDailyEnergy(rows).filter(day=>isReliableSolarAnalysisDay(day,siteKey)).map((day) => ({ label: day.date.slice(5), pv1: day.pv1, pv2: day.pv2 }));
+  }, [period, rows, siteKey]);
+  const totals = useMemo(() => {
+    if(period==='1d')return dailyEnergy(rows);
+    const filtered=groupDailyEnergy(rows).filter(day=>isReliableSolarAnalysisDay(day,siteKey));
+    return filtered.reduce((sum,day)=>({...sum,pv1:sum.pv1+day.pv1,pv2:sum.pv2+day.pv2}),{pv1:0,pv2:0});
+  }, [period,rows,siteKey]);
   const option = useMemo(() => ({
     animationDuration: 300,
     tooltip: { trigger: 'axis', confine: true, valueFormatter: (value: unknown) => `${Number(value).toFixed(2)} kWh` },
@@ -52,7 +57,7 @@ export default function PvStringComparisonChart({ deviceSn, siteLabel }: { devic
     ]
   }), [data]);
 
-  return <section className="panel pv-string-comparison"><header><div><small>Comparación de strings · {siteLabel}</small><h2>Producción PV1 vs. PV2</h2><p>Energía producida por cada entrada fotovoltaica en el período seleccionado.</p></div><div className="pv-string-totals"><span><i className="pv1"/>PV1 <b>{totals.pv1.toFixed(2)} kWh</b></span><span><i className="pv2"/>PV2 <b>{totals.pv2.toFixed(2)} kWh</b></span></div></header>
+  return <section className="panel pv-string-comparison"><header><div><small>Comparación de strings · {siteLabel} · {provider==='watchpower'?'WatchPower':'i.Solar'}</small><h2>Producción PV1 vs. PV2</h2><p>Energía producida por cada entrada fotovoltaica en el período seleccionado.</p></div><div className="pv-string-totals"><span><i className="pv1"/>PV1 <b>{totals.pv1.toFixed(2)} kWh</b></span><span><i className="pv2"/>PV2 <b>{totals.pv2.toFixed(2)} kWh</b></span></div></header>
     <nav className="period-selector" aria-label="Período de comparación PV1 y PV2">{PERIODS.map((item) => <button type="button" key={item.key} className={period === item.key ? 'active' : ''} onClick={() => setPeriod(item.key)}>{item.label}</button>)}</nav>
     {loading ? <div className="chart-loading compact">Cargando {selected.label}…</div> : message ? <div className="chart-loading compact">{message}</div> : <EChart className="pv-string-chart" option={option}/>}
   </section>;

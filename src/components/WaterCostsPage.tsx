@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Bell,
   CalendarClock,
@@ -9,7 +10,10 @@ import {
   Droplets,
   FileImage,
   FilePlus2,
+  FileText,
   Gauge,
+  MessageCircle,
+  Pencil,
   Save,
   Sparkles,
   Trash2,
@@ -18,7 +22,7 @@ import {
 } from "lucide-react";
 import { api } from "../services/api";
 import { clp, formatSiteDate, siteDayBoundsUtc } from "../utils/energy";
-import EChart from "./EChart";
+const EChart=lazy(()=>import("./EChart"));
 
 type WaterImage = {
   name: string;
@@ -80,6 +84,7 @@ type WaterBill = {
   source: string;
   aiConfidence?: number | null;
   documents: WaterDocument[];
+  readings?: WaterReading[];
 };
 type WaterPeriod = {
   id: number;
@@ -108,6 +113,10 @@ type WaterProjection = {
   averageDailyM3: number;
   projectedM3: number;
   projectedAmountClp: number;
+  readingProjectedM3: number | null;
+  readingProjectedAmountClp: number | null;
+  historicalProjectedM3: number | null;
+  historicalProjectedAmountClp: number | null;
   unitServiceRateClp: number;
   elapsedDays: number;
   remainingDays: number;
@@ -122,6 +131,7 @@ type WaterSettings = {
   notifySameDay: boolean;
   reminderTimeLocal: string;
   closingDayHint: number | null;
+  unitServiceRateClp: number;
   updatedAt: string | null;
 };
 type WaterDashboard = {
@@ -130,9 +140,29 @@ type WaterDashboard = {
   readings: WaterReading[];
   projection: WaterProjection | null;
   settings: WaterSettings;
-  reminderSchedule: { nextReadingDate: string; daysRemaining: number; nextNotification: { date: string; timeLocal: string; label: string } | null } | null;
+  reminderSchedule: { nextReadingDate: string; daysRemaining: number; isOverdue: boolean; nextNotification: { date: string; timeLocal: string; label: string } | null } | null;
   today: string;
 };
+const waterDashboardMemoryCache=new Map<string,WaterDashboard>();
+function waterUnitRateStorageKey(deviceSn: string) {
+  return `misolar-water-unit-rate:${deviceSn}`;
+}
+function storedWaterUnitRate(deviceSn: string) {
+  try {
+    const value = Number(localStorage.getItem(waterUnitRateStorageKey(deviceSn)));
+    return Number.isFinite(value) && value > 0 && value <= 100000 ? Math.round(value) : null;
+  } catch {
+    return null;
+  }
+}
+function withStoredWaterUnitRate(deviceSn: string, dashboard: WaterDashboard) {
+  const unitServiceRateClp = storedWaterUnitRate(deviceSn) ?? dashboard.settings.unitServiceRateClp ?? 1500;
+  return {
+    ...dashboard,
+    settings: { ...dashboard.settings, unitServiceRateClp },
+    projection: dashboard.projection ? { ...dashboard.projection, unitServiceRateClp } : null,
+  };
+}
 type WaterBillExtract = {
   provider: string | null;
   documentType: string | null;
@@ -248,6 +278,38 @@ function draftFromExtract(
     taxesClp: text(value.taxesClp),
     otherChargesClp: text(value.otherChargesClp),
     discountsClp: text(value.discountsClp),
+  };
+}
+
+function draftFromBill(bill: WaterBill): BillDraft {
+  return {
+    billingMonth: billMonth(bill).slice(0, 7),
+    periodStart: bill.periodStart,
+    periodEnd: bill.periodEnd,
+    issueDate: text(bill.issueDate),
+    dueDate: text(bill.dueDate),
+    nextReadingDate: text(bill.nextReadingDate),
+    previousReadingM3: text(bill.previousReadingM3),
+    currentReadingM3: text(bill.currentReadingM3),
+    readingDifferenceM3: text(bill.readingDifferenceM3),
+    deductibleM3: text(bill.deductibleM3),
+    billedM3: text(bill.billedM3),
+    readingStatus: bill.consumptionStatus === "actual" ? "actual" : "estimated",
+    amountClp: text(bill.amountClp),
+    customerNumber: text(bill.customerNumber),
+    meterNumber: text(bill.meterNumber),
+    meterBrand: text(bill.meterBrand),
+    meterModel: text(bill.meterModel),
+    invoiceNumber: text(bill.invoiceNumber),
+    serviceAddress: text(bill.serviceAddress),
+    fixedChargeClp: text(bill.fixedChargeClp),
+    potableWaterChargeClp: text(bill.potableWaterChargeClp),
+    sewerCollectionChargeClp: text(bill.sewerCollectionChargeClp),
+    wastewaterTreatmentChargeClp: text(bill.wastewaterTreatmentChargeClp),
+    subtotalServiceClp: text(bill.subtotalServiceClp),
+    taxesClp: text(bill.taxesClp),
+    otherChargesClp: text(bill.otherChargesClp),
+    discountsClp: text(bill.discountsClp),
   };
 }
 function dateLabel(value?: string | null) {
@@ -371,6 +433,22 @@ async function optimizeImage(file: File): Promise<WaterImage> {
   }
 }
 
+async function prepareBillDocument(file: File): Promise<WaterImage> {
+  if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+    if (file.size > 2_800_000)
+      throw new Error("El PDF debe pesar menos de 2,8 MB.");
+    return {
+      name: file.name,
+      dataUrl: await toDataUrl(file),
+      mimeType: "application/pdf",
+      bytes: file.size,
+    };
+  }
+  if (!/^image\/(jpeg|png|webp)$/.test(file.type))
+    throw new Error("Selecciona una fotografía JPG, PNG o WebP, o un archivo PDF.");
+  return optimizeImage(file);
+}
+
 export default function WaterCostsPage({
   deviceSn,
   siteLabel,
@@ -378,8 +456,8 @@ export default function WaterCostsPage({
   deviceSn: string;
   siteLabel: string;
 }) {
-  const [dashboard, setDashboard] = useState<WaterDashboard | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [dashboard, setDashboard] = useState<WaterDashboard | null>(()=>waterDashboardMemoryCache.get(deviceSn)||null);
+  const [loading, setLoading] = useState(()=>!waterDashboardMemoryCache.has(deviceSn));
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [billOpen, setBillOpen] = useState(false);
@@ -387,6 +465,8 @@ export default function WaterCostsPage({
   const [billImages, setBillImages] = useState<WaterImage[]>([]);
   const [billAi, setBillAi] = useState<WaterBillExtract | null>(null);
   const [billModel, setBillModel] = useState("");
+  const [editingBillId, setEditingBillId] = useState<number | null>(null);
+  const [billChargeItems, setBillChargeItems] = useState<WaterCharge[]>([]);
   const [billBusy, setBillBusy] = useState(false);
   const [captureChooser, setCaptureChooser] = useState<
     "bill" | "reading" | null
@@ -397,6 +477,7 @@ export default function WaterCostsPage({
     kind: "bill" | "reading";
     id: number;
     title: string;
+    mimeType: string;
   } | null>(null);
   const [readingImage, setReadingImage] = useState<WaterImage | null>(null);
   const [readingValue, setReadingValue] = useState("");
@@ -417,8 +498,10 @@ export default function WaterCostsPage({
   const [settingsDraft, setSettingsDraft] = useState<WaterSettings | null>(
     null,
   );
+  const [settingsBusy, setSettingsBusy] = useState(false);
   const billCameraInput = useRef<HTMLInputElement>(null);
   const billLibraryInput = useRef<HTMLInputElement>(null);
+  const billPdfInput = useRef<HTMLInputElement>(null);
   const readingCameraInput = useRef<HTMLInputElement>(null);
   const readingLibraryInput = useRef<HTMLInputElement>(null);
 
@@ -428,8 +511,10 @@ export default function WaterCostsPage({
       const result = await api<WaterDashboard>(
         `devices/${deviceSn}/water-costs`,
       );
-      setDashboard(result);
-      setSettingsDraft(result.settings);
+      const hydrated = withStoredWaterUnitRate(deviceSn, result);
+      waterDashboardMemoryCache.set(deviceSn,hydrated);
+      setDashboard(hydrated);
+      setSettingsDraft(hydrated.settings);
       setError("");
     } catch (cause) {
       setError(
@@ -444,12 +529,15 @@ export default function WaterCostsPage({
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
+    const cached=waterDashboardMemoryCache.get(deviceSn);
+    if(cached){setDashboard(cached);setSettingsDraft(cached.settings);setLoading(false)}else setLoading(true);
     api<WaterDashboard>(`devices/${deviceSn}/water-costs`)
       .then((result) => {
         if (active) {
-          setDashboard(result);
-          setSettingsDraft(result.settings);
+          const hydrated = withStoredWaterUnitRate(deviceSn, result);
+          waterDashboardMemoryCache.set(deviceSn,hydrated);
+          setDashboard(hydrated);
+          setSettingsDraft(hydrated.settings);
           setError("");
         }
       })
@@ -719,7 +807,7 @@ export default function WaterCostsPage({
       );
       const next = [
         ...billImages,
-        ...(await Promise.all(selected.map(optimizeImage))),
+        ...(await Promise.all(selected.map(prepareBillDocument))),
       ];
       if (next.reduce((sum, item) => sum + item.bytes, 0) > 2_800_000)
         throw new Error(
@@ -737,6 +825,7 @@ export default function WaterCostsPage({
     }
     if (billCameraInput.current) billCameraInput.current.value = "";
     if (billLibraryInput.current) billLibraryInput.current.value = "";
+    if (billPdfInput.current) billPdfInput.current.value = "";
   }
 
   async function importBillAutomatically(images: WaterImage[]) {
@@ -749,6 +838,8 @@ export default function WaterCostsPage({
         { method: "POST", body: JSON.stringify({ images }) },
       );
       const value = result.extracted;
+      setEditingBillId(null);
+      setBillChargeItems(value.chargeItems || []);
       const draft = draftFromExtract(defaultBillDraft(), value);
       setBillAi(value);
       setBillModel(result.model);
@@ -770,6 +861,8 @@ export default function WaterCostsPage({
       setBillImages([]);
       setBillAi(null);
       setBillModel("");
+      setEditingBillId(null);
+      setBillChargeItems([]);
       setBillOpen(false);
       const warning = saved.bill?.documentWarnings?.join(" ");
       setMessage(
@@ -800,10 +893,11 @@ export default function WaterCostsPage({
         method: "POST",
         body: JSON.stringify({
           ...billDraft,
+          billId: editingBillId,
           consumptionIsEstimated:
             billAi?.consumptionIsEstimated ??
             billDraft.readingStatus !== "actual",
-          chargeItems: billAi?.chargeItems || [],
+          chargeItems: billChargeItems,
           images: billImages,
           aiExtraction: billAi,
           aiConfidence: billAi?.confidence ?? null,
@@ -814,6 +908,8 @@ export default function WaterCostsPage({
       setBillImages([]);
       setBillAi(null);
       setBillModel("");
+      setEditingBillId(null);
+      setBillChargeItems([]);
       setBillOpen(false);
       const documentWarnings =
         saved.bill?.documentWarnings || saved.documentWarnings || [];
@@ -832,6 +928,28 @@ export default function WaterCostsPage({
     } finally {
       setBillBusy(false);
     }
+  }
+
+  function editBill(bill: WaterBill) {
+    setBillDraft(draftFromBill(bill));
+    setBillImages([]);
+    setBillAi(null);
+    setBillModel("");
+    setBillChargeItems(bill.chargeItems || []);
+    setEditingBillId(bill.id);
+    setBillOpen(true);
+    setMessage(`Editando la cuenta de ${monthLabel(billMonth(bill))}. La boleta original se conservará.`);
+    requestAnimationFrame(() => document.querySelector(".water-bill-entry")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
+
+  function closeBillEditor() {
+    setBillOpen(false);
+    setBillDraft(defaultBillDraft());
+    setBillImages([]);
+    setBillAi(null);
+    setBillModel("");
+    setEditingBillId(null);
+    setBillChargeItems([]);
   }
 
   async function chooseReadingPhoto(files: FileList | null) {
@@ -1001,17 +1119,23 @@ export default function WaterCostsPage({
 
   async function saveSettings() {
     if (!settingsDraft) return;
+    setSettingsBusy(true);
     setError("");
     try {
       const result = await api<{ settings: WaterSettings }>(
         `devices/${deviceSn}/water-settings`,
         { method: "PATCH", body: JSON.stringify(settingsDraft) },
       );
+      try {
+        localStorage.setItem(waterUnitRateStorageKey(deviceSn), String(result.settings.unitServiceRateClp));
+      } catch {
+        // La configuración central sigue siendo la fuente principal.
+      }
       setSettingsDraft(result.settings);
       setDashboard((current) =>
         current ? { ...current, settings: result.settings } : current,
       );
-      setMessage("Recordatorio de lectura guardado.");
+      setMessage(`Configuración guardada. Valor del m³: ${clp(result.settings.unitServiceRateClp)}.`);
       await reload();
     } catch (cause) {
       setError(
@@ -1019,6 +1143,8 @@ export default function WaterCostsPage({
           ? cause.message
           : "No fue posible guardar el recordatorio.",
       );
+    } finally {
+      setSettingsBusy(false);
     }
   }
 
@@ -1083,6 +1209,21 @@ export default function WaterCostsPage({
   const projection = dashboard?.projection;
   const period = dashboard?.period;
   const readings = dashboard?.readings || [];
+  const latestReading = [...readings].sort((left,right)=>right.readingAt.localeCompare(left.readingAt))[0];
+  const latestBill = [...bills].sort((left,right)=>right.periodEnd.localeCompare(left.periodEnd))[0];
+  const readingDate = latestReading
+    ? new Date(latestReading.readingAt).toLocaleDateString('en-CA',{timeZone:'America/Santiago'})
+    : null;
+  const whatsappMessage = [
+    'Hola, ¿cómo estás, Benjamín? Te adjunto la lectura de este mes.',
+    '',
+    'RUT: 13.281.514-3',
+    `N.º de cliente Aguas Andinas: ${latestBill?.customerNumber || 'no registrado'}`,
+    `Período informado: ${period ? dateLabel(period.periodStart) : 'sin fecha de inicio'} al ${readingDate ? dateLabel(readingDate) : 'día de envío'}`,
+    `Fecha de lectura: ${readingDate ? dateLabel(readingDate) : 'sin lectura registrada'}`,
+    `Última lectura: ${latestReading ? `${m3(latestReading.readingM3,3)} m³` : 'sin lectura registrada'}`,
+  ].join('\n');
+  const whatsappUrl = `https://wa.me/56950983133?text=${encodeURIComponent(whatsappMessage)}`;
 
   return (
     <section className="water-costs-page">
@@ -1100,7 +1241,17 @@ export default function WaterCostsPage({
           <CalendarClock />
           <strong>Próxima lectura Aguas Cordillera</strong>
           <span>{dateLabel(dashboard.reminderSchedule.nextReadingDate)}</span>
-          <b>{dashboard.reminderSchedule.daysRemaining === 0 ? "Hoy" : dashboard.reminderSchedule.daysRemaining === 1 ? "Falta 1 día" : `Faltan ${dashboard.reminderSchedule.daysRemaining} días`}</b>
+          <b>{dashboard.reminderSchedule.isOverdue ? "Fecha vencida" : dashboard.reminderSchedule.daysRemaining === 0 ? "Hoy" : dashboard.reminderSchedule.daysRemaining === 1 ? "Falta 1 día" : `Faltan ${dashboard.reminderSchedule.daysRemaining} días`}</b>
+          <a
+            className="water-whatsapp-button"
+            href={whatsappUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Abrir WhatsApp de Benjamín Guajardo, ejecutivo de Aguas Andinas"
+            title="WhatsApp de Benjamín Guajardo"
+          >
+            <MessageCircle aria-hidden="true" />
+          </a>
         </section>
       ) : null}
       <input
@@ -1121,6 +1272,13 @@ export default function WaterCostsPage({
       />
       <input
         className="water-hidden-input"
+        ref={billPdfInput}
+        type="file"
+        accept="application/pdf,.pdf"
+        onChange={(event) => void chooseBillFiles(event.target.files)}
+      />
+      <input
+        className="water-hidden-input"
         ref={readingCameraInput}
         type="file"
         accept="image/jpeg,image/png,image/webp"
@@ -1136,20 +1294,8 @@ export default function WaterCostsPage({
       />
       <section
         className="water-quick-actions"
-        aria-label="Accesos rápidos de agua"
+        aria-label="Ingreso de lectura de agua"
       >
-        <button
-          className="bill"
-          type="button"
-          onClick={() => setCaptureChooser("bill")}
-          disabled={billBusy}
-        >
-          <FilePlus2 />
-          <span>
-            <b>{billBusy ? "Analizando boleta…" : "Subir boleta"}</b>
-            <small>Elegir foto o abrir cámara</small>
-          </span>
-        </button>
         <button
           className="reading"
           type="button"
@@ -1233,7 +1379,7 @@ export default function WaterCostsPage({
           </div>
         </section>
       ) : null}
-      {captureChooser ? (
+      {captureChooser ? createPortal(
         <div
           className="water-source-backdrop"
           role="presentation"
@@ -1306,9 +1452,26 @@ export default function WaterCostsPage({
                   <small>Buscar una foto guardada</small>
                 </span>
               </button>
+              {captureChooser === "bill" ? (
+                <button
+                  className="pdf"
+                  type="button"
+                  onClick={() => {
+                    setCaptureChooser(null);
+                    billPdfInput.current?.click();
+                  }}
+                >
+                  <FileText />
+                  <span>
+                    <b>Subir archivo PDF</b>
+                    <small>Elegir la boleta desde Archivos</small>
+                  </span>
+                </button>
+              ) : null}
             </div>
           </section>
-        </div>
+        </div>,
+        document.body,
       ) : null}
       {message ? (
         <p className="water-message">
@@ -1352,7 +1515,7 @@ export default function WaterCostsPage({
           </nav>
         </header>
         {chartBills.length ? (
-          <EChart option={chartOption} className="water-chart" />
+          <Suspense fallback={<div className="cost-chart-loading">Preparando gráfico…</div>}><EChart option={chartOption} className="water-chart" /></Suspense>
         ) : (
           <div className="water-empty-chart">
             <Droplets />
@@ -1388,7 +1551,7 @@ export default function WaterCostsPage({
       <section className="panel water-current">
         <header>
           <div>
-            <small>Seguimiento entre lecturas</small>
+            <small>Mes en curso según la última boleta</small>
             <h2>
               {period ? monthLabel(period.expectedCloseDate) : "Mes en curso"}
             </h2>
@@ -1404,24 +1567,62 @@ export default function WaterCostsPage({
             <span className="water-status-pending">Sin período</span>
           )}
         </header>
+        {settingsDraft ? (
+          <div className="water-unit-rate-control">
+            <label>
+              <span>
+                <small>Valor del metro cúbico de agua</small>
+                <b>Se aplica al consumo, promedio diario y proyección</b>
+              </span>
+              <span className="water-unit-rate-input">
+                <i>$</i>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  max="100000"
+                  step="50"
+                  aria-label="Valor del metro cúbico de agua en pesos chilenos"
+                  value={settingsDraft.unitServiceRateClp}
+                  onChange={(event) =>
+                    setSettingsDraft((current) =>
+                      current
+                        ? { ...current, unitServiceRateClp: Number(event.target.value) }
+                        : current,
+                    )
+                  }
+                />
+                <i>por m³</i>
+              </span>
+            </label>
+            <button
+              type="button"
+              onClick={() => void saveSettings()}
+              disabled={settingsBusy || !Number.isFinite(settingsDraft.unitServiceRateClp) || settingsDraft.unitServiceRateClp <= 0}
+            >
+              <Save /> {settingsBusy ? "Guardando…" : "Guardar valor"}
+            </button>
+          </div>
+        ) : null}
         {period && projection ? (
           <div className="water-current-glance">
             <span>
               <small>Consumido a la fecha</small>
               <b>{m3(projection.consumedM3)}</b>
+              <em>{clp(Math.round(projection.consumedM3 * (settingsDraft?.unitServiceRateClp || projection.unitServiceRateClp)))}</em>
+              <i>gastados a la fecha</i>
             </span>
             <span>
               <small>Promedio diario</small>
-              <b>{m3(projection.averageDailyM3, 1)}/día</b>
-            </span>
-            <span>
-              <small>Proyección del período</small>
-              <b>{m3(projection.projectedM3)}</b>
+              <b>{m3(projection.averageDailyM3, 3)}/día</b>
+              <em>{clp(Math.round(projection.averageDailyM3 * (settingsDraft?.unitServiceRateClp || projection.unitServiceRateClp)))}/día</em>
+              <i>{projection.elapsedDays} días del período</i>
             </span>
             <span className="featured">
-              <small>Total proyectado</small>
-              <b>{clp(projection.projectedAmountClp)}</b>
-              <em>$1.500 por m³</em>
+              <small>Proyección por lecturas</small>
+              <b>{projection.readingProjectedM3 == null ? "Pendiente" : m3(projection.readingProjectedM3)}</b>
+              <em>{projection.readingProjectedM3 == null ? "Pendiente" : clp(Math.round(projection.readingProjectedM3 * (settingsDraft?.unitServiceRateClp || projection.unitServiceRateClp)))}</em>
+              <i>{projection.readingProjectedAmountClp == null ? "Se activará con la primera lectura" : "proyectados al cierre"}</i>
             </span>
           </div>
         ) : null}
@@ -1451,36 +1652,7 @@ export default function WaterCostsPage({
                   </b>
                 </span>
               </div>
-              {projection ? (
-                <div className="water-projection">
-                  <article>
-                    <small>Consumido hasta ahora</small>
-                    <strong>{m3(projection.consumedM3)}</strong>
-                    <span>Según lecturas guardadas</span>
-                  </article>
-                  <article>
-                    <small>Promedio diario</small>
-                    <strong>{m3(projection.averageDailyM3, 1)}</strong>
-                    <span>por día</span>
-                  </article>
-                  <article className="featured">
-                    <small>Proyección al cierre</small>
-                    <strong>{m3(projection.projectedM3)}</strong>
-                    <span>
-                      {clp(projection.projectedAmountClp)} · $1.500/m³
-                    </span>
-                  </article>
-                  <article>
-                    <small>Última actualización</small>
-                    <strong>{dateTimeLabel(projection.lastReadingAt)}</strong>
-                    <span>
-                      {projection.method === "current-readings"
-                        ? "Medición del mes actual"
-                        : "Promedio histórico"}
-                    </span>
-                  </article>
-                </div>
-              ) : null}
+              {projection ? <p className="water-projection-update">Última actualización: <b>{dateTimeLabel(projection.lastReadingAt)}</b> · valores calculados exclusivamente con las lecturas del período actual.</p> : null}
               {readings.length ? (
                 <div className="water-reading-history">
                   <h3>Lecturas del período</h3>
@@ -1512,6 +1684,7 @@ export default function WaterCostsPage({
                               kind: "reading",
                               id: reading.id,
                               title: `Lectura ${m3(reading.readingM3, 3)}`,
+                              mimeType: "image/jpeg",
                             })
                           }
                           aria-label={`Abrir foto de la lectura ${m3(reading.readingM3, 3)}`}
@@ -1590,7 +1763,7 @@ export default function WaterCostsPage({
                     <div><small>Estimación distribuida entre lecturas</small><h3>Consumo diario del período</h3></div>
                     <span>Azul: calculado · naranja: proyectado</span>
                   </header>
-                  <EChart option={dailyReadingChart.option} className="water-daily-chart" />
+                  <Suspense fallback={<div className="cost-chart-loading">Preparando consumo diario…</div>}><EChart option={dailyReadingChart.option} className="water-daily-chart" /></Suspense>
                   <footer>
                     <span><small>Consumo distribuido hasta la última lectura</small><b>{m3(dailyReadingChart.totalCalculated, 3)}</b></span>
                     <span><small>Promedio usado para días restantes</small><b>{m3(dailyReadingChart.projectedDaily, 3)}/día</b></span>
@@ -1758,8 +1931,8 @@ export default function WaterCostsPage({
                 placeholder="Automático"
               />
             </label>
-            <button type="button" onClick={() => void saveSettings()}>
-              <Save /> Guardar aviso
+            <button type="button" onClick={() => void saveSettings()} disabled={settingsBusy}>
+              <Save /> {settingsBusy ? "Guardando…" : "Guardar aviso"}
             </button>
             <button
               type="button"
@@ -1786,22 +1959,35 @@ export default function WaterCostsPage({
         </details>
       ) : null}
 
+      <section className="panel water-bill-add-action">
+        <div>
+          <small>Archivo de cuentas de agua</small>
+          <h2>Subir boleta</h2>
+          <p>Agrega la nueva boleta justo antes de revisar las cuentas mensuales guardadas.</p>
+        </div>
+        <button type="button" onClick={() => billOpen ? closeBillEditor() : setCaptureChooser("bill")} disabled={billBusy}>
+          {billOpen ? <X /> : <FilePlus2 />}
+          {billOpen ? "Cerrar" : billBusy ? "Analizando boleta…" : "Subir boleta"}
+        </button>
+      </section>
+
       {billOpen ? (
         <section className="panel water-bill-entry">
           <header>
             <div>
-              <small>Carga automática</small>
-              <h2>Subir cuenta de Aguas Cordillera</h2>
+              <small>{editingBillId ? "Corrección manual" : "Carga automática"}</small>
+              <h2>{editingBillId ? "Editar cuenta mensual" : "Subir cuenta de Aguas Cordillera"}</h2>
               <p>
-                Elige una o varias fotos. La IA extrae, clasifica y guarda todo
-                sin preguntarte datos.
+                {editingBillId
+                  ? "Corrige fechas, lecturas, consumo, total o datos de la cuenta. El documento original permanece guardado."
+                  : "Saca una foto, elige una imagen guardada o sube el PDF. La IA extrae, clasifica y guarda el documento original."}
               </p>
             </div>
-            <button onClick={() => setBillOpen(false)} aria-label="Cerrar">
+            <button onClick={closeBillEditor} aria-label="Cerrar">
               <X />
             </button>
           </header>
-          <div className="water-upload-zone">
+          {!editingBillId ? <div className="water-upload-zone">
             <button
               type="button"
               onClick={() => setCaptureChooser("bill")}
@@ -1814,8 +2000,8 @@ export default function WaterCostsPage({
             </button>
             <span>
               {billImages.length
-                ? `${billImages.length} página(s) en proceso`
-                : "Selecciona y listo · hasta 4 páginas"}
+                ? `${billImages.length} archivo(s) en proceso`
+                : "Fotos: hasta 4 páginas · PDF: un archivo"}
             </span>
             {billImages.length && !billBusy ? (
               <button
@@ -1826,13 +2012,13 @@ export default function WaterCostsPage({
                 <Sparkles /> Reintentar guardado automático
               </button>
             ) : null}
-          </div>
+          </div> : null}
           {billImages.length ? (
             <div className="water-upload-list">
               {billImages.map((image, index) => (
                 <span key={`${image.name}-${index}`}>
-                  <FileImage />
-                  <b>Página {index + 1}</b>
+                  {image.mimeType === "application/pdf" ? <FileText /> : <FileImage />}
+                  <b>{image.mimeType === "application/pdf" ? "Documento PDF" : `Página ${index + 1}`}</b>
                   <small>{image.name}</small>
                   <button
                     onClick={() =>
@@ -1855,9 +2041,9 @@ export default function WaterCostsPage({
               ))}
             </aside>
           ) : null}
-          <details className="water-manual-fallback">
+          <details className="water-manual-fallback" open={Boolean(editingBillId)}>
             <summary>
-              Revisión manual — solo si la IA no pudo leer la boleta
+              {editingBillId ? "Datos editables de la cuenta" : "Revisión manual — solo si la IA no pudo leer la boleta"}
             </summary>
             <div className="water-bill-form">
               <label>
@@ -1913,16 +2099,11 @@ export default function WaterCostsPage({
                 />
               </label>
               <label>
-                Próxima lectura
+                Próxima lectura (automática: 30 días)
                 <input
                   type="date"
-                  value={billDraft.nextReadingDate}
-                  onChange={(event) =>
-                    setBillDraft((current) => ({
-                      ...current,
-                      nextReadingDate: event.target.value,
-                    }))
-                  }
+                  value={billDraft.periodEnd ? addDays(billDraft.periodEnd, 30) : ""}
+                  readOnly
                 />
               </label>
               <label>
@@ -2188,7 +2369,7 @@ export default function WaterCostsPage({
               onClick={() => void saveBill()}
               disabled={billBusy}
             >
-              <Save /> {billBusy ? "Guardando…" : "Guardar igualmente"}
+              <Save /> {billBusy ? "Guardando…" : editingBillId ? "Guardar cambios" : "Guardar igualmente"}
             </button>
           </details>
         </section>
@@ -2378,7 +2559,7 @@ export default function WaterCostsPage({
                 </section>
                 {bill.documents.length ? (
                   <section className="wide">
-                    <h4>Fotografías respaldadas</h4>
+                    <h4>Boleta original respaldada</h4>
                     <div className="water-document-grid">
                       {bill.documents.map((document) => (
                         <button
@@ -2388,16 +2569,39 @@ export default function WaterCostsPage({
                               kind: "bill",
                               id: document.id,
                               title: `${monthLabel(billMonth(bill))} · página ${document.pageNumber}`,
+                              mimeType: document.mimeType,
                             })
                           }
                         >
-                          <img
-                            loading="lazy"
-                            src={`/api/devices/${encodeURIComponent(deviceSn)}/water-bills/documents/${document.id}`}
-                            alt={`Página ${document.pageNumber}`}
-                          />
-                          <span>Página {document.pageNumber}</span>
+                          {document.mimeType === "application/pdf" ? (
+                            <span className="water-pdf-preview">
+                              <FileText />
+                              <b>PDF</b>
+                              <small>{document.originalName || "Boleta de agua"}</small>
+                            </span>
+                          ) : (
+                            <img
+                              loading="lazy"
+                              src={`/api/devices/${encodeURIComponent(deviceSn)}/water-bills/documents/${document.id}`}
+                              alt={`Página ${document.pageNumber}`}
+                            />
+                          )}
+                          <span>{document.mimeType === "application/pdf" ? "Abrir PDF" : `Página ${document.pageNumber}`}</span>
                         </button>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+                {bill.readings?.length ? (
+                  <section className="wide water-bill-saved-readings">
+                    <h4>Lecturas conservadas en este período</h4>
+                    <div>
+                      {bill.readings.map((reading) => (
+                        <span key={reading.id}>
+                          <time>{dateTimeLabel(reading.readingAt)}</time>
+                          <b>{m3(reading.readingM3, 3)}</b>
+                          <small>{reading.notes || (reading.hasPhoto ? "Con fotografía" : "Ingreso manual")}</small>
+                        </span>
                       ))}
                     </div>
                   </section>
@@ -2409,12 +2613,17 @@ export default function WaterCostsPage({
                       ? "no calculable"
                       : `${clp(bill.unitServiceRateClp)} por m³`}
                   </span>
-                  <button
-                    className="danger"
-                    onClick={() => void removeBill(bill)}
-                  >
-                    <Trash2 /> Eliminar
-                  </button>
+                  <div className="water-bill-actions">
+                    <button className="edit" onClick={() => editBill(bill)}>
+                      <Pencil /> Editar cuenta
+                    </button>
+                    <button
+                      className="danger"
+                      onClick={() => void removeBill(bill)}
+                    >
+                      <Trash2 /> Eliminar
+                    </button>
+                  </div>
                 </footer>
               </div>
             </details>
@@ -2450,14 +2659,22 @@ export default function WaterCostsPage({
               <X /> Cerrar y volver
             </button>
           </header>
-          <img
-            src={
-              viewDocument.kind === "bill"
-                ? `/api/devices/${encodeURIComponent(deviceSn)}/water-bills/documents/${viewDocument.id}`
-                : `/api/devices/${encodeURIComponent(deviceSn)}/water-meter/readings/${viewDocument.id}/photo`
-            }
-            alt={viewDocument.title}
-          />
+          {viewDocument.mimeType === "application/pdf" ? (
+            <iframe
+              className="water-pdf-viewer"
+              src={`/api/devices/${encodeURIComponent(deviceSn)}/water-bills/documents/${viewDocument.id}`}
+              title={viewDocument.title}
+            />
+          ) : (
+            <img
+              src={
+                viewDocument.kind === "bill"
+                  ? `/api/devices/${encodeURIComponent(deviceSn)}/water-bills/documents/${viewDocument.id}`
+                  : `/api/devices/${encodeURIComponent(deviceSn)}/water-meter/readings/${viewDocument.id}/photo`
+              }
+              alt={viewDocument.title}
+            />
+          )}
         </div>
       ) : null}
     </section>

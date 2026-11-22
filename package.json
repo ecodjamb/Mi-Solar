@@ -1,13 +1,15 @@
 {
   "name": "mi-solar-v8-vercel",
-  "version": "8.38.6",
+  "version": "8.79.6",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node tests/signature.test.js && node tests/providers.test.js && node tests/security-contract.test.js && node tests/notification-monitor.test.js && node tests/solar-projection-lock.test.js && node tests/water-bill-ai.test.js && node tests/utility-reading-reminder.test.js && node tests/family-finance.test.js && node tests/tuya-rules.test.js && node tests/energy-grid-priority.test.js && node tests/navigation-reorganization.test.js && node tests/costs-billing-period.test.js && node tests/refresh-policy.test.js && node tests/energy-rollup.test.js && node tests/poll-policy.test.js && node tests/scheduled-tasks.test.js",
+    "version:check": "node scripts/check-release.mjs",
+    "release:check": "npm run version:check && npm run typecheck && npm test && npm run build",
+    "test": "node tests/signature.test.js && node tests/providers.test.js && node tests/realtime-consistency.test.js && node tests/history-repair.test.js && node tests/security-contract.test.js && node tests/notification-monitor.test.js && node tests/solar-projection-lock.test.js && node tests/equipment-configuration.test.js && node tests/water-bill-ai.test.js && node tests/utility-reading-reminder.test.js && node tests/family-finance.test.js && node tests/tuya-rules.test.js && node tests/pool-solar-automation.test.js && node tests/energy-grid-priority.test.js && node tests/navigation-reorganization.test.js && node tests/user-creation.test.js && node tests/costs-billing-period.test.js && node tests/ai-chat.test.js && node tests/provider-history-mirror.test.js && node tests/performance-loading.test.js && node tests/chart-explorer.test.js && node tests/battery-soc-icon.test.js && node tests/home-summary-weather.test.js && node tests/monitor-view.test.js && node tests/public-monitor.test.js && node tests/alexa-widget-api.test.js && node tests/alexa-widget.test.js && node tests/refresh-policy.test.js && node tests/energy-rollup.test.js && node tests/poll-policy.test.js && node tests/scheduled-tasks.test.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

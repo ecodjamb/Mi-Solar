@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { BellRing, CalendarClock, CheckCircle2, ChevronDown, CloudSun, Clock3, KeyRound, PlayCircle, PlugZap, Plus, Save, Settings2, ShieldCheck, Sun, Trash2, WifiOff, Zap } from 'lucide-react';
+import { BatteryMedium, BellRing, CalendarClock, CheckCircle2, ChevronDown, CloudSun, Clock3, Database, KeyRound, ListChecks, PlayCircle, PlugZap, Plus, Save, Settings2, ShieldCheck, Sun, Trash2, Waves, WifiOff, Zap } from 'lucide-react';
 import { api } from '../services/api';
+import PoolSolarAutomation,{type PoolLiveTelemetry,type PoolSnapshot} from './PoolSolarAutomation';
 
 type InverterSettings = {
   redischarge: { percent: number | null; command: string | null; status: 'recognized' | 'not-found' };
@@ -10,7 +11,7 @@ type SettingsCheck = InverterSettings & { observedAt: string; readOnly: boolean 
 type Preset = 'sunny' | 'cloudy';
 type ProfileConfig = { redischarge: number; output: 'Utility' | 'SOL' | 'SBU' };
 type AutomationCondition = { id:string; enabled:boolean; kind:'lessThan'|'between'; minKwh:number; maxKwh:number; preset:Preset; runAtLocal:string; dayOffset:0|-1 };
-type NotificationPreferences = { automationExecuted:boolean; automationState:boolean; serviceOutage:boolean; gridOutage:boolean; solarSurplus:boolean };
+type NotificationPreferences = { automationExecuted:boolean; automationState:boolean; serviceOutage:boolean; gridOutage:boolean; solarSurplus:boolean; batteryAfterSunset:boolean };
 type LastExecution = { forecast_date: string; evaluated_at: string; forecast_kwh: number; preset: Preset; action: 'changed' | 'unchanged' | 'failed'; message: string; notified: boolean };
 type AutomationRule = {
   enabled: boolean;
@@ -34,7 +35,9 @@ type ApplyResponse = {
   audit: { stored: boolean; id?: number | null }; message: string;
 };
 type PushStatus = { configured:boolean; count:number; lastSubscribedAt:string|null; lastSuccessAt:string|null; failures:number; serverConfigured:boolean };
-type Props = { deviceSn: string; siteLabel: string; currentTime: string; tomorrowDate: string; tomorrowForecast: number | null };
+type AutomationDevice={id:string;name:string;online:boolean;status:Array<{code:string;value?:unknown}>};
+type TuyaRule={id:number;device_id:string;device_name:string;function_code:string;start_time:string;end_time:string;days:number[];enabled:boolean;timezone:string};
+type Props = { deviceSn: string; siteId?:number; siteLabel: string; currentTime: string; tomorrowDate: string; tomorrowForecast: number | null; canManage:boolean; activeProvider:'isolar'|'watchpower'; liveTelemetry?:PoolLiveTelemetry };
 
 const DEFAULTS: Pick<AutomationRule, 'enabled'|'executionMode'|'thresholdKwh'|'runAtLocal'|'sunny'|'cloudy'|'conditions'|'notificationPreferences'|'updatedAt'|'configured'|'credentialsConfigured'|'notificationsConfigured'|'lastExecution'> = {
   enabled: false, executionMode: 'manual', thresholdKwh: 20, runAtLocal: '22:00',
@@ -43,7 +46,7 @@ const DEFAULTS: Pick<AutomationRule, 'enabled'|'executionMode'|'thresholdKwh'|'r
     {id:'cloudy-default',enabled:true,kind:'lessThan',minKwh:0,maxKwh:20,preset:'cloudy',runAtLocal:'22:00',dayOffset:-1},
     {id:'sunny-default',enabled:true,kind:'between',minKwh:20,maxKwh:60,preset:'sunny',runAtLocal:'22:00',dayOffset:-1}
   ],
-  notificationPreferences: { automationExecuted: true, automationState: true, serviceOutage: true, gridOutage: true, solarSurplus: true },
+  notificationPreferences: { automationExecuted: true, automationState: true, serviceOutage: true, gridOutage: true, solarSurplus: true, batteryAfterSunset: true },
   updatedAt: null, configured: false, credentialsConfigured: false, notificationsConfigured: false, lastExecution: null
 };
 
@@ -70,7 +73,7 @@ function setupSignature(rule: AutomationRule) {
   });
 }
 
-export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomorrowDate, tomorrowForecast }: Props) {
+export default function ProgrammingPage({ deviceSn, siteId, siteLabel, currentTime, tomorrowDate, tomorrowForecast, canManage, activeProvider, liveTelemetry }: Props) {
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<SettingsCheck | null>(null);
   const [automation, setAutomation] = useState<AutomationRule | null>(null);
@@ -90,6 +93,11 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
   const [error, setError] = useState('');
   const [setupSaveMessage, setSetupSaveMessage] = useState('');
   const [setupSaveError, setSetupSaveError] = useState('');
+  const [automationDevices,setAutomationDevices]=useState<AutomationDevice[]>([]);
+  const [tuyaRules,setTuyaRules]=useState<TuyaRule[]>([]);
+  const [poolSnapshot,setPoolSnapshot]=useState<PoolSnapshot|null>(null);
+  const [inventoryMessage,setInventoryMessage]=useState('');
+  const [inventoryBusy,setInventoryBusy]=useState<number|null>(null);
   const hasForecast = tomorrowForecast != null;
   const matchedCondition = automation && hasForecast ? draft.conditions.find((condition) => condition.enabled && (condition.kind === 'lessThan' ? tomorrowForecast < condition.maxKwh : tomorrowForecast >= condition.minKwh && tomorrowForecast <= condition.maxKwh)) : null;
   const qualifies = matchedCondition?.preset === 'sunny';
@@ -111,6 +119,26 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
     api<PushStatus>(`devices/${deviceSn}/push-status`).then(value=>active&&setPushStatus(value)).catch(()=>active&&setPushStatus(null));
     return () => { active = false; };
   }, [deviceSn]);
+
+  useEffect(()=>{
+    let active=true;
+    if(!siteId){setAutomationDevices([]);setTuyaRules([]);return()=>{active=false}};
+    Promise.all([
+      api<{devices:AutomationDevice[]}>('tuya/devices').catch(()=>({devices:[]})),
+      api<{rules:TuyaRule[]}>('tuya/rules').catch(()=>({rules:[]}))
+    ]).then(([devices,rules])=>{if(active){setAutomationDevices(devices.devices||[]);setTuyaRules(rules.rules||[])}});
+    return()=>{active=false};
+  },[siteId]);
+
+  async function toggleTuyaRule(rule:TuyaRule){
+    setInventoryBusy(rule.id);setInventoryMessage('');
+    try{
+      const response=await api<{rule:TuyaRule}>(`tuya/rules/${rule.id}`,{method:'PATCH',body:JSON.stringify({deviceId:rule.device_id,deviceName:rule.device_name,functionCode:rule.function_code,startTime:String(rule.start_time).slice(0,5),endTime:String(rule.end_time).slice(0,5),days:rule.days,enabled:!rule.enabled})});
+      setTuyaRules(current=>current.map(item=>item.id===rule.id?response.rule:item));
+      setInventoryMessage(`Horario de ${rule.device_name} ${rule.enabled?'pausado':'activado'}.`);
+    }catch(cause){setInventoryMessage(cause instanceof Error?cause.message:'No se pudo cambiar el horario.')}
+    finally{setInventoryBusy(null)}
+  }
 
   async function checkSettings() {
     setChecking(true); setError(''); setActionMessage('');
@@ -237,9 +265,34 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
   const addCondition=()=>{clearSetupConfirmation();setDraft(value=>({...value,conditions:[...value.conditions,{id:globalThis.crypto?.randomUUID?.()||`rule-${Date.now()}`,enabled:true,kind:'between',minKwh:0,maxKwh:60,preset:'cloudy',runAtLocal:'22:00',dayOffset:-1}]}))};
   const removeCondition=(id:string)=>{clearSetupConfirmation();setDraft(value=>({...value,conditions:value.conditions.filter(item=>item.id!==id)}))};
   const setNotificationPreference=(key:keyof NotificationPreferences,value:boolean)=>setDraft(current=>({...current,notificationPreferences:{...current.notificationPreferences,[key]:value}}));
+  const poolConfig=poolSnapshot?.config;
+  const poolModeLabel=(mode?:string)=>mode==='automatic'?'Automático':mode==='manual'?'Manual':'Apagado';
+  const systemAutomations=[
+    {title:'Sincronización energética unificada',detail:'Consulta la fuente activa mediante el regulador global y evita solicitudes superpuestas.'},
+    {title:'Recuperación del histórico al ingresar',detail:'Detecta vacíos recientes y completa solamente las muestras ausentes.'},
+    {title:'Monitores y notificaciones',detail:'Vigila red, batería, excedente solar, proveedores y movimientos familiares.'}
+  ];
 
   return <section className="settings-page">
-    <header className="page-heading"><div><small>Automatización · {siteLabel}</small><h1>Programación solar</h1><p>La decisión utiliza exactamente la proyección recalibrada de la sección Radiación.</p></div></header>
+    <header className="page-heading"><div><small>Centro de control · {siteLabel}</small><h1>Automatizaciones</h1><p>Inventario único para saber qué puede actuar, cuándo lo hace y cómo desactivarlo.</p></div></header>
+
+    <section className="panel automation-inventory">
+      <header><span><ListChecks/><span><small>INVENTARIO ACTIVO</small><h2>Todas las automatizaciones</h2></span></span><b>{7+tuyaRules.length}</b></header>
+      <div className="automation-inventory-list">
+        <article><span className="automation-inventory-icon inverter"><Zap/></span><div><b>Programación solar del inversor</b><small>A las horas configuradas aplica el perfil soleado o nublado según la proyección de Radiación.</small></div><em className={automation?.enabled?'active':'off'}>{automation?.enabled?'Activa':'Apagada'}</em></article>
+        <article><span className="automation-inventory-icon pool"><Waves/></span><div><b>Solo bomba de agua piscina · A1</b><small>En automático usa excedente, SOC, descarga, tiempo mínimo y bloqueo de rearranque.</small></div><em className={poolConfig?.water_control_mode==='off'?'off':'active'}>{poolModeLabel(poolConfig?.water_control_mode)}</em></article>
+        <article><span className="automation-inventory-icon pool"><Waves/></span><div><b>Bomba de agua + bomba de calor · A1/A2</b><small>Enciende A1, confirma circulación y luego A2; protege la batería y evita ciclos rápidos.</small></div><em className={poolConfig?.control_mode==='off'?'off':'active'}>{poolModeLabel(poolConfig?.control_mode)}</em></article>
+        <article className="sunset"><span className="automation-inventory-icon sunset"><Sun/></span><div><b>Corte diario de respaldo de piscina</b><small>Apaga A2 y después A1 antes de la puesta de sol. Ahora es independiente y viene apagado por defecto.</small></div><em className={poolConfig?.push_preferences.sunset_shutdown_enabled?'active':'off'}>{poolConfig?.push_preferences.sunset_shutdown_enabled?'Activo':'Apagado'}</em></article>
+        {tuyaRules.map(rule=><article key={rule.id}><span className="automation-inventory-icon schedule"><CalendarClock/></span><div><b>Horario Tuya · {rule.device_name}</b><small>{String(rule.start_time).slice(0,5)} → {String(rule.end_time).slice(0,5)} · {rule.days.length===7?'todos los días':rule.days.map(day=>['L','M','X','J','V','S','D'][day-1]).join(' · ')}</small></div><button type="button" className={`automation-inline-switch ${rule.enabled?'on':''}`} role="switch" aria-checked={rule.enabled} disabled={!canManage||inventoryBusy===rule.id} onClick={()=>void toggleTuyaRule(rule)}><i/><strong>{rule.enabled?'Activo':'Pausado'}</strong></button></article>)}
+        {systemAutomations.map(item=><article className="system" key={item.title}><span className="automation-inventory-icon system"><Database/></span><div><b>{item.title}</b><small>{item.detail}</small></div><em>Sistema</em></article>)}
+      </div>
+      {inventoryMessage?<p className="automation-inventory-message" role="status">{inventoryMessage}</p>:null}
+      {!tuyaRules.length?<p className="automation-inventory-note">No existen horarios Tuya guardados. Si se crea un apagado a una hora fija, aparecerá aquí con su propio interruptor.</p>:null}
+    </section>
+
+    {siteId?<section className="automation-pool-admin"><header><small>PISCINA · CONTROLES Y PARÁMETROS</small><h2>Automatizaciones de bombas</h2><p>Selecciona Manual, Apagado o Automático. Despliega cada fila para editar sus parámetros y el corte diario.</p></header><PoolSolarAutomation siteId={siteId} devices={automationDevices} canManage={canManage} activeProvider={activeProvider} liveTelemetry={liveTelemetry} onSnapshot={setPoolSnapshot}/></section>:null}
+
+    <header className="automation-inverter-heading"><small>INVERSOR · CONFIGURACIÓN SOLAR</small><h2>Programación según radiación</h2><p>La decisión utiliza exactamente la proyección recalibrada de la sección Radiación.</p></header>
 
     <section className="panel programming-alert programming-safe"><ShieldCheck/><div><strong>Control secuencial con verificación</strong><p>Cada parámetro se envía por separado, espera cinco segundos y se confirma antes de continuar.</p></div></section>
 
@@ -290,9 +343,10 @@ export default function ProgrammingPage({ deviceSn, siteLabel, currentTime, tomo
         <label><span><WifiOff/><b>Caída y recuperación del servicio</b><small>Avisa después de dos sincronizaciones fallidas y cuando el servicio regresa.</small></span><input type="checkbox" checked={draft.notificationPreferences.serviceOutage} onChange={event=>setNotificationPreference('serviceOutage',event.target.checked)}/><i/></label>
         {siteLabel === 'El Arrayán' ? <label><span><PlugZap/><b>Corte y regreso de la red eléctrica</b><small>Detecta red inactiva con la casa funcionando desde batería. También confirma cuando vuelve la luz.</small></span><input type="checkbox" checked={draft.notificationPreferences.gridOutage} onChange={event=>setNotificationPreference('gridOutage',event.target.checked)}/><i/></label> : null}
         <label><span><Sun/><b>Solar mayor al consumo</b><small>Avisa una vez al día cuando los paneles superen el consumo de la casa.</small></span><input type="checkbox" checked={draft.notificationPreferences.solarSurplus} onChange={event=>setNotificationPreference('solarSurplus',event.target.checked)}/><i/></label>
+        <label><span><BatteryMedium/><b>Casa funcionando con batería después de las 16:00</b><small>Avisa una vez al día cuando ya no hay producción solar y la batería sostiene los consumos.</small></span><input type="checkbox" checked={draft.notificationPreferences.batteryAfterSunset} onChange={event=>setNotificationPreference('batteryAfterSunset',event.target.checked)}/><i/></label>
       </div>
       <div className="notification-diagnostic"><span><small>Estado</small><strong>{notificationStage}</strong></span><span><small>Celulares guardados</small><strong>{pushStatus?.count ?? (automation?.notificationsConfigured?1:0)}</strong></span><span><small>Última entrega</small><strong>{pushStatus?.lastSuccessAt?new Date(pushStatus.lastSuccessAt).toLocaleString('es-CL'):'Sin entrega confirmada'}</strong></span></div>
-      {!automation?.credentialsConfigured?<p className="notification-credential-note">Para vigilar el servicio y la producción de {siteLabel}, guarda primero el acceso automático a i.Solar en el Setup de esta instalación.</p>:null}
+      <p className="notification-credential-note">El monitor usa automáticamente la muestra reciente más confiable entre i.Solar y WatchPower, sin generar una consulta adicional.</p>
       {notificationError?<p className="notification-inline-error" role="alert">{notificationError}</p>:null}
       {notificationMessage?<p className="notification-inline-success" role="status">{notificationMessage}</p>:null}
       <div className="notification-actions"><button className="primary-action" type="button" disabled={savingNotifications} onClick={saveNotificationPreferences}><Save/>{savingNotifications ? 'Guardando…' : 'Guardar notificaciones'}</button><button className="secondary-action" type="button" disabled={savingNotifications} onClick={enableNotifications}>{savingNotifications ? notificationStage : 'Activar o reparar celular'}</button><button className="secondary-action" type="button" disabled={testingNotifications} onClick={testNotifications}>{testingNotifications?notificationStage:'Enviar prueba'}</button></div>

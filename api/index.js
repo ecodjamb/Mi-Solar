@@ -3,11 +3,12 @@ import { md5, tumRequest } from '../server/tumcapp.js';
 import { clearCookie, openSession, sessionCookie, SESSION_IDLE_MS } from '../server/session.js';
 import { archiveRows, readArchive, readArchiveSeries, rest, validDeviceReference } from '../server/archive.js';
 import { getTuyaDevice, getTuyaDeviceProfile, listTuyaDevices, sendTuyaCommand, tuyaConfiguration } from '../server/tuya.js';
+import { controlPoolCircuit, getPoolSolarAutomation, recordPoolManualCommand, runPoolSolarAutomations, savePoolSolarAutomation, setPoolControlMode } from '../server/poolSolarAutomation.js';
 import { archiveTuyaRule, createTuyaRule, listTuyaRules, runDueTuyaRules, updateTuyaRule } from '../server/tuyaRules.js';
 import { parseInverterSettings } from '../server/isolarSettings.js';
 import {
-  deleteEquipment, listEquipment, pushSubscriptionStatus, readAutomationRule, recordConfigurationEvent, removePushSubscription, saveAutomationCredentials,
-  saveEquipment, savePushSubscription, saveUserPushSubscription, updateAutomationRule
+  deleteEquipment, listEquipment, listEquipmentHistory, pushSubscriptionStatus, readAutomationRule, recordConfigurationEvent, removePushSubscription, saveAutomationCredentials,
+  saveEquipment, savePushSubscription, saveUserPushSubscription, updateAutomationRule, listNotificationEvents
 } from '../server/automationStore.js';
 import { encryptCredentials } from '../server/secretBox.js';
 import { applyInverterTarget, loginOrigin, logoutOrigin } from '../server/inverterControl.js';
@@ -16,24 +17,27 @@ import { ensureSite } from '../server/archive.js';
 import { runDueAutomations } from '../server/automationRunner.js';
 import { runNotificationMonitors, runReadingReminders } from '../server/notificationMonitor.js';
 import { automationSiteProfile } from '../server/siteProfiles.js';
-import { forecastForDate, forecastRange, listForecastRevisions, lockTomorrowForecasts } from '../server/solarProjection.js';
-import { captureUtilityProjectionSnapshots, deleteUtilityBill, listUtilityBills, projectUtilityBill, readUtilityBillDocument, saveUtilityBill, saveUtilityMeterReading, updateUtilityBill, utilityBillReminder, utilityMeterTracking, updateUtilityBillReminder } from '../server/utilityBills.js';
+import { forecastForDate, forecastRange, listForecastRevisions, lockTomorrowForecasts, reconcileOfficialForecast } from '../server/solarProjection.js';
+import { captureUtilityProjectionSnapshots, deleteUtilityBill, listUtilityBills, monitorUtilityEconomics, projectUtilityBill, readUtilityBillDocument, saveUtilityBill, saveUtilityMeterReading, updateUtilityBill, utilityBillReminder, utilityMeterTracking, updateUtilityBillReminder } from '../server/utilityBills.js';
 import { extractUtilityBill, validateBillImages } from '../server/utilityBillAi.js';
 import {
   closeWaterPeriod, deleteWaterBill, deleteWaterReading, openWaterPeriod, readWaterBillDocument, readWaterReadingPhoto,
   saveWaterBill, saveWaterReading, updateWaterSettings, waterDashboard
 } from '../server/waterCosts.js';
-import { extractWaterBill, extractWaterMeterReading, validateWaterImages } from '../server/waterBillAi.js';
+import { extractWaterBill, extractWaterMeterReading, validateWaterBillDocuments, validateWaterImages } from '../server/waterBillAi.js';
 import { appSessionStatus, changeAppPassword, loginApp, logoutApp, requireAppPermission, requireAppViewIfEnabled } from '../server/appAuth.js';
 import {
-  disconnectProvider, latestCanonical, listProviderAccounts, providerHistory, saveProviderCredentials,
-  syncProviderNow, syncProviderIfDue, syncEnabledProviders, testProviderConnection, publicProviderCatalog,
+  auditISolarHistoryToday, disconnectProvider, downloadISolarDayArchive, forceISolarRealtimeNow, latestCanonical, listProviderAccounts, providerHistory, providerHistorySeries, repairISolarHistoryToday, saveProviderCredentials,
+  providerQueryControl, setProviderQueriesPaused, syncProviderIfDue, syncProviderRealtimeIfDue, syncEnabledProviders, publicProviderCatalog,
   withISolarProviderSession
 } from '../server/providerStore.js';
 import { canonicalToLegacy } from '../server/canonicalTelemetry.js';
 import { createUser, listUsers, resetUserPassword, revokeUserSessions, updateUser } from '../server/userAdmin.js';
 import { createAllowance, createExpenseMovement, createLoan, endAllowance, familyDashboard, generateAllowanceObligations, readFinancialAttachment, recordLoanPayment, reviewExpenseMovement, reviewLoan, reviewLoanPayment, shareExpenseAccount, updateAllowance, updateExpenseMovement, voidExpenseMovement } from '../server/familyFinance.js';
 import { extractFinancialReceipt } from '../server/financialReceiptAi.js';
+import { runAiChat } from '../server/aiChat.js';
+import { publicMonitorSnapshot } from '../server/publicMonitor.js';
+import { authorizedAlexaWidgetRequest, readAlexaWidgetSnapshot } from '../server/alexaWidget.js';
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
   res.statusCode = statusCode;
@@ -110,13 +114,20 @@ function normalizeOpenMeteo(payload) {
     time,
     shortwaveWm2: Number(payload.hourly?.shortwave_radiation?.[i] || 0),
     cloudCover: Number(payload.hourly?.cloud_cover?.[i] || 0),
-    precipitation: Number(payload.hourly?.precipitation?.[i] || 0)
+    precipitation: Number(payload.hourly?.precipitation?.[i] || 0),
+    temperature: Number(payload.hourly?.temperature_2m?.[i] || 0),
+    windSpeed: Number(payload.hourly?.wind_speed_10m?.[i] || 0),
+    weatherCode: Number(payload.hourly?.weather_code?.[i] || 0),
+    isDay: Number(payload.hourly?.is_day?.[i] || 0)
   }));
   const dailyRadiation = (payload.daily?.time || []).map((date, i) => ({
     date,
     // Open-Meteo entrega la suma diaria en MJ/m²; se normaliza a kWh/m².
     shortwaveKwhM2: Number(payload.daily?.shortwave_radiation_sum?.[i] || 0) / 3.6,
-    weatherCode: Number(payload.daily?.weather_code?.[i] || 0)
+    weatherCode: Number(payload.daily?.weather_code?.[i] || 0),
+    precipitationSumMm: Number(payload.daily?.precipitation_sum?.[i] || 0),
+    sunrise: payload.daily?.sunrise?.[i],
+    sunset: payload.daily?.sunset?.[i]
   }));
   return {
     temperature: Number(c.temperature_2m),
@@ -140,8 +151,8 @@ async function openMeteo(lat, lon) {
   url.searchParams.set('latitude', String(lat));
   url.searchParams.set('longitude', String(lon));
   url.searchParams.set('current', 'temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day,cloud_cover,precipitation');
-  url.searchParams.set('hourly', 'shortwave_radiation,cloud_cover,precipitation,weather_code');
-  url.searchParams.set('daily', 'sunrise,sunset,shortwave_radiation_sum,weather_code');
+  url.searchParams.set('hourly', 'shortwave_radiation,cloud_cover,precipitation,temperature_2m,wind_speed_10m,weather_code,is_day');
+  url.searchParams.set('daily', 'sunrise,sunset,shortwave_radiation_sum,weather_code,precipitation_sum');
   url.searchParams.set('past_days', '90');
   url.searchParams.set('forecast_days', '14');
   url.searchParams.set('timezone', 'America/Santiago');
@@ -179,6 +190,23 @@ export default async function handler(req, res) {
   const route = routeOf(req);
 
   try {
+    if (method === 'GET' && route === 'alexa/widget-data') {
+      if (!process.env.ALEXA_WIDGET_TOKEN || !process.env.ALEXA_WIDGET_DEVICE_SN) {
+        return sendJson(res, 503, { error: 'Integración Alexa aún no configurada.' });
+      }
+      if (!authorizedAlexaWidgetRequest(req.headers)) {
+        return sendJson(res, 401, { error: 'No autorizado.' });
+      }
+      return sendJson(res, 200, await readAlexaWidgetSnapshot());
+    }
+
+    if (method === 'GET' && route === 'public/monitor') {
+      return sendJson(res, 200, await publicMonitorSnapshot(), {
+        'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=240',
+        'X-Content-Type-Options': 'nosniff'
+      });
+    }
+
     if (method === 'GET' && route === 'app-auth/session') {
       return sendJson(res, 200, await appSessionStatus(req));
     }
@@ -197,6 +225,11 @@ export default async function handler(req, res) {
       const body = parseBody(req);
       const result = await changeAppPassword(req, body.currentPassword, body.newPassword);
       return sendJson(res, 200, { ok: true }, { 'Set-Cookie': result.cookies });
+    }
+
+    if (method === 'POST' && route === 'ai/chat') {
+      const session = await requireAppPermission(req, 'solar.view');
+      return sendJson(res, 200, await runAiChat(session, req, parseBody(req)));
     }
 
     if (method === 'GET' && route === 'admin/users') {
@@ -311,8 +344,18 @@ export default async function handler(req, res) {
     }
 
     if (method === 'GET' && route === 'provider-accounts') {
-      await requireAppPermission(req, 'credentials.manage');
-      return sendJson(res, 200, { sites: await listProviderAccounts() });
+      // Operación acotada, de solo lectura y regulada en backend. No expone
+      // credenciales; cualquier usuario con acceso solar puede solicitarla.
+      await requireAppPermission(req, 'solar.view');
+      const [sites, isolarQueryControl] = await Promise.all([listProviderAccounts(), providerQueryControl('isolar')]);
+      return sendJson(res, 200, { sites, queryControls: { isolar: isolarQueryControl } });
+    }
+
+    const providerQueryPause = route.match(/^providers\/(isolar|watchpower)\/query-pause$/);
+    if (providerQueryPause && method === 'POST') {
+      const actor = await requireAppPermission(req, 'credentials.manage');
+      const paused = parseBody(req).paused === true;
+      return sendJson(res, 200, { control: await setProviderQueriesPaused({ provider: providerQueryPause[1], paused, actorUserId: actor.user.id }) });
     }
 
     if (method === 'GET' && route === 'providers/catalog') {
@@ -326,7 +369,7 @@ export default async function handler(req, res) {
       const body = parseBody(req);
       const account = await saveProviderCredentials({ siteId: Number(providerCredentials[1]), provider: providerCredentials[2], username: body.username, password: body.password, actorUserId: actor.user.id });
       try {
-        const synchronization = await syncProviderNow({ siteId: Number(providerCredentials[1]), provider: providerCredentials[2] });
+        const synchronization = await syncProviderIfDue({ siteId: Number(providerCredentials[1]), provider: providerCredentials[2], minimumSeconds: 60 });
         return sendJson(res, 200, { account, connection: { ok: true }, synchronization });
       } catch (error) {
         // Las credenciales quedan guardadas aunque el proveedor esté caído. El
@@ -342,21 +385,47 @@ export default async function handler(req, res) {
     const providerTest = route.match(/^sites\/(\d+)\/providers\/(isolar|watchpower)\/test$/);
     if (providerTest && method === 'POST') {
       await requireAppPermission(req, 'credentials.manage');
-      return sendJson(res, 200, await testProviderConnection({ siteId: Number(providerTest[1]), provider: providerTest[2] }));
+      return sendJson(res, 200, await syncProviderIfDue({ siteId: Number(providerTest[1]), provider: providerTest[2], minimumSeconds: 60 }));
     }
 
     const providerSync = route.match(/^sites\/(\d+)\/providers\/(isolar|watchpower)\/sync$/);
     if (providerSync && method === 'POST') {
       await requireAppPermission(req, 'solar.view');
       await rest('rpc/misolar_touch_visible_backend',{method:'POST',body:'{}'}).catch(()=>console.warn('Visible activity heartbeat unavailable.'));
-      return sendJson(res, 200, await syncProviderIfDue({ siteId: Number(providerSync[1]), provider: providerSync[2], minimumSeconds: 10 }));
+      return sendJson(res, 200, await syncProviderIfDue({ siteId: Number(providerSync[1]), provider: providerSync[2], minimumSeconds: 60 }));
     }
 
     const providerRefresh = route.match(/^sites\/(\d+)\/providers\/(isolar|watchpower)\/refresh$/);
     if (providerRefresh && method === 'POST') {
       await requireAppPermission(req, 'solar.view');
       await rest('rpc/misolar_touch_visible_backend',{method:'POST',body:'{}'}).catch(()=>console.warn('Visible activity heartbeat unavailable.'));
-      return sendJson(res, 200, await syncProviderIfDue({ siteId: Number(providerRefresh[1]), provider: providerRefresh[2], minimumSeconds: 300 }));
+      const siteId = Number(providerRefresh[1]);
+      const provider = providerRefresh[2];
+      const synchronization = await syncProviderRealtimeIfDue({ siteId, provider, minimumSeconds: 300 });
+      const sample = await latestCanonical(siteId, provider);
+      const legacy = sample?.canonical ? canonicalToLegacy(sample.canonical) : null;
+      const balance = sample?.canonical?.quality?.energy_balance || null;
+      console.log('[provider/refresh] atomic sample', { siteId, provider, sampledAt: sample?.sampled_at || null, receivedAt: sample?.received_at || null, balance });
+      return sendJson(res, 200, { ...synchronization, sample, legacy, provider });
+    }
+
+    const isolarForceTransmit = route.match(/^sites\/(\d+)\/providers\/isolar\/force-transmit$/);
+    if (isolarForceTransmit && method === 'POST') {
+      await requireAppPermission(req, 'solar.view');
+      await rest('rpc/misolar_touch_visible_backend',{method:'POST',body:'{}'}).catch(()=>console.warn('Visible activity heartbeat unavailable.'));
+      const result = await forceISolarRealtimeNow({ siteId: Number(isolarForceTransmit[1]) });
+      return sendJson(res, 200, {
+        ...result,
+        realtime: result.canonical ? canonicalToLegacy(result.canonical) : null,
+        summary: result.canonical ? canonicalToLegacy(result.canonical) : null,
+        source: 'isolar-force-transmit'
+      });
+    }
+
+    const isolarDayArchive = route.match(/^sites\/(\d+)\/providers\/isolar\/history-day$/);
+    if (isolarDayArchive && method === 'POST') {
+      await requireAppPermission(req, 'solar.view');
+      return sendJson(res, 200, await downloadISolarDayArchive({ siteId: Number(isolarDayArchive[1]), target: 'today' }));
     }
 
     const providerLatest = route.match(/^sites\/(\d+)\/providers\/(isolar|watchpower)\/latest$/);
@@ -376,11 +445,43 @@ export default async function handler(req, res) {
       return sendJson(res, 200, { samples: samples.map((sample) => ({ ...sample, legacy: canonicalToLegacy(sample.canonical) })), provider: providerHistoryRoute[2] });
     }
 
+    const isolarHistoryRepair = route.match(/^sites\/(\d+)\/providers\/isolar\/history-repair$/);
+    if (isolarHistoryRepair && method === 'GET') {
+      await requireAppViewIfEnabled(req);
+      const { missingBuckets, ...audit } = await auditISolarHistoryToday(Number(isolarHistoryRepair[1]));
+      return sendJson(res, 200, { audit });
+    }
+    if (isolarHistoryRepair && method === 'POST') {
+      // Es una lectura histórica automática, no una administración de claves.
+      // Cualquier usuario autorizado para ver energía puede completar el
+      // respaldo de su instalación; el regulador distribuido evita solapes.
+      await requireAppViewIfEnabled(req);
+      return sendJson(res, 200, await repairISolarHistoryToday({ siteId: Number(isolarHistoryRepair[1]) }));
+    }
+
     if (method === 'POST' && route === 'providers/sync') {
       if (!process.env.CRON_SECRET || req.headers?.authorization !== `Bearer ${process.env.CRON_SECRET}`) return sendJson(res, 401, { error: 'Sincronización no autorizada.' });
       const policy=await readPollPolicy();
       const results = await syncEnabledProviders({minimumSeconds:policy?.minimumSeconds===300?300:900});
       return sendJson(res, 200, { results, synchronizedAt: new Date().toISOString() });
+    }
+
+    if (method === 'POST' && route === 'providers/isolar/history-day') {
+      if (!process.env.CRON_SECRET || req.headers?.authorization !== `Bearer ${process.env.CRON_SECRET}`) return sendJson(res, 401, { error: 'Descarga diaria no autorizada.' });
+      const catalog = await listProviderAccounts();
+      const completedSites = new Set();
+      const downloads = [];
+      for (const site of catalog) {
+        if (completedSites.has(Number(site.id)) || !site.providers.some((item) => item.provider === 'isolar' && item.enabled)) continue;
+        try {
+          const result = await downloadISolarDayArchive({ siteId: Number(site.id), target: 'previous' });
+          downloads.push(result);
+          for (const downloaded of result.sites || []) completedSites.add(Number(downloaded.site?.id));
+        } catch (error) {
+          downloads.push({ ok: false, site: { id: site.id, name: site.name }, error: String(error?.message || 'No fue posible descargar el día.').slice(0, 240) });
+        }
+      }
+      return sendJson(res, 200, { downloads, completedAt: new Date().toISOString() });
     }
 
     if (method === 'GET' && route === 'health') {
@@ -396,7 +497,7 @@ export default async function handler(req, res) {
       } catch (cause) {
         archiveError = cause instanceof Error ? cause.message : 'No fue posible comprobar el archivo permanente.';
       }
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.38.6', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveSeriesAuthorized, pollPolicyAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.79.6', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveSeriesAuthorized, pollPolicyAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
@@ -416,6 +517,11 @@ export default async function handler(req, res) {
       return sendJson(res,200,await runReadingReminders());
     }
 
+    if (method === 'POST' && route === 'pool-automation/run') {
+      if (!process.env.CRON_SECRET || req.headers?.authorization !== `Bearer ${process.env.CRON_SECRET}`) return sendJson(res, 401, { error: 'Ejecución de piscina no autorizada.' });
+      return sendJson(res, 200, await runPoolSolarAutomations());
+    }
+
     if (method === 'POST' && route === 'notifications/monitor') {
       if (!process.env.CRON_SECRET || req.headers?.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
         return sendJson(res, 401, { error: 'Monitor de notificaciones no autorizado.' });
@@ -423,6 +529,29 @@ export default async function handler(req, res) {
       const policy=await readPollPolicy({monitor:true});
       if(policy?.runMonitor===false)return sendJson(res,200,{skipped:true,reason:'background_interval',minimumSeconds:policy.minimumSeconds});
       return sendJson(res, 200, await runNotificationMonitors());
+    }
+
+    if (method === 'GET' && route === 'notifications') {
+      const session = await requireAppPermission(req, 'solar.view');
+      const [solar, family] = await Promise.all([
+        listNotificationEvents(120),
+        familyDashboard(session).then((dashboard) => dashboard.notifications || []).catch(() => [])
+      ]);
+      const familyItems = family.map((item) => ({
+        id: `family-${item.id}`,
+        source: 'family',
+        siteId: null,
+        siteLabel: 'Familia',
+        type: item.type,
+        title: item.title,
+        body: item.body,
+        createdAt: item.created_at,
+        readAt: item.read_at || null
+      }));
+      const notifications = [...solar, ...familyItems]
+        .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
+        .slice(0, 150);
+      return sendJson(res, 200, { notifications, updatedAt: new Date().toISOString() });
     }
 
     if (method === 'GET' && route === 'weather') {
@@ -523,11 +652,35 @@ export default async function handler(req, res) {
 
     const tuyaCommand = route.match(/^tuya\/devices\/([^/]+)\/commands$/);
     if (method === 'POST' && tuyaCommand) {
-      await requireAppPermission(req, 'solar.view');
+      const session = await requireAppPermission(req, 'solar.view');
       const { code, value } = parseBody(req);
       if (!String(code || '')) return sendJson(res, 400, { error: 'Falta el código de la función.' });
-      const success = await sendTuyaCommand(decodeURIComponent(tuyaCommand[1]), String(code), value);
+      const deviceId=decodeURIComponent(tuyaCommand[1]);
+      const success = await sendTuyaCommand(deviceId, String(code), value);
+      if(success)await recordPoolManualCommand(deviceId,String(code),value,session.user?.id).catch(error=>console.warn('[pool/manual-override]',{message:String(error?.message||error)}));
       return sendJson(res, 200, { success, updatedAt: new Date().toISOString() });
+    }
+
+    const poolAutomation = route.match(/^sites\/(\d+)\/pool-automation$/);
+    if (poolAutomation && method === 'GET') {
+      await requireAppViewIfEnabled(req);
+      return sendJson(res, 200, await getPoolSolarAutomation(Number(poolAutomation[1])));
+    }
+    if (poolAutomation && method === 'PUT') {
+      const session=await requireAppPermission(req,'credentials.manage');
+      return sendJson(res, 200, {config:await savePoolSolarAutomation(session,Number(poolAutomation[1]),parseBody(req))});
+    }
+    const poolManual = route.match(/^sites\/(\d+)\/pool-automation\/manual$/);
+    if (poolManual && method === 'POST') {
+      const session=await requireAppPermission(req,'credentials.manage');
+      const action=String(parseBody(req).action||'');
+      return sendJson(res,200,await controlPoolCircuit(session,Number(poolManual[1]),action));
+    }
+    const poolMode = route.match(/^sites\/(\d+)\/pool-automation\/mode$/);
+    if (poolMode && method === 'POST') {
+      const session=await requireAppPermission(req,'credentials.manage');
+      const body=parseBody(req),mode=String(body.mode||''),automation=String(body.automation||'heat');
+      return sendJson(res,200,await setPoolControlMode(session,Number(poolMode[1]),automation,mode));
     }
 
     if (method === 'GET' && route === 'tuya/rules') {
@@ -704,7 +857,11 @@ export default async function handler(req, res) {
       await authorizeStoredData(req, method !== 'GET');
       const sn = decodeURIComponent(equipment[1]);
       if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
-      if (method === 'GET') return sendJson(res, 200, { assets: await listEquipment(sn) });
+      if (method === 'GET') {
+        const assets = await listEquipment(sn);
+        const history = await listEquipmentHistory(sn);
+        return sendJson(res, 200, { assets, history });
+      }
       const body = parseBody(req);
       if (method === 'DELETE') return sendJson(res, 200, await deleteEquipment(sn, equipment[2]));
       const category = String(body.category || '');
@@ -864,9 +1021,12 @@ export default async function handler(req, res) {
       const start = String(req.query?.start || '');
       const end = String(req.query?.end || '');
       const resolution = req.query?.resolution === 'day' ? 'day' : 'hour';
+      const provider = req.query?.provider === 'watchpower' ? 'watchpower' : 'isolar';
       if (!start || !end || !Number.isFinite(Date.parse(start)) || !Number.isFinite(Date.parse(end))) return sendJson(res, 400, { error: 'Rango de serie inválido.' });
-      const stored = await readArchiveSeries(sn, new Date(start).toISOString(), new Date(end).toISOString(), resolution);
-      return sendJson(res, 200, { list: stored.rows, total: stored.rows.length, source: 'misolar-archive', resolution: stored.resolution, configured: stored.configured });
+      const stored = provider === 'watchpower'
+        ? { rows: await providerHistorySeries(sn, provider, new Date(start).toISOString(), new Date(end).toISOString(), resolution), configured: true, resolution }
+        : await readArchiveSeries(sn, new Date(start).toISOString(), new Date(end).toISOString(), resolution);
+      return sendJson(res, 200, { list: stored.rows, total: stored.rows.length, source: `misolar-archive-${provider}`, provider, resolution: stored.resolution, configured: stored.configured });
     }
 
     const utilityBillDocument = route.match(/^devices\/([^/]+)\/utility-bills\/documents\/(\d+)$/);
@@ -932,10 +1092,10 @@ export default async function handler(req, res) {
       if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       if (method === 'GET') {
         const list = await listUtilityBills(sn);
-        const [projection, reminder, meterTracking] = await Promise.all([projectUtilityBill(sn, list), utilityBillReminder(sn), utilityMeterTracking(sn, list)]);
+        const [projection, reminder, meterTracking, monitorEconomics] = await Promise.all([projectUtilityBill(sn, list), utilityBillReminder(sn), utilityMeterTracking(sn, list), monitorUtilityEconomics(sn)]);
         try { await captureUtilityProjectionSnapshots(sn, projection, meterTracking); }
         catch (snapshotError) { console.error('Utility projection snapshot:', { code: snapshotError?.code || 'SNAPSHOT_ERROR', message: String(snapshotError?.message || 'No fue posible guardar el corte diario.').slice(0, 180) }); }
-        return sendJson(res, 200, { list, projection, reminder, meterTracking });
+        return sendJson(res, 200, { list, projection, reminder, meterTracking, monitorEconomics });
       }
       const body = parseBody(req);
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
@@ -1016,8 +1176,8 @@ export default async function handler(req, res) {
       await authorizeStoredData(req, true);
       const sn = decodeURIComponent(waterBillExtract[1]);
       if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
-      const images = validateWaterImages(parseBody(req).images, 4);
-      return sendJson(res, 200, await extractWaterBill(images));
+      const documents = validateWaterBillDocuments(parseBody(req).images, 4);
+      return sendJson(res, 200, await extractWaterBill(documents));
     }
 
     const waterMeterExtract = route.match(/^devices\/([^/]+)\/water-meter\/extract$/);
@@ -1050,12 +1210,13 @@ export default async function handler(req, res) {
       const periodStart = validDate(body.periodStart) && String(body.periodStart) <= periodEnd
         ? String(body.periodStart)
         : new Date(Date.parse(`${periodEnd}T12:00:00Z`) - 30 * 86_400_000).toISOString().slice(0, 10);
-      const images = Array.isArray(body.images) && body.images.length ? validateWaterImages(body.images, 4) : [];
+      const images = Array.isArray(body.images) && body.images.length ? validateWaterBillDocuments(body.images, 4) : [];
       const text = (value, max = 240) => value == null ? null : String(value).trim().slice(0, max) || null;
       const number = (value) => value === '' || value == null || !Number.isFinite(Number(value)) ? null : Number(value);
       const allowed = new Set(['fixed','potable_water','sewer_collection','wastewater_treatment','tax','discount','agreement','debt','interest','adjustment','other']);
       const chargeItems = Array.isArray(body.chargeItems) ? body.chargeItems.slice(0, 80).map((item) => ({ label: text(item?.label, 180), cubicMeters: number(item?.cubicMeters), amountClp: Number(item?.amountClp), category: allowed.has(item?.category) ? item.category : 'other' })).filter((item) => item.label && Number.isFinite(item.amountClp)) : [];
       const bill = await saveWaterBill(sn, {
+        id: Number.isInteger(Number(body.billId)) && Number(body.billId) > 0 ? Number(body.billId) : null,
         billingMonth, periodStart, periodEnd, issueDate: validDate(body.issueDate), dueDate: validDate(body.dueDate), nextReadingDate: validDate(body.nextReadingDate),
         previousReadingM3: number(body.previousReadingM3), currentReadingM3: number(body.currentReadingM3), readingDifferenceM3: number(body.readingDifferenceM3),
         deductibleM3: number(body.deductibleM3), billedM3: number(body.billedM3), readingStatus: body.readingStatus,
@@ -1138,13 +1299,15 @@ export default async function handler(req, res) {
       const sn = decodeURIComponent(solarForecast[1]);
       if (!validDeviceReference(sn)) return sendJson(res, 400, { error: 'Referencia de instalación inválida.' });
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+      const reconciliation = await reconcileOfficialForecast(sn).catch((error) => ({ status: 'failed', error: String(error?.message || error).slice(0, 180) }));
       const [year, month, day] = today.split('-').map(Number);
       const tomorrow = new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
       const forecastEnd = new Date(Date.UTC(year, month - 1, day + 15)).toISOString().slice(0, 10);
       const [days, revisions] = await Promise.all([forecastRange(sn, today, forecastEnd), listForecastRevisions(sn, [today, tomorrow])]);
-      const current = days.find((item) => item.date === today) || await forecastForDate(sn, today);
-      const next = days.find((item) => item.date === tomorrow) || await forecastForDate(sn, tomorrow);
-      return sendJson(res, 200, { today: current, tomorrow: next, days, revisions, lockTimeChile: '21:35' });
+      const current = reconciliation?.projection || days.find((item) => item.date === today) || await forecastForDate(sn, today).catch(() => null);
+      const next = days.find((item) => item.date === tomorrow) || await forecastForDate(sn, tomorrow).catch(() => null);
+      console.info('[solar-forecast] official projection', { reference: sn, date: today, status: reconciliation?.status, forecastKwh: current?.forecastKwh, locked: current?.locked, lockedAt: current?.lockedAt });
+      return sendJson(res, 200, { today: current, tomorrow: next, days, revisions, reconciliation, lockTimeChile: '22:00', revisionIntervalHours: 2 });
     }
 
     const summary = route.match(/^devices\/([^/]+)\/summary$/);

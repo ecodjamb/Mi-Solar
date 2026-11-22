@@ -1,8 +1,8 @@
 import { siteProfile } from '../utils/site';
 import { api } from './api';
 
-export type RadiationDay={date:string;shortwaveKwhM2:number;weatherCode?:number};
-export type RadiationHour={time:string;shortwaveWm2:number;cloudCover?:number;precipitation?:number;temperature?:number;weatherCode?:number};
+export type RadiationDay={date:string;shortwaveKwhM2:number;weatherCode?:number;precipitationSumMm?:number;sunrise?:string;sunset?:string};
+export type RadiationHour={time:string;shortwaveWm2:number;cloudCover?:number;precipitation?:number;temperature?:number;windSpeed?:number;weatherCode?:number;isDay?:number};
 export type WeatherData={
  temperature?:number;humidity?:number;weatherCode?:number;windSpeed?:number;isDay?:number;
  cloudCover?:number;precipitation?:number;provider?:string;updatedAt?:string;error?:string;
@@ -22,13 +22,18 @@ function normalizeOpenMeteo(payload:any, provider='Open-Meteo directo'):WeatherD
   cloudCover:Number(payload.hourly?.cloud_cover?.[i]||0),
   precipitation:Number(payload.hourly?.precipitation?.[i]||0),
   temperature:Number(payload.hourly?.temperature_2m?.[i]||0),
-  weatherCode:Number(payload.hourly?.weather_code?.[i]||0)
+  windSpeed:Number(payload.hourly?.wind_speed_10m?.[i]||0),
+  weatherCode:Number(payload.hourly?.weather_code?.[i]||0),
+  isDay:Number(payload.hourly?.is_day?.[i]||0)
  }));
  const dailyRadiation=(payload.daily?.time||[]).map((date:string,i:number)=>({
   date,
   // Open-Meteo entrega shortwave_radiation_sum en MJ/m²; 1 kWh = 3,6 MJ.
   shortwaveKwhM2:Number(payload.daily?.shortwave_radiation_sum?.[i]||0)/3.6,
-  weatherCode:Number(payload.daily?.weather_code?.[i]||0)
+  weatherCode:Number(payload.daily?.weather_code?.[i]||0),
+  precipitationSumMm:Number(payload.daily?.precipitation_sum?.[i]||0),
+  sunrise:payload.daily?.sunrise?.[i],
+  sunset:payload.daily?.sunset?.[i]
  }));
  return {
   temperature:Number(c.temperature_2m),humidity:Number(c.relative_humidity_2m),weatherCode:Number(c.weather_code),
@@ -41,8 +46,8 @@ async function directOpenMeteo(lat:number,lon:number):Promise<WeatherData>{
  const url=new URL('https://api.open-meteo.com/v1/forecast');
  url.searchParams.set('latitude',String(lat));url.searchParams.set('longitude',String(lon));
  url.searchParams.set('current','temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day,cloud_cover,precipitation');
- url.searchParams.set('hourly','shortwave_radiation,cloud_cover,precipitation,temperature_2m,weather_code');
- url.searchParams.set('daily','sunrise,sunset,shortwave_radiation_sum,weather_code');
+ url.searchParams.set('hourly','shortwave_radiation,cloud_cover,precipitation,temperature_2m,wind_speed_10m,weather_code,is_day');
+ url.searchParams.set('daily','sunrise,sunset,shortwave_radiation_sum,weather_code,precipitation_sum');
  url.searchParams.set('past_days','90');url.searchParams.set('forecast_days','14');url.searchParams.set('timezone','America/Santiago');
  const response=await fetch(url.toString(),{headers:{Accept:'application/json'}});
  if(!response.ok)throw new Error(`Open-Meteo directo HTTP ${response.status}`);

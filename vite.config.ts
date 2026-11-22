@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 
 // Mi Solar V6 — configuración de build.
@@ -6,5 +7,14 @@ export default defineConfig({
   // de /public siguen excluidos deliberadamente del build.
   publicDir: 'pwa',
   server: { port: 5173 },
-  build: { sourcemap: true, target: 'es2022' }
+  build: {
+    sourcemap: true,
+    target: 'es2022',
+    rollupOptions: {
+      input: {
+        app: resolve(__dirname, 'index.html'),
+        monitor: resolve(__dirname, 'monitor.html')
+      }
+    }
+  }
 });

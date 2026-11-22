@@ -31,6 +31,8 @@ export async function createUser(input, actorUserId) {
   }
   const role = await identityDb('role_by_key', { key: input.role || 'member' });
   if (!role) { const error = new Error('Rol no válido.');error.status = 400;throw error; }
+  const existing = await identityDb('user_by_username', { username });
+  if (existing) { const error = new Error(`El usuario @${username} ya existe. Puedes editarlo o restablecer su acceso desde la lista.`);error.status = 409;throw error; }
   const passwordHash = await bcrypt.hash(password, 12);
   const user = await identityDb('create_user', { username, display_name: displayName, email: input.email || '', phone: input.phone || '', password_hash: passwordHash, role_id: role.id, active: true, must_change_password: true });
   if (!user) throw new Error('No fue posible crear el usuario.');

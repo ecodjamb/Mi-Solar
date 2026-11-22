@@ -1,11 +1,10 @@
-import { archiveRows } from './archive.js';
-import { decryptCredentials } from './secretBox.js';
-import { loginOrigin, logoutOrigin, readInverterRealtime } from './inverterControl.js';
-import { listNotificationSites, readAutomationCredentials, readNotificationState, saveNotificationState } from './automationStore.js';
+import { listNotificationSites, readNotificationState, saveNotificationState } from './automationStore.js';
 import { sendSiteNotification } from './pushNotifications.js';
 import { automationSiteProfile } from './siteProfiles.js';
 import { listDueWaterReminders } from './waterCosts.js';
 import { listDueUtilityBillReminders } from './utilityBills.js';
+import { latestCanonical } from './providerStore.js';
+import { canonicalToLegacy } from './canonicalTelemetry.js';
 
 const PV1_KEYS = ['pvInputPower1', 'pvPower1', 'powerPv1', 'solarPower1', 'pv1Power', 'pvPowerInput1'];
 const PV2_KEYS = ['pvInputPower2', 'pvPower2', 'powerPv2', 'solarPower2', 'pv2Power', 'pvPowerInput2'];
@@ -85,6 +84,33 @@ function chileDate(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 }
 
+function chileHour(now = new Date()) {
+  const value = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Santiago', hour: '2-digit', hourCycle: 'h23' }).format(now);
+  return Number(value);
+}
+
+export function chooseFreshestProviderSample(samples, now = new Date(), maximumAgeMs = 10 * 60_000) {
+  const candidates = (samples || []).filter((sample) => sample?.canonical).map((sample) => {
+    const timestamp = sample.received_at || sample.sampled_at || sample.canonical?.time?.sampled_at_utc;
+    return { ...sample, timestamp, timestampMs: Date.parse(timestamp || '') };
+  }).filter((sample) => Number.isFinite(sample.timestampMs)).sort((left, right) => right.timestampMs - left.timestampMs);
+  const selected = candidates[0] || null;
+  if (!selected) return { sample: null, stale: true, ageMs: null };
+  const ageMs = Math.max(0, now.getTime() - selected.timestampMs);
+  return { sample: selected, stale: ageMs > maximumAgeMs, ageMs };
+}
+
+export function assessBatteryAfterSunset(row, now = new Date()) {
+  const solarW = Math.max(0, first(row, PV1_KEYS) + first(row, PV2_KEYS));
+  const loadW = Math.max(0, first(row, LOAD_KEYS));
+  const dischargeW = Math.max(0, first(row, BATTERY_DISCHARGE_KEYS));
+  const afterFourPm = chileHour(now) >= 16;
+  const solarGone = solarW <= 150;
+  const batterySupplying = dischargeW >= 100;
+  const housePowered = loadW >= 100;
+  return { active: afterFourPm && solarGone && batterySupplying && housePowered, afterFourPm, solarGone, batterySupplying, housePowered, solarW, loadW, dischargeW };
+}
+
 async function notifyServiceFailure(site, error) {
   if (!site.notificationPreferences.serviceOutage) return { status: 'disabled' };
   const previous = await readNotificationState(site.siteId, 'origin-service');
@@ -140,6 +166,34 @@ async function evaluateSolarSurplus(site, row) {
   }
   await saveNotificationState(site.siteId, 'solar-surplus', 'active', { consecutive, lastDate: previous?.metadata?.lastDate || null, solarW, loadW }, previous?.last_notified_at || null);
   return { status: 'active', solarW, loadW };
+}
+
+async function evaluateBatteryAfterSunset(site, row, provider, sampledAt, now = new Date()) {
+  if (!site.notificationPreferences.batteryAfterSunset) return { status: 'disabled' };
+  const assessment = assessBatteryAfterSunset(row, now);
+  const previous = await readNotificationState(site.siteId, 'battery-after-sunset');
+  const today = chileDate(now);
+  if (!assessment.active) {
+    await saveNotificationState(site.siteId, 'battery-after-sunset', 'inactive', {
+      ...assessment, provider, sampledAt, lastDate: previous?.metadata?.lastDate || null
+    }, previous?.last_notified_at || null);
+    return { status: 'inactive', assessment };
+  }
+  if (previous?.metadata?.lastDate === today) return { status: 'already-notified', assessment };
+  const profile = automationSiteProfile(site.deviceSn);
+  const body = `Ahora ya se fue el sol y ${profile.label} está funcionando con batería (${Math.round(assessment.dischargeW).toLocaleString('es-CL')} W). Apaga los artefactos que no necesites para cuidar la carga disponible.`;
+  const pushed = await sendSiteNotification(
+    site.siteId,
+    'battery_after_sunset',
+    '🔋 Estamos funcionando con batería',
+    body,
+    { url: '/', site: profile.key, provider, sampledAt, ...assessment },
+    `battery-after-sunset-${site.siteId}-${today}`
+  );
+  await saveNotificationState(site.siteId, 'battery-after-sunset', 'notified', {
+    ...assessment, provider, sampledAt, lastDate: today
+  }, now.toISOString());
+  return { status: 'notified', assessment, pushed };
 }
 
 async function evaluateGridOutage(site, row) {
@@ -199,25 +253,30 @@ async function evaluateGridOutage(site, row) {
 }
 
 async function monitorSite(site) {
-  if (!site.deviceSn || !site.credentialsConfigured) return { deviceSn: site.deviceSn, status: 'missing-credentials' };
-  const encrypted = await readAutomationCredentials(site.deviceSn);
-  if (!encrypted) return { deviceSn: site.deviceSn, status: 'missing-credentials' };
-  let session;
+  if (!site.deviceSn) return { deviceSn: site.deviceSn, status: 'missing-site' };
   try {
-    const credentials = decryptCredentials(encrypted);
-    session = await loginOrigin(credentials.username, credentials.password);
-    const realtime = await readInverterRealtime(site.deviceSn, session);
-    await archiveRows(site.deviceSn, [realtime], { bucketMinutes: 5 }).catch(() => undefined);
+    const providerSamples = await Promise.all(['isolar', 'watchpower'].map(async (provider) => {
+      try { return { ...(await latestCanonical(site.siteId, provider)), provider }; }
+      catch { return null; }
+    }));
+    const freshest = chooseFreshestProviderSample(providerSamples);
+    if (!freshest.sample || freshest.stale) throw new Error('No existe telemetría reciente y confiable de i.Solar ni WatchPower.');
+    const provider = freshest.sample.provider;
+    const sampledAt = freshest.sample.timestamp;
+    const realtime = canonicalToLegacy(freshest.sample.canonical);
     const recovery = await notifyServiceHealthy(site);
-    const grid = await evaluateGridOutage(site, realtime);
+    // WatchPower puede publicar 0 W de red cuando simplemente no hay
+    // intercambio. Sin voltaje/frecuencia explícitos eso no prueba un corte.
+    const grid = provider === 'isolar'
+      ? await evaluateGridOutage(site, realtime)
+      : { status: 'provider-without-grid-outage-proof', provider };
     const solar = await evaluateSolarSurplus(site, realtime);
-    return { deviceSn: site.deviceSn, status: 'ok', recovery, grid, solar };
+    const batteryAfterSunset = await evaluateBatteryAfterSunset(site, realtime, provider, sampledAt);
+    return { deviceSn: site.deviceSn, status: 'ok', provider, sampledAt, recovery, grid, solar, batteryAfterSunset };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const service = await notifyServiceFailure(site, message);
     return { deviceSn: site.deviceSn, status: 'failed', error: message, service };
-  } finally {
-    await logoutOrigin(session);
   }
 }
 

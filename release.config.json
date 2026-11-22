@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "application": {
+    "name": "Mi Solar",
+    "version": "8.79.6",
+    "productionUrl": "https://misolar.vercel.app",
+    "healthUrl": "https://misolar.vercel.app/api/health"
+  },
+  "sourceControl": {
+    "repository": "ecodjamb/Mi-Solar",
+    "productionBranch": "main"
+  },
+  "vercel": {
+    "scope": "ecodjamb1",
+    "projectName": "mi-solar",
+    "projectId": "prj_PXNTK2Kff4w9WTs8DMUHaNDS8zng",
+    "orgId": "team_wVEVh4nYSyHndq9PhOgWcyma"
+  },
+  "adjuncts": {
+    "alexa": {
+      "name": "Widget privado Alexa de Mi Solar",
+      "path": "alexa",
+      "version": "1.0.9",
+      "deploysApplication": false,
+      "dataSource": "https://misolar.vercel.app/api/public/monitor"
+    }
+  }
+}

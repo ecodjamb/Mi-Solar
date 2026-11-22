@@ -7,6 +7,8 @@ const equipment=readFileSync(new URL('../src/components/EquipmentPage.tsx',impor
 const sidebar=readFileSync(new URL('../src/components/Sidebar.tsx',import.meta.url),'utf8');
 const mobile=readFileSync(new URL('../src/components/MobileNav.tsx',import.meta.url),'utf8');
 const integrations=readFileSync(new URL('../src/components/IntegrationsPage.tsx',import.meta.url),'utf8');
+const styles=readFileSync(new URL('../src/styles/app.css',import.meta.url),'utf8');
+const notifications=readFileSync(new URL('../src/components/AppNotificationCenter.tsx',import.meta.url),'utf8');
 
 assert.match(users,/mode="providers" embedded/);
 assert.match(users,/Usuarios y credenciales/);
@@ -30,6 +32,25 @@ assert.match(users,/siteIds/);
 assert.match(app,/allowedMenus/);
 assert.match(sidebar,/\['costs','Enel'/);
 assert.match(sidebar,/\['water','Aguas'/);
+assert.doesNotMatch(sidebar,/\['charts','Gráficos'/);
+assert.doesNotMatch(mobile,/\['charts','Gráficos'/);
+assert.match(sidebar,/\['home','Inicio'.*\['costs','Enel'.*\['water','Aguas'.*\['solar','Radiación'.*\['programming','Automatizaciones'.*\['integrations','Domótica'.*\['equipment','Equipos'.*\['family','Mis gastos'.*\['users','Usuarios'/);
+assert.match(app,/page==='home'&&homeAnalyticsReady&&<Suspense/);
+assert.match(app,/<section className="analytics-page home-analytics-section">/);
+assert.doesNotMatch(app,/page==='charts'&&<section className="analytics-page/);
+assert.match(app,/if\(value==='charts'\)return'home'/);
+assert.doesNotMatch(users,/const menus=\[[^\]]*'charts'/);
+assert.match(app,/AppNotificationCenter/);
+assert.doesNotMatch(app,/FunModeToggle/);
+assert.ok(app.indexOf('<SimpleEnergyFlow')<app.indexOf('<HomeDateNavigator'),'el flujo debe aparecer antes del selector de día');
+assert.match(styles,/\.shell\{position:absolute;inset:0;height:auto;min-height:0;overflow:hidden\}/);
+assert.match(styles,/\.content\{[\s\S]*position:absolute;[\s\S]*overflow-y:auto;/);
+assert.match(styles,/\.mobile-nav\{[\s\S]*position:absolute!important;/);
+assert.match(styles,/bottom:max\(8px,env\(safe-area-inset-bottom\)\)!important/);
+assert.match(styles,/backdrop-filter:none!important/);
+assert.match(styles,/\.flow-details-popover\.flow-details-portal\{[\s\S]*bottom:calc\(96px \+ env\(safe-area-inset-bottom\)\)!important/);
+assert.doesNotMatch(mobile,/visualViewport|visibilitychange|pageshow/);
+assert.match(notifications,/CENTRO ÚNICO/);assert.match(notifications,/toLocaleString\('es-CL'/);
 
 const appAuth=readFileSync(new URL('../server/appAuth.js',import.meta.url),'utf8');
 assert.match(appAuth,/explicit === undefined \? appSession\.access\.permissions\.includes\(permission\) : explicit === true/);
