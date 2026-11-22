@@ -8,6 +8,7 @@ on:
       - "public/alexa/**"
       - "tests/alexa-widget.test.js"
       - ".github/workflows/alexa-widget-check.yml"
+      - ".github/workflows/alexa-widget-sync.yml"
   pull_request:
     paths:
       - "server/alexaWidget.js"
@@ -15,6 +16,7 @@ on:
       - "tests/alexa-widget.test.js"
       - "api/index.js"
       - ".github/workflows/alexa-widget-check.yml"
+      - ".github/workflows/alexa-widget-sync.yml"
   workflow_dispatch:
 
 jobs:

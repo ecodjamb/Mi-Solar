@@ -1,7 +1,7 @@
 'use strict';
 
 const fs = require('node:fs/promises');
-const { isAlexaDeviceId } = require('./datastore-client.cjs');
+const { isAlexaDeviceId, normalizeDataStoreTarget } = require('./datastore-client.cjs');
 
 const MONITOR_URL = 'https://misolar.vercel.app/api/alexa/widget-data';
 const PUBLIC_MONITOR_URL = 'https://misolar.vercel.app/api/public/monitor';
@@ -259,6 +259,7 @@ async function writeState(state, path = process.env.ALEXA_WIDGET_STATE_FILE || D
 
 async function syncMonitorToDataStore({
   targetId,
+  target,
   writeDataStore,
   fetchImpl = globalThis.fetch,
   timeoutMs,
@@ -266,12 +267,13 @@ async function syncMonitorToDataStore({
   statePath,
   force = false
 }) {
-  if (!isAlexaDeviceId(targetId)) {
-    throw new Error('El destino no es un Alexa deviceId válido; no uses ALEXA_WIDGET_DEVICE_SN.');
-  }
+  const normalizedTarget = normalizeDataStoreTarget(target || targetId);
   if (typeof writeDataStore !== 'function') throw new Error('Falta writeDataStore.');
   const state = await readState(statePath);
-  const targetState = state.targets?.[targetId] || {};
+  const targetKey = normalizedTarget.type === 'USER'
+    ? normalizedTarget.id
+    : normalizedTarget.items.join(',');
+  const targetState = state.targets?.[targetKey] || {};
   let snapshot;
   let refreshAfterSeconds = MAX_REFRESH_SECONDS;
   let sourceError = null;
@@ -301,12 +303,12 @@ async function syncMonitorToDataStore({
     };
   }
 
-  await writeDataStore(snapshot, targetId);
+  await writeDataStore(snapshot, normalizedTarget);
   await writeState({
     ...state,
     targets: {
       ...state.targets,
-      [targetId]: {
+      [targetKey]: {
         lastWrittenSampledAt: snapshot.sampledAt,
         lastFingerprint: fingerprint,
         snapshot,

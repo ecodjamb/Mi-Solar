@@ -7,7 +7,7 @@
  */
 const Alexa = require('ask-sdk-core');
 const { syncMonitorToDataStore } = require('./monitor-sync.cjs');
-const { isAlexaDeviceId, maskIdentifier, safeError, writeDataStore } = require('./datastore-client.cjs');
+const { isAlexaDeviceId, isAlexaUserId, maskIdentifier, safeError, writeDataStore } = require('./datastore-client.cjs');
 
 function deviceIdFromEnvelope(envelope) {
   const deviceId = envelope?.context?.System?.device?.deviceId || null;
@@ -116,11 +116,11 @@ const alexaHandler = Alexa.SkillBuilders.custom()
 
 exports.handler = async (event, context, callback) => {
   if (event?.source === 'aws.events' || event?.type === 'MiSolarScheduledSync') {
-    const targets = String(process.env.ALEXA_WIDGET_DEVICE_IDS || process.env.ALEXA_WIDGET_DEVICE_ID || '')
-      .split(',').map(value => value.trim()).filter(isAlexaDeviceId);
-    if (!targets.length) throw new Error('Configura ALEXA_WIDGET_DEVICE_ID(S) para la sincronización programada.');
-    for (const targetId of targets) await syncDevice(targetId);
-    return { ok: true, targets: targets.length };
+    const userId = String(process.env.ALEXA_WIDGET_USER_ID || '').trim();
+    const target = isAlexaUserId(userId) ? { type: 'USER', id: userId } : null;
+    if (!target) throw new Error('Configura ALEXA_WIDGET_USER_ID para la sincronización programada.');
+    await syncMonitorToDataStore({ target, writeDataStore, force: true });
+    return { ok: true, targets: 1 };
   }
   return alexaHandler(event, context, callback);
 };

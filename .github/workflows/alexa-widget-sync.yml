@@ -1,0 +1,33 @@
+name: Alexa widget · sincronización cada 5 minutos
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: alexa-widget-datastore-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - name: Sincronizar muestra respaldada con Alexa Data Store
+        env:
+          ALEXA_LWA_CLIENT_ID: ${{ secrets.ALEXA_LWA_CLIENT_ID }}
+          ALEXA_LWA_CLIENT_SECRET: ${{ secrets.ALEXA_LWA_CLIENT_SECRET }}
+          ALEXA_WIDGET_USER_ID: ${{ secrets.ALEXA_WIDGET_USER_ID }}
+          ALEXA_WIDGET_DEVICE_ID: ${{ secrets.ALEXA_WIDGET_DEVICE_ID }}
+          ALEXA_API_REGION: na
+          ALEXA_WIDGET_PUBLIC_FALLBACK: "true"
+        run: node alexa/sync-datastore.mjs

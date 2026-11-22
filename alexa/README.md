@@ -6,9 +6,9 @@ Esta carpeta contiene dos documentos APL importables para la galería de widgets
 
 ## Estado
 
-- Diseño APL responsivo v1.0.11: cuadrícula 2×2 con producción solar, casa, batería y red, más generación diaria, barra de avance y acceso directo a `/monitor`. La paleta usa los tonos oscuros verde/azul del flujo de Mi Solar.
+- Diseño APL responsivo v1.0.12: cuadrícula 2×2 con producción solar, casa, batería y red, más generación diaria, barra de avance y acceso directo a `/monitor`. La paleta usa los tonos oscuros verde/azul del flujo de Mi Solar.
 - `widget-show5.json` es el documento canónico responsivo para Widget Medium (134–425 dp × 222–711 dp); se adapta a Echo Show 5, 8, 10, 11, 15 y 21 compatibles con widgets.
-- Manifiesto del paquete: `widget-manifest.json` v1.0.11, con tres locales, logo validado de 450×450 y vista previa 328×552.
+- Manifiesto del paquete: `widget-manifest.json` v1.0.12, con tres locales, logo validado de 450×450 y vista previa 328×552.
 - Fuente de la Lambda desplegada: `GET https://misolar.vercel.app/api/public/monitor`, ruta pública de solo lectura que entrega exclusivamente el estado sanitizado del monitor.
 - El widget ya no necesita `ALEXA_WIDGET_TOKEN`; no abre consultas nuevas a i.Solar o WatchPower y no expone controles, usuarios ni información financiera.
 - Fuente: `site:2` (El Arrayán), última telemetría ya respaldada por Mi Solar. No llama a i.Solar, WatchPower ni Supabase.
@@ -22,7 +22,9 @@ Configurar en Amazon las variables secretas:
 - `ALEXA_LWA_CLIENT_ID` y `ALEXA_LWA_CLIENT_SECRET`: respaldo opcional para entornos administrados que dispongan de variables seguras. En Alexa-hosted se usa la tabla cifrada propia de la Skill.
 - `ALEXA_API_REGION`: `na`, `eu` o `fe` (por defecto `na`).
 
-La Lambda Alexa-hosted maneja `UsagesInstalled`, `UpdateRequest` y `LaunchRequest`. Cada apertura de la Skill actualiza Data Store para el dispositivo del evento o, como respaldo, para el usuario de la Skill. Amazon no envía `UpdateRequest` para Skills en etapa de desarrollo; por eso la carga inicial se ejecuta también al instalar y al abrir la Skill.
+La Lambda Alexa-hosted maneja `UsagesInstalled`, `UpdateRequest` y `LaunchRequest`. Cada apertura de la Skill actualiza Data Store y guarda de manera privada el `deviceId` y `userId` correctos en DynamoDB. Amazon no envía `UpdateRequest` para Skills en etapa de desarrollo; por eso la carga inicial se ejecuta también al instalar y al abrir la Skill.
+
+La actualización periódica se ejecuta en `.github/workflows/alexa-widget-sync.yml` cada cinco minutos. El trabajo lee únicamente `GET /api/public/monitor`, que ya usa la muestra respaldada de Mi Solar, y publica un solo `PUT_OBJECT` dirigido al usuario de la Skill o, como respaldo, al Echo registrado. No consulta directamente i.Solar ni WatchPower y no toca el despliegue Vercel. Requiere los secretos de GitHub `ALEXA_LWA_CLIENT_ID`, `ALEXA_LWA_CLIENT_SECRET` y `ALEXA_WIDGET_USER_ID`; `ALEXA_WIDGET_DEVICE_ID` puede usarse como alternativa.
 
 `ALEXA_WIDGET_DEVICE_SN` es el serial del inversor usado por la API de Mi Solar. **No es** el destino de Alexa Data Store. El destino válido comienza con `amzn1.ask.device.` y se obtiene exclusivamente de `context.System.device.deviceId` en `UsagesInstalled` o desde CloudWatch de la misma Skill.
 
@@ -33,7 +35,7 @@ La Lambda Alexa-hosted maneja `UsagesInstalled`, `UpdateRequest` y `LaunchReques
 3. Activar en **Build > Interfaces**: Data Store Packages, Data Store y Data Store Extension (`alexaext:datastore:10`). Guardar y reconstruir el modelo.
 4. **Build > Multimodal Responses > Widget > Create Widget > Upload**, importar `widget-show5.json` para todos los tamaños compatibles y guardar. Es un documento APL sin contenedor `document` externo.
 5. Para la Skill Alexa-hosted, copiar el contenido de `alexa/skill-handler.cjs` como controlador Lambda (`index.js`) e instalar `ask-sdk-core`. El evento `UsagesInstalled` permite identificar el dispositivo en los logs. Estos datos deben tratarse como identificadores internos.
-6. En **Manifest**, reemplazar el contenido por `widget-manifest.json`. No dejar recursos genéricos: la versión 1.0.11 conserva el logo validado de 450×450 y `mi-solar-widget-preview-v2.png` (328×552).
+6. En **Manifest**, reemplazar el contenido por `widget-manifest.json`. No dejar recursos genéricos: la versión 1.0.12 conserva el logo validado de 450×450 y `mi-solar-widget-preview-v2.png` (328×552).
 7. Ejecutar **Build Model** y **Install > Send to Device** (no solo Preview). El dispositivo debe aparecer como compatible.
 8. Para probar con números simulados sin credenciales puedes usar el botón **Install > Update Datastore** y enviar un comando con `PUT_OBJECT`, namespace `MiSolar`, key `Indicadores`, y content con las propiedades `generacion`, `consumo`, `bateria`, `red`, `carga`, `descarga`, `estado`.
 9. La documentación de diseño de Amazon del año 2023 excluía el Echo Show 5, mientras que la guía actual de consumo muestra widgets para ese modelo. **Es necesario validar widgets APL de terceros en el Echo Show 5**; la galería visible no basta para confirmarlo.
@@ -43,7 +45,8 @@ La Lambda Alexa-hosted maneja `UsagesInstalled`, `UpdateRequest` y `LaunchReques
 Para un sincronizador externo opcional, definir en el ambiente del proceso:
 
 - `ALEXA_LWA_CLIENT_ID`, `ALEXA_LWA_CLIENT_SECRET`: credenciales OAuth LWA de la Skill
-- `ALEXA_WIDGET_DEVICE_ID`: ID de dispositivo de la Skill (no el nombre "Echo Show Cocina")
+- `ALEXA_WIDGET_USER_ID`: ID de usuario de la Skill; recomendado para actualizar todos sus widgets compatibles
+- `ALEXA_WIDGET_DEVICE_ID`: alternativa para dirigir la escritura a un único dispositivo
 - `ALEXA_API_REGION`: `na`, `eu` o `fe`, según región de la Skill
 
 Ejecutar:
@@ -52,7 +55,7 @@ Ejecutar:
 node alexa/sync-datastore.mjs
 ```
 
-La llamada lee la API pública con timeout de 7 segundos y publica un único objeto mediante `PUT_OBJECT`. Puede ejecutarse cada minuto, pero la escritura se omite mientras `sampledAt` no cambie. Si la fuente falla, conserva la última muestra válida y la marca como atrasada.
+La llamada lee la API pública con timeout de 7 segundos y publica un único objeto mediante `PUT_OBJECT`. El flujo oficial la ejecuta cada cinco minutos. Si la fuente falla dentro del mismo proceso, conserva la última muestra válida y la marca como atrasada.
 
 ## Seguridad y limitaciones
 

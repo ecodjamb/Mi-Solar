@@ -19,6 +19,7 @@ const STALE_AFTER_MS = 15 * 60 * 1000;
 const CREDENTIALS_TABLE = process.env.DYNAMODB_PERSISTENCE_TABLE_NAME ||
   '9e1ed70e-6b0d-426a-acbd-a4666b40751b';
 const CREDENTIALS_KEY = 'alexa-widget-credentials';
+const TARGETS_KEY = 'alexa-widget-targets';
 const documentClient = new AWS.DynamoDB.DocumentClient();
 let lastValidSnapshot = null;
 let dataStoreCredentialCache = null;
@@ -84,6 +85,44 @@ function targetFromEnvelope(envelope) {
   return userId ? { type: 'USER', id: userId } : null;
 }
 
+async function rememberTarget(envelope) {
+  const deviceId = deviceIdFromEnvelope(envelope);
+  const userId = userIdFromEnvelope(envelope);
+  if (!deviceId && !userId) return;
+  const expressionNames = {};
+  const expressionValues = { ':updatedAt': new Date().toISOString() };
+  const updates = ['updatedAt = :updatedAt'];
+  if (deviceId) {
+    expressionNames['#deviceId'] = 'deviceId';
+    expressionValues[':deviceId'] = deviceId;
+    updates.push('#deviceId = :deviceId');
+  }
+  if (userId) {
+    expressionNames['#userId'] = 'userId';
+    expressionValues[':userId'] = userId;
+    updates.push('#userId = :userId');
+  }
+  const params = {
+    TableName: CREDENTIALS_TABLE,
+    Key: { id: TARGETS_KEY },
+    UpdateExpression: `SET ${updates.join(', ')}`,
+    ExpressionAttributeValues: expressionValues
+  };
+  if (Object.keys(expressionNames).length) params.ExpressionAttributeNames = expressionNames;
+  await documentClient.update(params).promise();
+}
+
+async function rememberTargetSafely(envelope) {
+  try {
+    await rememberTarget(envelope);
+  } catch (error) {
+    console.error('MiSolar: no fue posible guardar el destino de Data Store', {
+      name: String(error && error.name || 'Error'),
+      message: String(error && error.message || 'Error sin detalle').slice(0, 180)
+    });
+  }
+}
+
 function generatedTodayKwh(site) {
   return (Array.isArray(site && site.history) ? site.history : []).reduce((total, row) => {
     const hours = Math.max(0, number(row && row.aggregateHours));
@@ -135,7 +174,7 @@ function buildSnapshot(payload) {
     origen: String(site.provider || '--'),
     disponible: true,
     sampledAt: site.sampledAt,
-    version: '1.0.11'
+    version: '1.0.12'
   };
 }
 
@@ -308,6 +347,7 @@ const InstalledHandler = {
       'Alexa.DataStore.PackageManager.UsagesInstalled';
   },
   async handle(input) {
+    await rememberTargetSafely(input.requestEnvelope);
     const target = targetFromEnvelope(input.requestEnvelope);
     console.log('MiSolar: instalación detectada', {
       targetType: target && target.type,
@@ -324,6 +364,7 @@ const UpdatedHandler = {
       'Alexa.DataStore.PackageManager.UpdateRequest';
   },
   async handle(input) {
+    await rememberTargetSafely(input.requestEnvelope);
     await syncTarget(targetFromEnvelope(input.requestEnvelope));
     return input.responseBuilder.getResponse();
   }
@@ -347,6 +388,7 @@ const LaunchHandler = {
     return Alexa.getRequestType(input.requestEnvelope) === 'LaunchRequest';
   },
   async handle(input) {
+    await rememberTargetSafely(input.requestEnvelope);
     const snapshot = await syncTarget(targetFromEnvelope(input.requestEnvelope));
     return input.responseBuilder
       .speak(snapshot

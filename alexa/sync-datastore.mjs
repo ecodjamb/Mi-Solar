@@ -9,11 +9,16 @@ const need = (name) => {
   if (!value) throw new Error('Falta variable de entorno: ' + name);
   return value;
 };
-const deviceId = need('ALEXA_WIDGET_DEVICE_ID');
+const userId = process.env.ALEXA_WIDGET_USER_ID;
+const deviceId = process.env.ALEXA_WIDGET_DEVICE_ID;
+const target = userId
+  ? { type: 'USER', id: userId }
+  : deviceId ? { type: 'DEVICES', items: [deviceId] } : null;
+if (!target) throw new Error('Falta ALEXA_WIDGET_USER_ID o ALEXA_WIDGET_DEVICE_ID.');
 need('ALEXA_LWA_CLIENT_ID');
 need('ALEXA_LWA_CLIENT_SECRET');
 
-const result = await syncMonitorToDataStore({ targetId: deviceId, writeDataStore });
+const result = await syncMonitorToDataStore({ target, writeDataStore, force: true });
 console.log(result.written
   ? `Muestra ${result.snapshot.sampledAt} entregada a Alexa.`
   : `Muestra ${result.snapshot.sampledAt} sin cambios; escritura omitida.`);

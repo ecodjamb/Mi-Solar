@@ -9,20 +9,20 @@ const {
   snapshotFromMonitor,
   syncMonitorToDataStore
 } = monitorSync;
-const { failedDeliveries, isAlexaDeviceId, writeDataStore } = datastoreClient;
+const { failedDeliveries, isAlexaDeviceId, isAlexaUserId, normalizeDataStoreTarget, writeDataStore } = datastoreClient;
 const previousWidgetDataToken = process.env.ALEXA_WIDGET_DATA_TOKEN;
 const previousWidgetToken = process.env.ALEXA_WIDGET_TOKEN;
 process.env.ALEXA_WIDGET_TOKEN = 'test-widget-token';
 
 const manifest = JSON.parse(await readFile(new URL('../alexa/widget-manifest.json', import.meta.url)));
-assert.equal(manifest.manifest.version, '1.0.11');
+assert.equal(manifest.manifest.version, '1.0.12');
 assert.equal(manifest.manifest.installStateChanges, 'INFORM');
 assert.equal(manifest.manifest.updateStateChanges, 'INFORM');
 assert.deepEqual(Object.keys(manifest.publishingInformation.locales).sort(), ['es-ES', 'es-MX', 'es-US']);
 for (const locale of Object.values(manifest.publishingInformation.locales)) {
   const metadata = locale[0].metadata;
   assert.equal(locale[0].targetViewport, 'WIDGET_M');
-  assert.equal(metadata.name, 'mi solar v1.0.11');
+  assert.equal(metadata.name, 'mi solar v1.0.12');
   assert.match(metadata.iconUri, /mi-solar-widget-icon-v1\.0\.10\.png$/);
   assert.match(metadata.previews[0], /mi-solar-widget-preview-v2\.png$/);
   assert.doesNotMatch(metadata.iconUri, /default_icon/);
@@ -36,7 +36,7 @@ assert.equal(widget.mainTemplate.items[0].type, 'Frame');
 assert.equal(widget.mainTemplate.items[0].items.length, 1, 'Frame admite una sola capa hija; el contenido no debe quedar detrás del fondo');
 assert.equal(widget.mainTemplate.items[0].items[0].type, 'Container');
 assert.match(widgetText, /mi solar · El Arrayán/);
-assert.match(widgetText, /v1\.0\.11/);
+assert.match(widgetText, /v1\.0\.12/);
 assert.match(widgetText, /PRODUCCIÓN SOLAR/);
 assert.match(widgetText, /ABRIR MONITOR/);
 assert.match(widgetText, /https:\/\/misolar\.vercel\.app\/monitor/);
@@ -56,6 +56,13 @@ assert.match(hostedLambda, /writeDataStore\(snapshot, target\)/);
 assert.match(hostedLambda, /deliveryTypes\.includes\('SUCCESS'\)/);
 assert.match(hostedLambda, /Alexa Data Store rechazó la entrega/);
 assert.match(hostedLambda, /Mi Solar actualizó el widget/);
+assert.match(hostedLambda, /alexa-widget-targets/);
+assert.match(hostedLambda, /rememberTarget/);
+const scheduledWorkflow = await readFile(new URL('../.github/workflows/alexa-widget-sync.yml', import.meta.url), 'utf8');
+assert.match(scheduledWorkflow, /cron: "\*\/5 \* \* \* \*"/);
+assert.match(scheduledWorkflow, /ALEXA_WIDGET_USER_ID: \$\{\{ secrets\.ALEXA_WIDGET_USER_ID \}\}/);
+assert.match(scheduledWorkflow, /ALEXA_WIDGET_DEVICE_ID: \$\{\{ secrets\.ALEXA_WIDGET_DEVICE_ID \}\}/);
+assert.doesNotMatch(scheduledWorkflow, /misolar\.vercel\.app/);
 
 // Límites oficiales de @hubWidgetMedium: 134–425 dp × 222–711 dp.
 for (const [width, height] of [[134, 222], [240, 350], [320, 480], [425, 711]]) {
@@ -79,6 +86,11 @@ assert.equal(authorizedAlexaWidgetRequest({}, 'abc'), false);
 assert.equal(authorizedAlexaWidgetRequest({ authorization: 'Bearer abc' }, ''), false);
 assert.equal(isAlexaDeviceId('amzn1.ask.device.echoCocina'), true);
 assert.equal(isAlexaDeviceId('1234567890123'), false);
+assert.equal(isAlexaUserId('amzn1.ask.account.usuarioCocina'), true);
+assert.equal(isAlexaUserId('amzn1.ask.device.echoCocina'), false);
+assert.deepEqual(normalizeDataStoreTarget('amzn1.ask.account.usuarioCocina'), {
+  type: 'USER', id: 'amzn1.ask.account.usuarioCocina'
+});
 
 const publicPayload = {
   refreshAfterSeconds: 90,
@@ -156,9 +168,9 @@ let writes = 0;
 const syncOptions = {
   targetId: 'amzn1.ask.device.test', statePath,
   fetchImpl: async () => ({ ok: true, json: async () => publicPayload }),
-  writeDataStore: async (content, targetId) => {
+  writeDataStore: async (content, target) => {
     writes += 1;
-    assert.match(targetId, /^amzn1\.ask\.device\.(test|second)$/);
+    assert.match(target.items[0], /^amzn1\.ask\.device\.(test|second)$/);
     assert.equal(content.sampledAt, publicPayload.sites[0].sampledAt);
   },
   now: new Date('2026-11-18T11:40:00Z')
@@ -187,7 +199,7 @@ try {
   await assert.rejects(() => syncMonitorToDataStore({
     ...syncOptions,
     targetId: '1234567890123'
-  }), /deviceId válido/);
+  }), /deviceId o userId válido/);
 } finally {
   await (await import('node:fs/promises')).unlink(statePath).catch(() => {});
 }
@@ -223,6 +235,27 @@ try {
   assert.deepEqual(datastoreRequest.target.items, ['amzn1.ask.device.echoCocina']);
   assert.equal(datastoreRequest.commands[0].namespace, 'MiSolar');
   assert.equal(datastoreRequest.commands[0].key, 'Indicadores');
+} finally {
+  for (const [key, value] of Object.entries(datastoreEnv)) {
+    if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
+}
+
+let userTargetRequest;
+process.env.ALEXA_LWA_CLIENT_ID = 'client-test';
+process.env.ALEXA_LWA_CLIENT_SECRET = 'secret-test';
+process.env.ALEXA_API_REGION = 'na';
+try {
+  await writeDataStore({ estado: 'Actualizado' }, { type: 'USER', id: 'amzn1.ask.account.usuarioCocina' }, {
+    fetchImpl: async (url, options) => {
+      if (url.includes('/auth/o2/token')) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({ access_token: 'lwa-test' }) };
+      }
+      userTargetRequest = JSON.parse(options.body);
+      return { ok: true, status: 200, text: async () => JSON.stringify({ results: [{ type: 'SUCCESS' }] }) };
+    }
+  });
+  assert.deepEqual(userTargetRequest.target, { type: 'USER', id: 'amzn1.ask.account.usuarioCocina' });
 } finally {
   for (const [key, value] of Object.entries(datastoreEnv)) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;

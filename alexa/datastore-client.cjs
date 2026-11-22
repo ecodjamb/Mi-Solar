@@ -10,6 +10,23 @@ function isAlexaDeviceId(value) {
   return /^amzn1\.ask\.device\.[A-Za-z0-9._-]+$/.test(String(value || ''));
 }
 
+function isAlexaUserId(value) {
+  return /^amzn1\.ask\.account\.[A-Za-z0-9._-]+$/.test(String(value || ''));
+}
+
+function normalizeDataStoreTarget(target) {
+  if (isAlexaDeviceId(target)) return { type: 'DEVICES', items: [target] };
+  if (isAlexaUserId(target)) return { type: 'USER', id: target };
+  if (target?.type === 'DEVICES' && Array.isArray(target.items) &&
+      target.items.length > 0 && target.items.length <= 20 && target.items.every(isAlexaDeviceId)) {
+    return { type: 'DEVICES', items: [...new Set(target.items)] };
+  }
+  if (target?.type === 'USER' && isAlexaUserId(target.id)) {
+    return { type: 'USER', id: target.id };
+  }
+  throw new Error('El destino de Data Store debe ser un deviceId o userId válido de esta Skill.');
+}
+
 function maskIdentifier(value) {
   const text = String(value || '');
   if (!text) return '(ausente)';
@@ -51,13 +68,11 @@ function failedDeliveries(result) {
   ];
 }
 
-async function writeDataStore(snapshot, targetId, {
+async function writeDataStore(snapshot, targetInput, {
   fetchImpl = globalThis.fetch,
   now = new Date()
 } = {}) {
-  if (!isAlexaDeviceId(targetId)) {
-    throw new Error('El destino de Data Store debe ser context.System.device.deviceId, no el serial del inversor.');
-  }
+  const target = normalizeDataStoreTarget(targetInput);
   if (typeof fetchImpl !== 'function') throw new Error('fetch no está disponible en la Lambda.');
 
   const clientId = process.env.ALEXA_LWA_CLIENT_ID;
@@ -93,7 +108,7 @@ async function writeDataStore(snapshot, targetId, {
         key: 'Indicadores',
         content: snapshot
       }],
-      target: { type: 'DEVICES', items: [targetId] },
+      target,
       attemptDeliveryUntil: new Date(now.getTime() + 60 * 60 * 1000).toISOString()
     })
   }));
@@ -116,7 +131,9 @@ module.exports = {
   DATASTORE_HOSTS,
   failedDeliveries,
   isAlexaDeviceId,
+  isAlexaUserId,
   maskIdentifier,
+  normalizeDataStoreTarget,
   safeError,
   writeDataStore
 };
