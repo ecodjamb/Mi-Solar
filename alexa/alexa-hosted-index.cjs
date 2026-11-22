@@ -69,11 +69,17 @@ function userIdFromEnvelope(envelope) {
   return /^amzn1\.ask\.account\.[A-Za-z0-9._-]+$/.test(text) ? text : null;
 }
 
+function apiAccessTokenFromEnvelope(envelope) {
+  const token = envelope && envelope.context && envelope.context.System &&
+    envelope.context.System.apiAccessToken;
+  return typeof token === 'string' && token.length > 20 ? token : null;
+}
+
 function targetFromEnvelope(envelope) {
-  const userId = userIdFromEnvelope(envelope);
-  if (userId) return { type: 'USER', id: userId };
   const deviceId = deviceIdFromEnvelope(envelope);
-  return deviceId ? { type: 'DEVICES', items: [deviceId] } : null;
+  if (deviceId) return { type: 'DEVICES', items: [deviceId] };
+  const userId = userIdFromEnvelope(envelope);
+  return userId ? { type: 'USER', id: userId } : null;
 }
 
 function generatedTodayKwh(site) {
@@ -127,7 +133,7 @@ function buildSnapshot(payload) {
     origen: String(site.provider || '--'),
     disponible: true,
     sampledAt: site.sampledAt,
-    version: '1.0.9'
+    version: '1.0.10'
   };
 }
 
@@ -180,31 +186,36 @@ async function fetchSnapshot() {
   }
 }
 
-async function writeDataStore(snapshot, target) {
+async function writeDataStore(snapshot, target, apiAccessToken) {
   const clientId = process.env.ALEXA_LWA_CLIENT_ID;
   const clientSecret = process.env.ALEXA_LWA_CLIENT_SECRET;
   const region = process.env.ALEXA_API_REGION || 'na';
   const host = DATASTORE_HOSTS[region];
-  if (!clientId || !clientSecret || !host) {
-    throw new Error('Credenciales o región de Alexa Data Store incompletas.');
-  }
+  if (!host) throw new Error('Región de Alexa Data Store inválida.');
 
-  const tokenBody = new URLSearchParams({
-    grant_type: 'client_credentials',
-    client_id: clientId,
-    client_secret: clientSecret,
-    scope: 'alexa::datastore'
-  }).toString();
-  const tokenPayload = await requestJson('https://api.amazon.com/auth/o2/token', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Content-Length': Buffer.byteLength(tokenBody)
-    },
-    body: tokenBody,
-    label: 'LWA'
-  });
-  if (!tokenPayload.access_token) throw new Error('LWA no devolvió un token de Data Store.');
+  let accessToken = apiAccessToken;
+  if (!accessToken) {
+    if (!clientId || !clientSecret) {
+      throw new Error('El evento no incluyó apiAccessToken y faltan credenciales LWA de respaldo.');
+    }
+    const tokenBody = new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: clientId,
+      client_secret: clientSecret,
+      scope: 'alexa::datastore'
+    }).toString();
+    const tokenPayload = await requestJson('https://api.amazon.com/auth/o2/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(tokenBody)
+      },
+      body: tokenBody,
+      label: 'LWA'
+    });
+    accessToken = tokenPayload.access_token;
+    if (!accessToken) throw new Error('LWA no devolvió un token de Data Store.');
+  }
 
   const commandBody = JSON.stringify({
     commands: [{
@@ -221,21 +232,21 @@ async function writeDataStore(snapshot, target) {
     headers: {
       'Content-Type': 'application/json',
       'Content-Length': Buffer.byteLength(commandBody),
-      Authorization: `Bearer ${tokenPayload.access_token}`
+      Authorization: `Bearer ${accessToken}`
     },
     body: commandBody,
     label: 'Alexa Data Store'
   });
 }
 
-async function syncTarget(target) {
+async function syncTarget(target, apiAccessToken) {
   if (!target) {
     console.warn('MiSolar: evento sin destino Alexa válido.');
     return null;
   }
   try {
     const snapshot = await fetchSnapshot();
-    const result = await writeDataStore(snapshot, target);
+    const result = await writeDataStore(snapshot, target, apiAccessToken);
     const deliveryTypes = Array.isArray(result && result.results)
       ? result.results.map((item) => String(item && item.type || 'UNKNOWN')).slice(0, 20)
       : [];
@@ -275,7 +286,7 @@ const InstalledHandler = {
       targetType: target && target.type,
       target: maskIdentifier(target && (target.items ? target.items[0] : target.id))
     });
-    await syncTarget(target);
+    await syncTarget(target, apiAccessTokenFromEnvelope(input.requestEnvelope));
     return input.responseBuilder.getResponse();
   }
 };
@@ -286,7 +297,10 @@ const UpdatedHandler = {
       'Alexa.DataStore.PackageManager.UpdateRequest';
   },
   async handle(input) {
-    await syncTarget(targetFromEnvelope(input.requestEnvelope));
+    await syncTarget(
+      targetFromEnvelope(input.requestEnvelope),
+      apiAccessTokenFromEnvelope(input.requestEnvelope)
+    );
     return input.responseBuilder.getResponse();
   }
 };
@@ -309,7 +323,10 @@ const LaunchHandler = {
     return Alexa.getRequestType(input.requestEnvelope) === 'LaunchRequest';
   },
   async handle(input) {
-    const snapshot = await syncTarget(targetFromEnvelope(input.requestEnvelope));
+    const snapshot = await syncTarget(
+      targetFromEnvelope(input.requestEnvelope),
+      apiAccessTokenFromEnvelope(input.requestEnvelope)
+    );
     return input.responseBuilder
       .speak(snapshot
         ? `Mi Solar actualizó el widget. Producción solar ${snapshot.generacion}, batería ${snapshot.bateria}.`

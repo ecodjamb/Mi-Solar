@@ -15,15 +15,15 @@ const previousWidgetToken = process.env.ALEXA_WIDGET_TOKEN;
 process.env.ALEXA_WIDGET_TOKEN = 'test-widget-token';
 
 const manifest = JSON.parse(await readFile(new URL('../alexa/widget-manifest.json', import.meta.url)));
-assert.equal(manifest.manifest.version, '1.0.9');
+assert.equal(manifest.manifest.version, '1.0.10');
 assert.equal(manifest.manifest.installStateChanges, 'INFORM');
 assert.equal(manifest.manifest.updateStateChanges, 'INFORM');
 assert.deepEqual(Object.keys(manifest.publishingInformation.locales).sort(), ['es-ES', 'es-MX', 'es-US']);
 for (const locale of Object.values(manifest.publishingInformation.locales)) {
   const metadata = locale[0].metadata;
   assert.equal(locale[0].targetViewport, 'WIDGET_M');
-  assert.equal(metadata.name, 'mi solar v1.0.9');
-  assert.match(metadata.iconUri, /mi-solar-widget-icon-v1\.0\.9\.png$/);
+  assert.equal(metadata.name, 'mi solar v1.0.10');
+  assert.match(metadata.iconUri, /mi-solar-widget-icon-v1\.0\.10\.png$/);
   assert.match(metadata.previews[0], /mi-solar-widget-preview-v2\.png$/);
   assert.doesNotMatch(metadata.iconUri, /default_icon/);
 }
@@ -31,8 +31,12 @@ for (const locale of Object.values(manifest.publishingInformation.locales)) {
 const widgetText = await readFile(new URL('../alexa/widget-show5.json', import.meta.url), 'utf8');
 const widget = JSON.parse(widgetText);
 assert.equal(widget.type, 'APL');
+assert.equal(widget.mainTemplate.items.length, 1);
+assert.equal(widget.mainTemplate.items[0].type, 'Frame');
+assert.equal(widget.mainTemplate.items[0].items.length, 1, 'Frame admite una sola capa hija; el contenido no debe quedar detrás del fondo');
+assert.equal(widget.mainTemplate.items[0].items[0].type, 'Container');
 assert.match(widgetText, /mi solar · El Arrayán/);
-assert.match(widgetText, /v1\.0\.9/);
+assert.match(widgetText, /v1\.0\.10/);
 assert.match(widgetText, /PRODUCCIÓN SOLAR/);
 assert.doesNotMatch(widgetText, /PB1 \+ PB2/);
 assert.doesNotMatch(widgetText, /"width":"49%"/);
@@ -40,7 +44,9 @@ assert.match(widgetText, /"grow":1/);
 const hostedLambda = await readFile(new URL('../alexa/alexa-hosted-index.cjs', import.meta.url), 'utf8');
 assert.match(hostedLambda, /type: 'USER', id: userId/);
 assert.match(hostedLambda, /targetFromEnvelope/);
-assert.match(hostedLambda, /function targetFromEnvelope[\s\S]*?if \(userId\) return \{ type: 'USER'[\s\S]*?const deviceId = deviceIdFromEnvelope/);
+assert.match(hostedLambda, /function targetFromEnvelope[\s\S]*?const deviceId = deviceIdFromEnvelope[\s\S]*?if \(deviceId\) return \{ type: 'DEVICES'[\s\S]*?const userId = userIdFromEnvelope/);
+assert.match(hostedLambda, /function apiAccessTokenFromEnvelope/);
+assert.match(hostedLambda, /writeDataStore\(snapshot, target, apiAccessToken\)/);
 assert.match(hostedLambda, /deliveryTypes\.includes\('SUCCESS'\)/);
 assert.match(hostedLambda, /Alexa Data Store rechazó la entrega/);
 assert.match(hostedLambda, /Mi Solar actualizó el widget/);

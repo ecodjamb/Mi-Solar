@@ -6,20 +6,20 @@ Esta carpeta contiene dos documentos APL importables para la galería de widgets
 
 ## Estado
 
-- Diseño APL responsivo v1.0.9: cuadrícula 2×2 con producción solar, casa, batería y red, más generación diaria y barra de avance.
+- Diseño APL responsivo v1.0.10: cuadrícula 2×2 con producción solar, casa, batería y red, más generación diaria y barra de avance. La raíz contiene una sola capa visual válida para `Frame`, evitando que el fondo oculte los indicadores.
 - `widget-show5.json` es el documento canónico responsivo para Widget Medium (134–425 dp × 222–711 dp); se adapta a Echo Show 5, 8, 10, 11, 15 y 21 compatibles con widgets.
-- Manifiesto del paquete: `widget-manifest.json` v1.0.9, con tres locales, logo v1.0.9 de 450×450 y vista previa 328×552.
+- Manifiesto del paquete: `widget-manifest.json` v1.0.10, con tres locales, logo v1.0.10 de 450×450 y vista previa 328×552.
 - Fuente de la Lambda desplegada: `GET https://misolar.vercel.app/api/public/monitor`, ruta pública de solo lectura que entrega exclusivamente el estado sanitizado del monitor.
 - El widget ya no necesita `ALEXA_WIDGET_TOKEN`; no abre consultas nuevas a i.Solar o WatchPower y no expone controles, usuarios ni información financiera.
 - Fuente: `site:2` (El Arrayán), última telemetría ya respaldada por Mi Solar. No llama a i.Solar, WatchPower ni Supabase.
 - Sincronizador: `sync-datastore.mjs` actualiza `MiSolar/Indicadores` mediante la Data Store REST API.
-- La Skill privada ya está instalada en el Echo Show Cocina. La Lambda usa el `userId` de la misma Skill para actualizar todos los dispositivos compatibles de esa cuenta y conserva `deviceId` como respaldo. Así el simulador también puede alimentar el Echo real sin depender del serial del inversor ni de una credencial inexistente de Mi Solar.
+- La Skill privada ya está instalada en el Echo Show Cocina. La Lambda usa primero el `deviceId` real recibido en `UsagesInstalled`, `UpdateRequest` o `LaunchRequest`; solo usa el `userId` cuando el evento no contiene dispositivo. Para llamadas iniciadas por Alexa usa `context.System.apiAccessToken`, evitando depender de secretos incrustados en el código.
 
 ## Configuración de la Lambda / sincronizador
 
 Configurar en Amazon las variables secretas:
 
-- `ALEXA_LWA_CLIENT_ID` y `ALEXA_LWA_CLIENT_SECRET`: credenciales LWA con alcance `alexa::datastore`.
+- `ALEXA_LWA_CLIENT_ID` y `ALEXA_LWA_CLIENT_SECRET`: respaldo opcional para procesos fuera de una sesión Alexa. Los eventos de instalación, actualización y apertura usan `context.System.apiAccessToken`.
 - `ALEXA_API_REGION`: `na`, `eu` o `fe` (por defecto `na`).
 
 La Lambda Alexa-hosted maneja `UsagesInstalled`, `UpdateRequest` y `LaunchRequest`. Cada apertura de la Skill actualiza Data Store para el dispositivo del evento o, como respaldo, para el usuario de la Skill. Amazon no envía `UpdateRequest` para Skills en etapa de desarrollo; por eso la carga inicial se ejecuta también al instalar y al abrir la Skill.
@@ -33,7 +33,7 @@ La Lambda Alexa-hosted maneja `UsagesInstalled`, `UpdateRequest` y `LaunchReques
 3. Activar en **Build > Interfaces**: Data Store Packages, Data Store y Data Store Extension (`alexaext:datastore:10`). Guardar y reconstruir el modelo.
 4. **Build > Multimodal Responses > Widget > Create Widget > Upload**, importar `widget-show5.json` para todos los tamaños compatibles y guardar. Es un documento APL sin contenedor `document` externo.
 5. Para la Skill Alexa-hosted, copiar el contenido de `alexa/skill-handler.cjs` como controlador Lambda (`index.js`) e instalar `ask-sdk-core`. El evento `UsagesInstalled` permite identificar el dispositivo en los logs. Estos datos deben tratarse como identificadores internos.
-6. En **Manifest**, reemplazar el contenido por `widget-manifest.json`. No dejar recursos genéricos: la versión 1.0.9 conserva el logo validado de 450×450 y `mi-solar-widget-preview-v2.png` (328×552).
+6. En **Manifest**, reemplazar el contenido por `widget-manifest.json`. No dejar recursos genéricos: la versión 1.0.10 conserva el logo validado de 450×450 y `mi-solar-widget-preview-v2.png` (328×552).
 7. Ejecutar **Build Model** y **Install > Send to Device** (no solo Preview). El dispositivo debe aparecer como compatible.
 8. Para probar con números simulados sin credenciales puedes usar el botón **Install > Update Datastore** y enviar un comando con `PUT_OBJECT`, namespace `MiSolar`, key `Indicadores`, y content con las propiedades `generacion`, `consumo`, `bateria`, `red`, `carga`, `descarga`, `estado`.
 9. La documentación de diseño de Amazon del año 2023 excluía el Echo Show 5, mientras que la guía actual de consumo muestra widgets para ese modelo. **Es necesario validar widgets APL de terceros en el Echo Show 5**; la galería visible no basta para confirmarlo.

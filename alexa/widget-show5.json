@@ -5,17 +5,15 @@
   "settings": {"DataStore":{"dataBindings":[{"namespace":"MiSolar","key":"Indicadores","dataBindingName":"MiSolarData","dataType":"OBJECT"}]}},
   "mainTemplate": {"items":[{
     "type":"Frame","width":"100vw","height":"100vh","backgroundColor":"#061521","items":[
-      {"type":"Image","source":"https://raw.githubusercontent.com/ecodjamb/Mi-Solar/refs/heads/main/public/alexa/mi-solar-widget-background-v3.png","width":"100%","height":"100%","scale":"best-fill","opacity":0.22},
-      {"type":"Frame","width":"100%","height":"100%","backgroundColor":"#B8061724"},
       {"type":"Container","width":"100%","height":"100%","direction":"column","paddingLeft":"${viewport.width >= 350 ? '22dp' : viewport.width >= 240 ? '14dp' : '9dp'}","paddingRight":"${viewport.width >= 350 ? '22dp' : viewport.width >= 240 ? '14dp' : '9dp'}","paddingTop":"${viewport.height >= 550 ? '16dp' : viewport.height >= 350 ? '10dp' : '6dp'}","paddingBottom":"${viewport.height >= 550 ? '12dp' : viewport.height >= 350 ? '8dp' : '5dp'}","spacing":"${viewport.height >= 550 ? '11dp' : viewport.height >= 350 ? '7dp' : '4dp'}","items":[
         {"type":"Container","direction":"row","alignItems":"center","height":"${viewport.height >= 500 ? '48dp' : '34dp'}","items":[
-          {"type":"Image","source":"https://raw.githubusercontent.com/ecodjamb/Mi-Solar/refs/heads/main/public/alexa/mi-solar-widget-icon-v1.0.9.png","width":"${viewport.height >= 550 ? '38dp' : viewport.height >= 350 ? '29dp' : '22dp'}","height":"${viewport.height >= 550 ? '38dp' : viewport.height >= 350 ? '29dp' : '22dp'}","borderRadius":"9dp","scale":"best-fill"},
+          {"type":"Image","source":"https://raw.githubusercontent.com/ecodjamb/Mi-Solar/refs/heads/main/public/alexa/mi-solar-widget-icon-v1.0.10.png","width":"${viewport.height >= 550 ? '38dp' : viewport.height >= 350 ? '29dp' : '22dp'}","height":"${viewport.height >= 550 ? '38dp' : viewport.height >= 350 ? '29dp' : '22dp'}","borderRadius":"9dp","scale":"best-fill"},
           {"type":"Container","grow":1,"paddingLeft":"10dp","items":[
             {"type":"Text","text":"mi solar · El Arrayán","fontSize":"${viewport.width >= 350 ? '21dp' : viewport.width >= 240 ? '16dp' : '12dp'}","fontWeight":"bold","color":"#FFFFFF","maxLines":1},
             {"type":"Text","text":"ENERGÍA EN VIVO","fontSize":"${viewport.width >= 350 ? '9dp' : '7dp'}","letterSpacing":"1dp","color":"#B8D5E4","maxLines":1}
           ]},
           {"type":"Container","alignItems":"end","items":[
-            {"type":"Text","text":"v1.0.9","fontSize":"${viewport.width >= 350 ? '11dp' : '8dp'}","fontWeight":"bold","color":"#FFE16A","maxLines":1},
+            {"type":"Text","text":"v1.0.10","fontSize":"${viewport.width >= 350 ? '11dp' : '8dp'}","fontWeight":"bold","color":"#FFE16A","maxLines":1},
             {"type":"Text","text":"${MiSolarData && MiSolarData.estado == 'Actualizado' ? '● EN LÍNEA' : MiSolarData ? '● ' + MiSolarData.estado.toUpperCase() : '● SIN DATOS'}","fontSize":"${viewport.width >= 350 ? '8dp' : '6dp'}","fontWeight":"bold","color":"${MiSolarData && MiSolarData.estado == 'Actualizado' ? '#65F4A3' : MiSolarData ? '#FFD56A' : '#FF8B88'}","maxLines":1}
           ]}
         ]},
@@ -61,7 +59,7 @@
             {"type":"Text","text":"${MiSolarData && MiSolarData.tienePronostico ? MiSolarData.progresoSolar + ' de la producción esperada' : 'Pronóstico diario no disponible'}","fontSize":"${viewport.width >= 350 ? '9dp' : '6dp'}","color":"#BBD2DE","maxLines":1}
           ]}
         ]},
-        {"type":"Text","height":"${viewport.height >= 550 ? '19dp' : '13dp'}","text":"${(MiSolarData && MiSolarData.estado ? MiSolarData.estado : 'Sin datos') + ' · muestra ' + (MiSolarData && MiSolarData.hora ? MiSolarData.hora : '--:--') + ' · mi solar v1.0.9'}","fontSize":"${viewport.width >= 350 ? '9dp' : '6dp'}","color":"#AFC5D1","textAlign":"center","textAlignVertical":"center","maxLines":1}
+        {"type":"Text","height":"${viewport.height >= 550 ? '19dp' : '13dp'}","text":"${(MiSolarData && MiSolarData.estado ? MiSolarData.estado : 'Sin datos') + ' · muestra ' + (MiSolarData && MiSolarData.hora ? MiSolarData.hora : '--:--') + ' · mi solar v1.0.10'}","fontSize":"${viewport.width >= 350 ? '9dp' : '6dp'}","color":"#AFC5D1","textAlign":"center","textAlignVertical":"center","maxLines":1}
       ]}
     ]
   }]}
