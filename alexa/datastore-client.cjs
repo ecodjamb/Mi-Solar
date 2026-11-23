@@ -114,7 +114,14 @@ async function writeDataStore(snapshot, targetInput, {
   }));
 
   const failures = failedDeliveries(result);
-  if (failures.length) {
+  const results = Array.isArray(result?.results) ? result.results : [];
+  const queuedResultId = result?.queuedResultId || null;
+  const delivered = results.some(item => item?.type === 'SUCCESS');
+  const queued = Boolean(queuedResultId) && results.some(item => item?.type === 'DEVICE_UNAVAILABLE');
+  // Con un destino USER, Alexa también evalúa otros dispositivos de la cuenta
+  // que no soportan widgets. INVALID_DEVICE en esos equipos no invalida una
+  // entrega exitosa ni una entrega en cola para el Echo Show compatible.
+  if (failures.length && !delivered && !queued) {
     const error = new Error(`Alexa rechazó la entrega: ${failures.map(item => item.type).join(', ')}`);
     error.code = 'DATASTORE_DELIVERY_FAILED';
     error.failures = failures.map(item => ({ type: item.type, deviceId: maskIdentifier(item.deviceId) }));
@@ -122,8 +129,11 @@ async function writeDataStore(snapshot, targetInput, {
   }
   return {
     accepted: true,
-    queuedResultId: result?.queuedResultId || null,
-    results: Array.isArray(result?.results) ? result.results.length : 0
+    queued: queued,
+    delivered: delivered,
+    queuedResultId,
+    results: results.length,
+    ignoredIncompatibleDevices: results.filter(item => item?.type === 'INVALID_DEVICE').length
   };
 }
 

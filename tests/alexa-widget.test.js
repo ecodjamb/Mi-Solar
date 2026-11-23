@@ -263,6 +263,43 @@ try {
   }
 }
 
+process.env.ALEXA_LWA_CLIENT_ID = 'client-test';
+process.env.ALEXA_LWA_CLIENT_SECRET = 'secret-test';
+process.env.ALEXA_API_REGION = 'na';
+try {
+  const queuedDelivery = await writeDataStore(
+    { estado: 'Actualizado' },
+    { type: 'USER', id: 'amzn1.ask.account.usuarioCocina' },
+    {
+      fetchImpl: async (url) => {
+        if (url.includes('/auth/o2/token')) {
+          return { ok: true, status: 200, text: async () => JSON.stringify({ access_token: 'lwa-test' }) };
+        }
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({
+            queuedResultId: 'queued-test',
+            results: [
+              { type: 'INVALID_DEVICE', deviceId: 'amzn1.ask.device.noWidget' },
+              { type: 'DEVICE_UNAVAILABLE', deviceId: 'amzn1.ask.device.echoCocina' }
+            ]
+          })
+        };
+      }
+    }
+  );
+  assert.equal(queuedDelivery.accepted, true);
+  assert.equal(queuedDelivery.queued, true);
+  assert.equal(queuedDelivery.delivered, false);
+  assert.equal(queuedDelivery.queuedResultId, 'queued-test');
+  assert.equal(queuedDelivery.ignoredIncompatibleDevices, 1);
+} finally {
+  for (const [key, value] of Object.entries(datastoreEnv)) {
+    if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
+}
+
 const before = {
   SUPABASE_URL: process.env.SUPABASE_URL,
   SUPABASE_PUBLISHABLE_KEY: process.env.SUPABASE_PUBLISHABLE_KEY,
