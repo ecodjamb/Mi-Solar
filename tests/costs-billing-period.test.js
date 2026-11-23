@@ -7,6 +7,8 @@ const billsSource = readFileSync(new URL('../src/components/EnelBillsSection.tsx
 
 assert.match(source, /day\.gridImport/, 'El gráfico debe usar el acumulado de red validado por statusGrid=1.');
 assert.match(source, /day\.solar/, 'El gráfico debe incluir la producción solar total diaria.');
+assert.match(source, /monthSaving=Math\.max\(0,selectedEnergy\.solar\)\*tariff/, 'El ahorro Enel debe valorizar la misma producción solar real del gráfico.');
+assert.match(source, /producción solar real PV1 \+ PV2/, 'Enel debe explicar claramente la fuente del ahorro solar.');
 assert.match(source, /addDays\(latest\.periodEnd,1\)/, 'El período actual debe comenzar después del cierre de la última boleta.');
 assert.match(source, /nextMonthSameDay\(currentStart\)/, 'El siguiente cierre debe conservar el ciclo comercial de Enel.');
 assert.match(source, /Mes calendario actual/, 'Debe poder compararse con el mes calendario actual.');

@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { BarChart3, CircleGauge, Sigma, Sun } from 'lucide-react';
 import EChart from './EChart';
-import { fetchProviderSeries, type EnergyProvider } from '../services/providerHistory';
-import type { HistoryRow } from '../types';
-import { clp, groupDailyEnergy, kwh } from '../utils/energy';
+import type { EnergyProvider } from '../services/providerHistory';
+import type { DailyEnergy } from '../types';
+import { clp, kwh } from '../utils/energy';
 import { isReliableSolarAnalysisDay } from '../utils/solarForecast';
 import { specificYieldReference } from '../utils/specificYield';
 
@@ -11,28 +11,20 @@ const PERIODS=[{key:'7d',label:'7 días',days:7},{key:'1m',label:'1 mes · 31 d�
 type Period=(typeof PERIODS)[number]['key'];
 type YieldString={key:'pv1'|'pv2';label:string;installedKwp:number};
 
-export default function DailyConsumptionChart({deviceSn,siteLabel,siteKey,provider,installedWp,strings,tariff}:{deviceSn:string;siteLabel:string;siteKey:'arrayan'|'puerto-montt';provider:EnergyProvider;installedWp:number;strings:YieldString[];tariff:number}){
+function addDays(date:string,days:number){const [year,month,day]=date.split('-').map(Number);return new Date(Date.UTC(year,month-1,day+days)).toISOString().slice(0,10)}
+
+export default function DailyConsumptionChart({siteLabel,siteKey,provider,installedWp,strings,tariff,dailyHistory,siteDate,loading}:{siteLabel:string;siteKey:'arrayan'|'puerto-montt';provider:EnergyProvider;installedWp:number;strings:YieldString[];tariff:number;dailyHistory:DailyEnergy[];siteDate:string;loading:boolean}){
   const [period,setPeriod]=useState<Period>('1m');
-  const [rows,setRows]=useState<HistoryRow[]>([]);
-  const [loading,setLoading]=useState(false);
   const selected=PERIODS.find(item=>item.key===period)||PERIODS[1];
-  useEffect(()=>{
-    if(!deviceSn)return;
-    let active=true;const end=new Date();const start=new Date(end.getTime()-selected.days*86400000);
-    setLoading(true);
-    fetchProviderSeries({deviceSn,provider,start:start.toISOString(),end:end.toISOString(),resolution:'day'})
-      .then(result=>active&&setRows(result.list||[])).catch(()=>active&&setRows([])).finally(()=>active&&setLoading(false));
-    return()=>{active=false};
-  },[deviceSn,provider,selected.days]);
-  const allDays=useMemo(()=>groupDailyEnergy(rows),[rows]);
+  const periodStart=addDays(siteDate,-(selected.days-1));
+  const allDays=useMemo(()=>dailyHistory.filter(day=>day.date>=periodStart&&day.date<=siteDate),[dailyHistory,periodStart,siteDate]);
   const days=useMemo(()=>allDays.filter(day=>isReliableSolarAnalysisDay(day,siteKey)),[allDays,siteKey]);
   const excludedDays=allDays.length-days.length;
   const totals=useMemo(()=>days.reduce((result,day)=>({
     load:result.load+day.load,
     solar:result.solar+day.solar,
     gridImport:result.gridImport+day.gridImport,
-    avoided:result.avoided+Math.max(0,day.solarToLoad)+Math.max(0,day.batteryToLoad)
-  }),{load:0,solar:0,gridImport:0,avoided:0}),[days]);
+  }),{load:0,solar:0,gridImport:0}),[days]);
   const average=days.length?totals.load/days.length:0;
   const solarAverage=days.length?totals.solar/days.length:0;
   const installedKwp=Math.max(.001,installedWp/1000);
@@ -74,6 +66,6 @@ export default function DailyConsumptionChart({deviceSn,siteLabel,siteKey,provid
     {excludedDays>0?<div className="data-warning-banner history-status-ok">Calidad estadística: se excluyeron {excludedDays} día{excludedDays===1?'':'s'} de El Arrayán con producción o consumo inferior a 5 kWh, o cobertura insuficiente. Los registros originales permanecen respaldados.</div>:null}
     <section className="panel daily-consumption-chart"><header><div><small>Histórico respaldado · {siteLabel} · {provider==='watchpower'?'WatchPower':'i.Solar'}</small><h2><BarChart3/> Consumo diario y promedio</h2></div><strong>{average.toLocaleString('es-CL',{maximumFractionDigits:2})} kWh/día</strong></header>{selector('Período del consumo diario')}{loading?<div className="chart-loading">Cargando consumo diario…</div>:days.length?<><EChart option={option}/><footer className="daily-period-total"><Sigma/><span><small>Total consumido · {selected.label}</small><strong>{kwh(totals.load)}</strong><em>{clp(totals.load*tariff)} valorizados · {days.length} días respaldados · {coveredDates}</em></span></footer></>:<div className="chart-loading">Todavía no hay datos diarios guardados para este período.</div>}</section>
     <section className="panel daily-consumption-chart daily-specific-yield-chart"><header><div><small>Indicador normalizado · {siteLabel}</small><h2><Sun/> Producción específica diaria</h2><p>Producción solar dividida por la potencia instalada; en El Arrayán también se compara cada string.</p></div><strong>{averageSpecificYield.toLocaleString('es-CL',{maximumFractionDigits:2})} kWh/kWp/día</strong></header>{selector('Período de la producción específica')}{loading?<div className="chart-loading">Calculando producción específica…</div>:days.length?<><EChart option={yieldOption}/><footer className="daily-period-total yield"><CircleGauge/><span><small>Comparación del promedio del período</small><strong>{averageDeviation>=0?'+':''}{averageDeviation.toLocaleString('es-CL',{maximumFractionDigits:0})} %</strong><em>Referencia diaria: {referenceDaily.toLocaleString('es-CL',{minimumFractionDigits:2,maximumFractionDigits:2})} kWh/kWp. Los registros históricos originales se conservan sin cambios.</em></span></footer></>:<div className="chart-loading">Todavía no hay producción respaldada para calcular el ratio.</div>}</section>
-    <section className="panel daily-consumption-chart daily-solar-chart"><header><div><small>Generación respaldada · {siteLabel} · {provider==='watchpower'?'WatchPower':'i.Solar'}</small><h2><Sun/> Producción solar diaria y promedio</h2></div><strong>{solarAverage.toLocaleString('es-CL',{maximumFractionDigits:2})} kWh/día</strong></header>{selector('Período de la producción solar diaria')}{loading?<div className="chart-loading">Cargando producción solar…</div>:days.length?<><EChart option={solarOption}/><footer className="daily-period-total solar"><Sigma/><span><small>Total producido · {selected.label}</small><strong>{kwh(totals.solar)}</strong><em>Valor solar {clp(totals.solar*tariff)} · ahorro estimado {clp(totals.avoided*tariff)} · {days.length} días respaldados · {coveredDates}</em></span></footer></>:<div className="chart-loading">Todavía no hay producción solar guardada para este período.</div>}</section>
+    <section className="panel daily-consumption-chart daily-solar-chart"><header><div><small>Generación respaldada · {siteLabel} · {provider==='watchpower'?'WatchPower':'i.Solar'}</small><h2><Sun/> Producción solar diaria y promedio</h2></div><strong>{solarAverage.toLocaleString('es-CL',{maximumFractionDigits:2})} kWh/día</strong></header>{selector('Período de la producción solar diaria')}{loading?<div className="chart-loading">Cargando producción solar…</div>:days.length?<><EChart option={solarOption}/><footer className="daily-period-total solar"><Sigma/><span><small>Total producido · {selected.label}</small><strong>{kwh(totals.solar)}</strong><em>Ahorro solar valorizado {clp(totals.solar*tariff)} · {days.length} días respaldados · {coveredDates}</em></span></footer></>:<div className="chart-loading">Todavía no hay producción solar guardada para este período.</div>}</section>
   </div>;
 }

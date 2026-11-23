@@ -1,3 +1,11 @@
+# Mi Solar v8.79.9
+
+- Inicio y Enel valorizan ahora el ahorro desde una única fuente canónica: la producción fotovoltaica real respaldada de PV1 + PV2.
+- Los acumulados de 30 y 365 días comparten exactamente el mismo rollup diario y el mismo filtro de calidad que el gráfico histórico, eliminando diferencias entre tarjetas y gráficos.
+- El gráfico histórico reutiliza la consulta anual ya cargada por Inicio, evitando una segunda descarga idéntica y reduciendo trabajo del servidor.
+- La cobertura del consumo por solar, batería y red se conserva como indicador independiente para no confundir producción fotovoltaica con energía entregada a la casa.
+- Los registros históricos permanecen intactos; el cambio corrige únicamente la selección, presentación y valorización de los datos.
+
 # Mi Solar v8.79.8
 
 - El widget Alexa v1.0.15 corrige el desborde observado en el Echo Show 11: fija alturas para 328×552 dp, mantiene visibles las cuatro tarjetas y reduce las cifras solo lo necesario para evitar cortes.

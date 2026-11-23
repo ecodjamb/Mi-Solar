@@ -19,6 +19,9 @@ assert.match(app,/Ahorro últimos 30 días/);
 assert.match(app,/Ahorro últimos 365 días/);
 assert.match(app,/resolution:'day'/,'El acumulado anual debe usar el rollup diario y no descargar muestras instantáneas.');
 assert.match(app,/EnergyPeriodCard label="Últimos 365 días"/);
+assert.match(app,/last365Savings=last365\.solar\*tariff/,'El ahorro anual debe valorizar exactamente la producción solar real.');
+assert.match(app,/dailyHistory=\{rollingDays\}/,'Las tarjetas y el gráfico deben compartir el mismo rollup diario permanente.');
+assert.doesNotMatch(app,/systemEnergyToLoad/,'El ahorro solar no debe mezclarse con la descarga de batería.');
 assert.doesNotMatch(app,/<HistoricalBackfill/,'La carga histórica manual debe permanecer oculta en Inicio.');
 
 const bestIndex=app.indexOf('Mejor día del mes');
@@ -38,7 +41,8 @@ assert.match(serverSites,/-33\.3633868/);
 assert.match(serverSites,/-41\.573491/);
 
 assert.match(chart,/label:'365 días',days:365/);
-assert.match(chart,/ahorro estimado/);
+assert.match(chart,/Ahorro solar valorizado/);
+assert.match(chart,/totals\.solar\*tariff/,'El pie del gráfico debe usar la misma producción solar que su total.');
 assert.match(flow,/Math\.min\(520, Math\.max\(340, viewportWidth \* \.42\)/);
 assert.match(flow,/readableLoggerFirmware/);
 assert.match(specificYield,/arrayan:\[5\.98,5\.84,5\.42,4\.54,3\.47,2\.99,3\.30,3\.89,4\.69,5\.25,5\.69,6\.01\]/);

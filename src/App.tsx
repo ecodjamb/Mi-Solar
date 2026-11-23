@@ -77,14 +77,12 @@ const HistoryExplorer=lazySection(()=>import('./components/HistoryExplorer'));
 const EnergyRangeChart=lazySection(()=>import('./components/EnergyRangeChart'));
 const DailyConsumptionChart=lazySection(()=>import('./components/DailyConsumptionChart'));
 const sumDays=(days:DailyEnergy[])=>days.reduce((a,d)=>({...a,solar:a.solar+d.solar,pv1:a.pv1+d.pv1,pv2:a.pv2+d.pv2,load:a.load+d.load,grid:a.grid+d.grid,gridImport:a.gridImport+d.gridImport,gridExport:a.gridExport+d.gridExport,gridToLoad:a.gridToLoad+d.gridToLoad,charge:a.charge+d.charge,discharge:a.discharge+d.discharge,solarToLoad:a.solarToLoad+d.solarToLoad,batteryToLoad:a.batteryToLoad+d.batteryToLoad,solarToBattery:a.solarToBattery+d.solarToBattery,samples:a.samples+d.samples}),{...emptyEnergy});
-const systemEnergyToLoad=(energy:DailyEnergy)=>Math.max(0,energy.solarToLoad)+Math.max(0,energy.batteryToLoad);
-
 function EnergyPeriodCard({label,energy,tariff,gridLabel}:{label:string;energy:DailyEnergy;tariff:number;gridLabel:string}){
   return <article className="panel energy-period-card"><small>{label}</small><strong>{kwh(energy.solar)}</strong><div className="energy-period-values">
     <span><em>Solar</em><b>{kwh(energy.solar)}</b><i>{clp(energy.solar*tariff)}</i></span>
     <span><em>Consumo</em><b>{kwh(energy.load)}</b><i>{clp(energy.load*tariff)}</i></span>
     <span><em>{gridLabel}</em><b>{kwh(energy.gridImport)}</b><i>{clp(energy.gridImport*tariff)}</i></span>
-  </div><p>Ahorro estimado {clp(systemEnergyToLoad(energy)*tariff)} · energía del sistema hacia la casa {kwh(systemEnergyToLoad(energy))}</p></article>;
+  </div><p>Ahorro solar valorizado {clp(energy.solar*tariff)} · producción fotovoltaica real {kwh(energy.solar)}</p></article>;
 }
 
 function addDays(date:string,days:number){const [y,m,d]=date.split('-').map(Number);return new Date(Date.UTC(y,m-1,d+days)).toISOString().slice(0,10)}
@@ -160,6 +158,7 @@ export default function App(){
   const [peerSolar,setPeerSolar]=useState<{deviceSn:string;siteLabel:string;power:number;soc:number|null;updatedAt:Date|null}|null>(null);
   const [projectionHistory,setProjectionHistory]=useState<DailyEnergy[]>([]);
   const [rollingHistory,setRollingHistory]=useState<DailyEnergy[]>([]);
+  const [rollingHistoryLoading,setRollingHistoryLoading]=useState(false);
   const [storedForecast,setStoredForecast]=useState<SolarForecastResponse|null>(null);
   const [storedOutputPriority,setStoredOutputPriority]=useState<'Utility'|'SOL'|'SBU'|null>(null);
   const [homeAnalyticsReady,setHomeAnalyticsReady]=useState(false);
@@ -224,9 +223,13 @@ export default function App(){
     [...rollingHistory,today].forEach(day=>{if(day.date)byDate.set(day.date,day)});
     return [...byDate.values()].filter(day=>day.date>=addDays(siteDate,-364)&&day.date<=siteDate).sort((a,b)=>a.date.localeCompare(b.date));
   },[rollingHistory,today,siteDate]);
-  const last30Days=useMemo(()=>rollingDays.filter(day=>day.date>=addDays(siteDate,-29)),[rollingDays,siteDate]);
+  // Fuente canónica de todos los acumulados históricos visibles. Es el
+  // mismo rollup diario permanente que alimenta los gráficos inferiores; en
+  // El Arrayán conserva el filtro histórico de días inválidos solicitado.
+  const rollingAnalysisDays=useMemo(()=>rollingDays.filter(day=>isReliableSolarAnalysisDay(day,profile.key)),[rollingDays,profile.key]);
+  const last30Days=useMemo(()=>rollingAnalysisDays.filter(day=>day.date>=addDays(siteDate,-29)),[rollingAnalysisDays,siteDate]);
   const last30=useMemo(()=>sumDays(last30Days),[last30Days]);
-  const last365=useMemo(()=>sumDays(rollingDays),[rollingDays]);
+  const last365=useMemo(()=>sumDays(rollingAnalysisDays),[rollingAnalysisDays]);
   // La potencia instalada es inventario técnico canónico. No permitir que un
   // valor antiguo de localStorage (Puerto Montt tenía 1,845 kWp) prevalezca.
   const installedWp=profile.installedWp;
@@ -734,12 +737,14 @@ export default function App(){
   useEffect(()=>{if(!auth||!selected||!isHistoricalDay){setHistoricalDayRows([]);return}let active=true;setHistoricalDayLoading(true);setTimelineIndex(null);const utc=siteRangeUtc(homeDate,addDays(homeDate,1));fetchProviderSeries({deviceSn:selected,provider:source,start:utc.start,end:utc.end,resolution:'hour'}).then(result=>{if(active){const rows=filterRowsForSiteDate(result.list||[],homeDate);setHistoricalDayRows(rows);setTimelineIndex(rows.length?rows.length-1:null)}}).catch(error=>active&&setHistoryMessage(`No fue posible cargar ${homeDate}: ${error instanceof Error?error.message:'error'}.`)).finally(()=>active&&setHistoricalDayLoading(false));return()=>{active=false}},[auth,selected,source,homeDate,isHistoricalDay]);
   useEffect(()=>{const start=weather.dailyRadiation?.[0]?.date;if(!auth||!selected||!start){setProjectionHistory([]);return}let active=true;const utc=siteRangeUtc(start,addDays(siteDate,1));fetchProviderSeries({deviceSn:selected,provider:source,start:utc.start,end:utc.end,resolution:'day'}).then(result=>{if(active)setProjectionHistory(groupDailyEnergy(result.list||[]))}).catch(()=>active&&setProjectionHistory([]));return()=>{active=false}},[auth,selected,source,weather.dailyRadiation?.[0]?.date,siteDate]);
   useEffect(()=>{
-    if(!auth||!selected||page!=='home'||!homeAnalyticsReady){setRollingHistory([]);return}
+    if(!auth||!selected||page!=='home'||!homeAnalyticsReady){setRollingHistory([]);setRollingHistoryLoading(false);return}
     let active=true;
     const range=siteRangeUtc(addDays(siteDate,-364),addDays(siteDate,1));
+    setRollingHistoryLoading(true);
     fetchProviderSeries({deviceSn:selected,provider:source,start:range.start,end:range.end,resolution:'day'})
       .then(result=>{if(active)setRollingHistory(groupDailyEnergy(result.list||[]))})
-      .catch(()=>{if(active)setRollingHistory([])});
+      .catch(()=>{if(active)setRollingHistory([])})
+      .finally(()=>{if(active)setRollingHistoryLoading(false)});
     return()=>{active=false};
   },[auth,selected,source,page,homeAnalyticsReady,siteDate]);
   // El corte oficial pertenece a la instalación, no a cada refresco del
@@ -767,10 +772,10 @@ export default function App(){
 
   if(monitorMode)return <MonitorView devices={devices} selected={selected} onSelect={switchDevice} clock={clock} lastDataLabel={formatDate(realtime.currentTime||realtime.createTime)} liveStatus={liveStatus} refreshing={loading} onRefresh={()=>void updateRealtimeNow()} onClose={()=>setMonitor(false)} data={validatedRealtime} history={history} today={today} gridLabel={gridSourceLabel} pvCount={pvCount} outputPriority={storedOutputPriority} batteryBank={profile.key==='arrayan'?ARRAYAN_BATTERY_BANK:null} inverterProfile={profile.key==='arrayan'?ARRAYAN_INVERTER:null} forecastTodayKwh={forecastTodayKwh}/>;
 
-  const savings=systemEnergyToLoad(homeEnergy)*tariff;
-  const weekSavings=systemEnergyToLoad(week)*tariff;
-  const last30Savings=systemEnergyToLoad(last30)*tariff;
-  const last365Savings=systemEnergyToLoad(last365)*tariff;
+  const savings=homeEnergy.solar*tariff;
+  const weekSavings=week.solar*tariff;
+  const last30Savings=last30.solar*tariff;
+  const last365Savings=last365.solar*tariff;
   const isSuperadmin=appIdentity?.authenticated===true&&appIdentity.access.role==='superadmin';
   const actionAllowed=(key:string)=>{const explicit=appIdentity?.access.actions?.[key];return Boolean(isSuperadmin||(explicit===undefined?appIdentity?.access.permissions.includes(key):explicit===true))};
   const menuAllowed=(key:PageKey,fallback:boolean)=>Boolean(isSuperadmin||(Object.prototype.hasOwnProperty.call(appIdentity?.access.menus||{},key)?appIdentity?.access.menus?.[key]===true:fallback));
@@ -814,10 +819,10 @@ export default function App(){
         <HomeDateNavigator value={homeDate} max={siteDate} loading={historicalDayLoading} onChange={date=>{setHomeDate(date);setTimelineIndex(null)}}/>
         <section className="kpi-grid home-savings-grid">
           <KpiCard icon={Sun} label="Solar acumulado del día" value={kwh(homeEnergy.solar)} detail={isHistoricalDay?`PV1 ${kwh(homeEnergy.pv1)} · PV2 ${kwh(homeEnergy.pv2)} · referencia ${benchmarkDayKwh.toFixed(2)} kWh`:`Referencia acumulada: ${benchmarkAccumulatedToday.toFixed(2)} kWh · meta diaria ${benchmarkDayKwh.toFixed(2)} kWh`} tone="solar"/>
-          <KpiCard icon={CircleDollarSign} label="Ahorro del día" value={clp(savings)} detail={`Sistema a la casa ${kwh(systemEnergyToLoad(homeEnergy))}`} tone="green"/>
-          <KpiCard icon={CircleDollarSign} label="Ahorro de la semana" value={clp(weekSavings)} detail={`Sistema a la casa ${kwh(systemEnergyToLoad(week))}`} tone="green"/>
-          <KpiCard icon={CircleDollarSign} label="Ahorro últimos 30 días" value={clp(last30Savings)} detail={`Sistema a la casa ${kwh(systemEnergyToLoad(last30))}`} tone="green"/>
-          <KpiCard icon={CircleDollarSign} label="Ahorro últimos 365 días" value={clp(last365Savings)} detail={`Sistema a la casa ${kwh(systemEnergyToLoad(last365))}`} tone="green"/>
+          <KpiCard icon={CircleDollarSign} label="Ahorro del día" value={clp(savings)} detail={`Producción solar real ${kwh(homeEnergy.solar)}`} tone="green"/>
+          <KpiCard icon={CircleDollarSign} label="Ahorro de la semana" value={clp(weekSavings)} detail={`Producción solar real ${kwh(week.solar)}`} tone="green"/>
+          <KpiCard icon={CircleDollarSign} label="Ahorro últimos 30 días" value={clp(last30Savings)} detail={`Producción solar real ${kwh(last30.solar)}`} tone="green"/>
+          <KpiCard icon={CircleDollarSign} label="Ahorro últimos 365 días" value={clp(last365Savings)} detail={`Producción solar real ${kwh(last365.solar)}`} tone="green"/>
         </section>
         <DailyQuote/>
         <LoadCoverageBar today={homeEnergy} month={month} lastUpdate={isHistoricalDay?parseApiTime(homeEnergy.lastSample):quality.last} gridLabel={gridSourceLabel} historical={isHistoricalDay}/>
@@ -837,7 +842,7 @@ export default function App(){
         <header className="analytics-title"><div><small>Análisis energético</small><h1>Gráficos y acumulados</h1><p>Todos los cortes pertenecen exclusivamente a la instalación seleccionada y usan el día calendario de Chile.</p></div><section className="instant-gauge-grid two-gauges"><article className="panel gauge-card"><small>Demanda actual</small><PowerGauge value={load} label="Consumo instantáneo"/><div className="gauge-note"><span className="safe-dot"/>normal <span className="danger-dot"/>carga alta</div></article><article className="panel gauge-card solar-gauge"><small>{pvCount===2?'Producción instantánea · PV1 y PV2':'Producción instantánea · PV1'}</small>{pvCount===2?<DualSolarGauge pv1={pvPower(validatedRealtime,1)} pv2={pvPower(validatedRealtime,2)} max={Math.max(3000,installedWp/2)}/>:<PowerGauge value={pvPower(validatedRealtime,1)} max={Math.max(3000,installedWp)} label="PV1 instantáneo" color="#efbd34"/>}</article></section></header>
         {pvCount===2&&<PvStringComparisonChart deviceSn={selected} siteLabel={siteLabel} siteKey={profile.key} provider={source}/>}
         <EnergyRangeChart deviceSn={selected} siteLabel={siteLabel} siteKey={profile.key} gridLabel={gridSourceLabel} provider={source}/>
-        <DailyConsumptionChart deviceSn={selected} siteLabel={siteLabel} siteKey={profile.key} provider={source} installedWp={installedWp} strings={profile.strings} tariff={tariff}/>
+        <DailyConsumptionChart siteLabel={siteLabel} siteKey={profile.key} provider={source} installedWp={installedWp} strings={profile.strings} tariff={tariff} dailyHistory={rollingDays} siteDate={siteDate} loading={rollingHistoryLoading}/>
         <section className="analytics-period-summary">
           <EnergyPeriodCard label="Hoy" energy={today} tariff={tariff} gridLabel={gridSourceLabel}/>
           <EnergyPeriodCard label="Esta semana" energy={week} tariff={tariff} gridLabel={gridSourceLabel}/>

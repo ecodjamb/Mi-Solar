@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "application": {
     "name": "Mi Solar",
-    "version": "8.79.8",
+    "version": "8.79.9",
     "productionUrl": "https://misolar.vercel.app",
     "healthUrl": "https://misolar.vercel.app/api/health"
   },
