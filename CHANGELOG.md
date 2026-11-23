@@ -1,5 +1,8 @@
 # Mi Solar v8.79.8
 
+- El widget Alexa v1.0.14 agrega movimiento APL discreto a los flujos activos de solar, consumo, batería y red, sin reducir el tamaño de los indicadores.
+- La potencia de red se fuerza a `0 W` cuando el inversor informa `statusGrid = 0`, evitando repetir erróneamente el consumo de la casa.
+- La versión canónica, el manifiesto, la vista APL, la Lambda y el icono de galería quedan sincronizados en v1.0.14.
 - `/monitor` amplía 2,5 veces la cabecera del Echo Show 11: hora, último dato, selector de instalación y controles quedan legibles y táctiles a distancia.
 - El widget Alexa v1.0.13 usa cuatro tarjetas simétricas, iconos equivalentes, valores más grandes y hora visible de la última muestra.
 - El manifiesto y el icono de galería quedan sincronizados en v1.0.13, sin reutilizar la insignia gráfica antigua.

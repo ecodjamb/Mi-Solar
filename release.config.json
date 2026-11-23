@@ -20,7 +20,7 @@
     "alexa": {
       "name": "Widget privado Alexa de Mi Solar",
       "path": "alexa",
-      "version": "1.0.13",
+      "version": "1.0.14",
       "deploysApplication": false,
       "dataSource": "https://misolar.vercel.app/api/public/monitor"
     }
