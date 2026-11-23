@@ -110,6 +110,32 @@ async function rememberTarget(envelope) {
   };
   if (Object.keys(expressionNames).length) params.ExpressionAttributeNames = expressionNames;
   await documentClient.update(params).promise();
+  // Alexa-hosted always retains the encrypted credentials row, while
+  // auxiliary rows can be pruned. Keep a second copy of the destination on
+  // that existing row so the scheduled sync can recover the actual Echo.
+  const credentialUpdates = ['widgetTargetUpdatedAt = :updatedAt'];
+  const credentialNames = {};
+  const credentialValues = { ':updatedAt': expressionValues[':updatedAt'] };
+  if (deviceId) {
+    credentialNames['#widgetDeviceId'] = 'widgetDeviceId';
+    credentialValues[':widgetDeviceId'] = deviceId;
+    credentialUpdates.push('#widgetDeviceId = :widgetDeviceId');
+  }
+  if (userId) {
+    credentialNames['#widgetUserId'] = 'widgetUserId';
+    credentialValues[':widgetUserId'] = userId;
+    credentialUpdates.push('#widgetUserId = :widgetUserId');
+  }
+  const credentialTargetParams = {
+    TableName: CREDENTIALS_TABLE,
+    Key: { id: CREDENTIALS_KEY },
+    UpdateExpression: `SET ${credentialUpdates.join(', ')}`,
+    ExpressionAttributeValues: credentialValues
+  };
+  if (Object.keys(credentialNames).length) {
+    credentialTargetParams.ExpressionAttributeNames = credentialNames;
+  }
+  await documentClient.update(credentialTargetParams).promise();
   console.log('MiSolar: destino de Data Store guardado', {
     table: CREDENTIALS_TABLE,
     hasDeviceId: Boolean(deviceId),
