@@ -15,15 +15,15 @@ const previousWidgetToken = process.env.ALEXA_WIDGET_TOKEN;
 process.env.ALEXA_WIDGET_TOKEN = 'test-widget-token';
 
 const manifest = JSON.parse(await readFile(new URL('../alexa/widget-manifest.json', import.meta.url)));
-assert.equal(manifest.manifest.version, '1.0.13');
+assert.equal(manifest.manifest.version, '1.0.14');
 assert.equal(manifest.manifest.installStateChanges, 'INFORM');
 assert.equal(manifest.manifest.updateStateChanges, 'INFORM');
 assert.deepEqual(Object.keys(manifest.publishingInformation.locales).sort(), ['es-ES', 'es-MX', 'es-US']);
 for (const locale of Object.values(manifest.publishingInformation.locales)) {
   const metadata = locale[0].metadata;
   assert.equal(locale[0].targetViewport, 'WIDGET_M');
-  assert.equal(metadata.name, 'mi solar v1.0.13');
-  assert.match(metadata.iconUri, /mi-solar-widget-icon-v1\.0\.13\.png$/);
+  assert.equal(metadata.name, 'mi solar v1.0.14');
+  assert.match(metadata.iconUri, /mi-solar-widget-icon-v1\.0\.14\.png$/);
   assert.match(metadata.previews[0], /mi-solar-widget-preview-v2\.png$/);
   assert.doesNotMatch(metadata.iconUri, /default_icon/);
 }
@@ -36,7 +36,7 @@ assert.equal(widget.mainTemplate.items[0].type, 'Frame');
 assert.equal(widget.mainTemplate.items[0].items.length, 1, 'Frame admite una sola capa hija; el contenido no debe quedar detrás del fondo');
 assert.equal(widget.mainTemplate.items[0].items[0].type, 'Container');
 assert.match(widgetText, /mi solar · El Arrayán/);
-assert.match(widgetText, /v1\.0\.13/);
+assert.match(widgetText, /v1\.0\.14/);
 assert.match(widgetText, /PRODUCCIÓN SOLAR/);
 assert.match(widgetText, /ABRIR MONITOR/);
 assert.match(widgetText, /https:\/\/misolar\.vercel\.app\/monitor/);
@@ -44,6 +44,9 @@ assert.doesNotMatch(widgetText, /#F024384A|#F02B294F|#F0163F39|#F0173650/);
 assert.doesNotMatch(widgetText, /PB1 \+ PB2/);
 assert.doesNotMatch(widgetText, /"width":"49%"/);
 assert.match(widgetText, /ÚLTIMO DATO/);
+assert.match(widgetText, /AnimateItem/);
+assert.match(widgetText, /solarFlowPulse/);
+assert.match(widgetText, /gridFlowPulse/);
 assert.match(widgetText, /"fontSize":"\$\{viewport\.width >= 350 && viewport\.height >= 500 \? '55dp'/);
 const hostedLambda = await readFile(new URL('../alexa/alexa-hosted-index.cjs', import.meta.url), 'utf8');
 assert.match(hostedLambda, /type: 'USER', id: userId/);
@@ -60,7 +63,7 @@ assert.match(hostedLambda, /Mi Solar actualizó el widget/);
 assert.match(hostedLambda, /alexa-widget-targets/);
 assert.match(hostedLambda, /rememberTarget/);
 const scheduledWorkflow = await readFile(new URL('../.github/workflows/alexa-widget-sync.yml', import.meta.url), 'utf8');
-assert.match(scheduledWorkflow, /cron: "\*\/5 \* \* \* \*"/);
+assert.match(scheduledWorkflow, /cron: "2-59\/5 \* \* \* \*"/);
 assert.match(scheduledWorkflow, /ALEXA_WIDGET_USER_ID: \$\{\{ secrets\.ALEXA_WIDGET_USER_ID \}\}/);
 assert.match(scheduledWorkflow, /ALEXA_WIDGET_DEVICE_ID: \$\{\{ secrets\.ALEXA_WIDGET_DEVICE_ID \}\}/);
 assert.doesNotMatch(scheduledWorkflow, /misolar\.vercel\.app/);
@@ -106,7 +109,10 @@ const publicPayload = {
     realtime: {
       pvInputPower1: 846, pvInputPower2: 1794,
       batteryCapacity: 39, acOutputActivePowerTotal: 2387,
-      gridPowerInputActiveTotal: -25
+      gridPowerInputActiveTotal: 2387,
+      statusGrid: 0,
+      batteryChargingPower: 0,
+      batteryDischargingPower: 150
     }
   }]
 };
@@ -117,6 +123,10 @@ assert.equal(compact.pv2, '1,8 kW');
 assert.equal(compact.bateria, '39 %');
 assert.equal(compact.consumo, '2,4 kW');
 assert.equal(compact.red, '0,0 kW');
+assert.equal(compact.redDireccion, 'SIN INTERCAMBIO');
+assert.equal(compact.redActivo, false);
+assert.equal(compact.bateriaActivo, true);
+assert.equal(compact.bateriaDireccion, 'ENTREGANDO');
 assert.equal(compact.origen, 'isolar');
 assert.equal(compact.generadoHoy, '4,0 kWh');
 assert.equal(compact.esperadoHoy, '20,0 kWh');

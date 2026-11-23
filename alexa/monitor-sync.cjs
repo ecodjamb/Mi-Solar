@@ -68,6 +68,13 @@ function emptySnapshot(status = 'Sin datos') {
     consumo: '--',
     bateria: '--',
     bateriaValor: 0,
+    carga: '--',
+    descarga: '--',
+    solarActivo: false,
+    consumoActivo: false,
+    bateriaActivo: false,
+    bateriaDireccion: 'SIN FLUJO',
+    redActivo: false,
     red: '--',
     redDireccion: 'SIN INTERCAMBIO',
     generadoHoy: '--',
@@ -87,6 +94,10 @@ function emptySnapshot(status = 'Sin datos') {
 
 function enrichSnapshot(snapshot) {
   const battery = localizedNumber(snapshot?.bateria);
+  const solar = localizedNumber(snapshot?.generacion);
+  const consumption = localizedNumber(snapshot?.consumo);
+  const charge = localizedNumber(snapshot?.carga);
+  const discharge = localizedNumber(snapshot?.descarga);
   const signedGridKw = localizedNumber(snapshot?.red);
   const direction = snapshot?.redDireccion || (
     signedGridKw == null || Math.abs(signedGridKw) <= 0.05
@@ -97,7 +108,14 @@ function enrichSnapshot(snapshot) {
     ...snapshot,
     bateriaValor: Number.isFinite(battery) ? Math.max(0, Math.min(100, Math.round(battery))) : 0,
     red: Number.isFinite(signedGridKw) ? formatKw(Math.abs(signedGridKw) * 1000) : (snapshot?.red || '--'),
-    redDireccion: direction
+    redDireccion: direction,
+    solarActivo: Number.isFinite(solar) && solar > 0.02,
+    consumoActivo: Number.isFinite(consumption) && consumption > 0.02,
+    bateriaActivo: (Number.isFinite(charge) && charge > 0.02) || (Number.isFinite(discharge) && discharge > 0.02),
+    bateriaDireccion: Number.isFinite(charge) && charge > 0.02
+      ? 'CARGANDO'
+      : Number.isFinite(discharge) && discharge > 0.02 ? 'ENTREGANDO' : 'SIN FLUJO',
+    redActivo: direction !== 'SIN INTERCAMBIO' && Number.isFinite(signedGridKw) && Math.abs(signedGridKw) > 0.05
   };
 }
 
@@ -124,8 +142,10 @@ function snapshotFromMonitor(payload, now = new Date()) {
   const expected = Number(site.forecastTodayKwh);
   const hasExpected = Number.isFinite(expected) && expected > 0;
   const progress = hasExpected ? Math.max(0, Math.min(100, Math.round(generated / expected * 100))) : 0;
-  const imported = Math.max(0, number(realtime.gridPowerInputActiveTotal));
-  const exported = Math.max(0, number(realtime.gridPowerOutputActiveTotal));
+  const gridActive = number(realtime.statusGrid) === 1;
+  const signedGrid = gridActive ? number(realtime.gridPowerInputActiveTotal) : 0;
+  const imported = Math.max(0, signedGrid);
+  const exported = Math.max(0, -signedGrid);
   const gridDirection = imported > 50
     ? 'IMPORTANDO DE LA RED'
     : exported > 50 ? 'EXPORTANDO A LA RED' : 'SIN INTERCAMBIO';
@@ -136,6 +156,8 @@ function snapshotFromMonitor(payload, now = new Date()) {
     pv2: formatKw(realtime.pvInputPower2),
     consumo: formatKw(realtime.acOutputActivePowerTotal),
     bateria: formatPercent(realtime.batteryCapacity),
+    carga: formatKw(realtime.batteryChargingPower),
+    descarga: formatKw(realtime.batteryDischargingPower),
     red: formatKw(Math.max(imported, exported)),
     redDireccion: gridDirection,
     generadoHoy: formatKwh(generated),

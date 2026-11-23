@@ -214,8 +214,13 @@ function buildSnapshot(payload) {
   const realtime = site.realtime;
   const pv1 = Math.max(0, number(realtime.pvInputPower1));
   const pv2 = Math.max(0, number(realtime.pvInputPower2));
-  const imported = Math.max(0, number(realtime.gridPowerInputActiveTotal));
-  const exported = Math.max(0, number(realtime.gridPowerOutputActiveTotal));
+  const gridActive = number(realtime.statusGrid) === 1;
+  const signedGrid = gridActive ? number(realtime.gridPowerInputActiveTotal) : 0;
+  const imported = Math.max(0, signedGrid);
+  const exported = Math.max(0, -signedGrid);
+  const charging = Math.max(0, number(realtime.batteryChargingPower));
+  const discharging = Math.max(0, number(realtime.batteryDischargingPower));
+  const load = Math.max(0, number(realtime.acOutputActivePowerTotal));
   const generated = generatedTodayKwh(site);
   const expected = Number(site.forecastTodayKwh);
   const hasForecast = Number.isFinite(expected) && expected > 0;
@@ -228,13 +233,20 @@ function buildSnapshot(payload) {
     generacion: formatKw(pv1 + pv2),
     pv1: formatKw(pv1),
     pv2: formatKw(pv2),
-    consumo: formatKw(realtime.acOutputActivePowerTotal),
+    consumo: formatKw(load),
     bateria: `${Math.max(0, Math.min(100, Math.round(number(realtime.batteryCapacity))))} %`,
     bateriaValor: Math.max(0, Math.min(100, Math.round(number(realtime.batteryCapacity)))),
+    carga: formatKw(charging),
+    descarga: formatKw(discharging),
+    solarActivo: pv1 + pv2 > 20,
+    consumoActivo: load > 20,
+    bateriaActivo: charging > 20 || discharging > 20,
+    bateriaDireccion: charging > 20 ? 'CARGANDO' : discharging > 20 ? 'ENTREGANDO' : 'SIN FLUJO',
     red: formatKw(Math.max(imported, exported)),
     redDireccion: imported > 50
       ? 'IMPORTANDO DE LA RED'
       : exported > 50 ? 'EXPORTANDO A LA RED' : 'SIN INTERCAMBIO',
+    redActivo: imported > 50 || exported > 50,
     generadoHoy: formatKwh(generated),
     esperadoHoy: hasForecast ? formatKwh(expected) : '--',
     progresoSolar: `${progress}%`,
@@ -245,7 +257,7 @@ function buildSnapshot(payload) {
     origen: String(site.provider || '--'),
     disponible: true,
     sampledAt: site.sampledAt,
-    version: '1.0.13'
+    version: '1.0.14'
   };
 }
 

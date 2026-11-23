@@ -23,6 +23,8 @@ function emptySnapshot() {
     sitio: 'El Arrayán', generacion: PLACEHOLDER, consumo: PLACEHOLDER,
     bateria: PLACEHOLDER, red: PLACEHOLDER, carga: PLACEHOLDER,
     descarga: PLACEHOLDER, pv1: PLACEHOLDER, pv2: PLACEHOLDER,
+    solarActivo: false, consumoActivo: false, bateriaActivo: false,
+    bateriaDireccion: 'SIN FLUJO', redActivo: false, redDireccion: 'SIN INTERCAMBIO',
     generadoHoy: PLACEHOLDER, esperadoHoy: PLACEHOLDER,
     progresoSolar: '0%', progresoSolarValor: 0, tienePronostico: false,
     estado: 'Sin datos', hora: '--:--', origen: 'archivo Mi Solar',
@@ -58,7 +60,7 @@ export async function readAlexaWidgetSnapshot({
   }
   const siteId = await lookupSite(String(deviceSn));
   if (!siteId) return emptySnapshot();
-  const path = `energy_samples?site_id=eq.${encodeURIComponent(siteId)}&select=sample_at,solar_w,pv1_w,pv2_w,load_w,grid_w,battery_soc,battery_charge_w,battery_discharge_w&order=sample_at.desc&limit=1`;
+  const path = `energy_samples?site_id=eq.${encodeURIComponent(siteId)}&select=sample_at,solar_w,pv1_w,pv2_w,load_w,grid_w,grid_active,battery_soc,battery_charge_w,battery_discharge_w&order=sample_at.desc&limit=1`;
   const rows = await query(path);
   const sample = Array.isArray(rows) ? rows[0] : null;
   if (!sample) return emptySnapshot();
@@ -73,12 +75,25 @@ export async function readAlexaWidgetSnapshot({
   const sampleMs = Date.parse(sample.sample_at);
   const ageMs = Number.isFinite(sampleMs) ? now.getTime() - sampleMs : Infinity;
   const stale = ageMs < -120000 || ageMs > 15 * 60 * 1000;
+  const gridActive = sample.grid_active === true || sample.grid_active === 1 || sample.grid_active === '1';
+  const gridWatts = gridActive ? Number(sample.grid_w) || 0 : 0;
+  const charging = Math.max(0, Number(sample.battery_charge_w) || 0);
+  const discharging = Math.max(0, Number(sample.battery_discharge_w) || 0);
+  const solar = Math.max(0, Number(sample.solar_w) || 0);
+  const load = Math.max(0, Number(sample.load_w) || 0);
   return {
-    sitio: 'El Arrayán', generacion: formatKw(sample.solar_w),
+    sitio: 'El Arrayán', generacion: formatKw(solar),
     pv1: formatKw(sample.pv1_w), pv2: formatKw(sample.pv2_w),
-    consumo: formatKw(sample.load_w), bateria: formatPercent(sample.battery_soc),
-    red: formatKw(sample.grid_w), carga: formatKw(sample.battery_charge_w),
-    descarga: formatKw(sample.battery_discharge_w),
+    consumo: formatKw(load), bateria: formatPercent(sample.battery_soc),
+    red: formatKw(Math.abs(gridWatts)), carga: formatKw(charging),
+    descarga: formatKw(discharging),
+    solarActivo: solar > 20, consumoActivo: load > 20,
+    bateriaActivo: charging > 20 || discharging > 20,
+    bateriaDireccion: charging > 20 ? 'CARGANDO' : discharging > 20 ? 'ENTREGANDO' : 'SIN FLUJO',
+    redActivo: gridActive && Math.abs(gridWatts) > 50,
+    redDireccion: !gridActive || Math.abs(gridWatts) <= 50
+      ? 'SIN INTERCAMBIO'
+      : gridWatts < 0 ? 'EXPORTANDO A LA RED' : 'IMPORTANDO DE LA RED',
     generadoHoy: `${generatedToday.toFixed(1).replace('.', ',')} kWh`,
     esperadoHoy: PLACEHOLDER, progresoSolar: '0%', progresoSolarValor: 0,
     tienePronostico: false, estado: stale ? 'Dato atrasado' : 'Actualizado',

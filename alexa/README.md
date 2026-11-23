@@ -6,9 +6,9 @@ Esta carpeta contiene dos documentos APL importables para la galería de widgets
 
 ## Estado
 
-- Diseño APL responsivo v1.0.13: cuadrícula 2×2 con tarjetas simétricas, iconos equivalentes y cifras ampliadas para producción solar, casa, batería y red; incluye hora de la última muestra, generación diaria y acceso directo a `/monitor`. La paleta usa los tonos oscuros verde/azul del flujo de Mi Solar.
+- Diseño APL responsivo v1.0.14: cuadrícula 2×2 con tarjetas simétricas, iconos equivalentes y cifras ampliadas para producción solar, casa, batería y red; incluye movimiento APL discreto en los flujos activos, hora de la última muestra, generación diaria y acceso directo a `/monitor`. La red solo muestra potencia cuando `statusGrid = 1`, igual que Mi Solar. La paleta usa los tonos oscuros verde/azul del flujo de Mi Solar.
 - `widget-show5.json` es el documento canónico responsivo para Widget Medium (134–425 dp × 222–711 dp); se adapta a Echo Show 5, 8, 10, 11, 15 y 21 compatibles con widgets.
-- Manifiesto del paquete: `widget-manifest.json` v1.0.13, con tres locales, logo v1.0.13 validado de 450×450 y vista previa 328×552.
+- Manifiesto del paquete: `widget-manifest.json` v1.0.14, con tres locales, logo v1.0.14 validado de 450×450 y vista previa 328×552.
 - Fuente de la Lambda desplegada: `GET https://misolar.vercel.app/api/public/monitor`, ruta pública de solo lectura que entrega exclusivamente el estado sanitizado del monitor.
 - El widget ya no necesita `ALEXA_WIDGET_TOKEN`; no abre consultas nuevas a i.Solar o WatchPower y no expone controles, usuarios ni información financiera.
 - Fuente: `site:2` (El Arrayán), última telemetría ya respaldada por Mi Solar. No llama a i.Solar, WatchPower ni Supabase.
@@ -35,7 +35,7 @@ La actualización periódica se ejecuta en `.github/workflows/alexa-widget-sync.
 3. Activar en **Build > Interfaces**: Data Store Packages, Data Store y Data Store Extension (`alexaext:datastore:10`). Guardar y reconstruir el modelo.
 4. **Build > Multimodal Responses > Widget > Create Widget > Upload**, importar `widget-show5.json` para todos los tamaños compatibles y guardar. Es un documento APL sin contenedor `document` externo.
 5. Para la Skill Alexa-hosted, copiar el contenido de `alexa/skill-handler.cjs` como controlador Lambda (`index.js`) e instalar `ask-sdk-core`. El evento `UsagesInstalled` permite identificar el dispositivo en los logs. Estos datos deben tratarse como identificadores internos.
-6. En **Manifest**, reemplazar el contenido por `widget-manifest.json`. No dejar recursos genéricos: la versión 1.0.13 usa el logo v1.0.13 validado de 450×450 y `mi-solar-widget-preview-v2.png` (328×552).
+6. En **Manifest**, reemplazar el contenido por `widget-manifest.json`. No dejar recursos genéricos: la versión 1.0.14 usa el logo v1.0.14 validado de 450×450 y `mi-solar-widget-preview-v2.png` (328×552).
 7. Ejecutar **Build Model** y **Install > Send to Device** (no solo Preview). El dispositivo debe aparecer como compatible.
 8. Para probar con números simulados sin credenciales puedes usar el botón **Install > Update Datastore** y enviar un comando con `PUT_OBJECT`, namespace `MiSolar`, key `Indicadores`, y content con las propiedades `generacion`, `consumo`, `bateria`, `red`, `carga`, `descarga`, `estado`.
 9. La documentación de diseño de Amazon del año 2023 excluía el Echo Show 5, mientras que la guía actual de consumo muestra widgets para ese modelo. **Es necesario validar widgets APL de terceros en el Echo Show 5**; la galería visible no basta para confirmarlo.
