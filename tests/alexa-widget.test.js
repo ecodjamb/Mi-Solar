@@ -15,15 +15,15 @@ const previousWidgetToken = process.env.ALEXA_WIDGET_TOKEN;
 process.env.ALEXA_WIDGET_TOKEN = 'test-widget-token';
 
 const manifest = JSON.parse(await readFile(new URL('../alexa/widget-manifest.json', import.meta.url)));
-assert.equal(manifest.manifest.version, '1.0.14');
+assert.equal(manifest.manifest.version, '1.0.15');
 assert.equal(manifest.manifest.installStateChanges, 'INFORM');
 assert.equal(manifest.manifest.updateStateChanges, 'INFORM');
 assert.deepEqual(Object.keys(manifest.publishingInformation.locales).sort(), ['es-ES', 'es-MX', 'es-US']);
 for (const locale of Object.values(manifest.publishingInformation.locales)) {
   const metadata = locale[0].metadata;
   assert.equal(locale[0].targetViewport, 'WIDGET_M');
-  assert.equal(metadata.name, 'mi solar v1.0.14');
-  assert.match(metadata.iconUri, /mi-solar-widget-icon-v1\.0\.14\.png$/);
+  assert.equal(metadata.name, 'mi solar v1.0.15');
+  assert.match(metadata.iconUri, /mi-solar-widget-icon\.png$/);
   assert.match(metadata.previews[0], /mi-solar-widget-preview-v2\.png$/);
   assert.doesNotMatch(metadata.iconUri, /default_icon/);
 }
@@ -36,8 +36,8 @@ assert.equal(widget.mainTemplate.items[0].type, 'Frame');
 assert.equal(widget.mainTemplate.items[0].items.length, 1, 'Frame admite una sola capa hija; el contenido no debe quedar detrás del fondo');
 assert.equal(widget.mainTemplate.items[0].items[0].type, 'Container');
 assert.match(widgetText, /mi solar · El Arrayán/);
-assert.match(widgetText, /v1\.0\.14/);
-assert.match(widgetText, /PRODUCCIÓN SOLAR/);
+assert.match(widgetText, /v1\.0\.15/);
+assert.match(widgetText, /"text":"SOLAR"/);
 assert.match(widgetText, /ABRIR MONITOR/);
 assert.match(widgetText, /https:\/\/misolar\.vercel\.app\/monitor/);
 assert.doesNotMatch(widgetText, /#F024384A|#F02B294F|#F0163F39|#F0173650/);
@@ -47,7 +47,9 @@ assert.match(widgetText, /ÚLTIMO DATO/);
 assert.match(widgetText, /AnimateItem/);
 assert.match(widgetText, /solarFlowPulse/);
 assert.match(widgetText, /gridFlowPulse/);
-assert.match(widgetText, /"fontSize":"\$\{viewport\.width >= 350 && viewport\.height >= 500 \? '55dp'/);
+assert.match(widgetText, /"fontSize":"\$\{viewport\.width >= 300 && viewport\.height >= 500 \? '36dp'/);
+assert.match(widgetText, /"height":"\$\{viewport\.height >= 500 \? '160dp'/);
+assert.doesNotMatch(widgetText, /"direction":"row","grow":1/);
 const hostedLambda = await readFile(new URL('../alexa/alexa-hosted-index.cjs', import.meta.url), 'utf8');
 assert.match(hostedLambda, /type: 'USER', id: userId/);
 assert.match(hostedLambda, /targetFromEnvelope/);
@@ -69,18 +71,19 @@ assert.match(scheduledWorkflow, /ALEXA_WIDGET_DEVICE_ID: \$\{\{ secrets\.ALEXA_W
 assert.doesNotMatch(scheduledWorkflow, /misolar\.vercel\.app/);
 
 // Límites oficiales de @hubWidgetMedium: 134–425 dp × 222–711 dp.
-for (const [width, height] of [[134, 222], [240, 350], [320, 480], [425, 711]]) {
-  const horizontalPadding = width >= 350 ? 44 : width >= 240 ? 28 : 18;
-  const cardGap = width >= 350 ? 12 : 7;
-  const verticalPadding = height >= 550 ? 28 : height >= 350 ? 18 : 11;
-  const verticalGap = height >= 550 ? 44 : height >= 350 ? 28 : 16;
-  const header = height >= 550 ? 48 : height >= 350 ? 36 : 34;
-  const summary = height >= 550 ? 94 : height >= 350 ? 70 : 50;
-  const footer = height >= 550 ? 19 : 13;
+for (const [width, height] of [[134, 222], [240, 350], [328, 552], [425, 711]]) {
+  const horizontalPadding = width >= 350 ? 28 : width >= 240 ? 20 : 12;
+  const cardGap = width >= 350 ? 8 : 5;
+  const verticalPadding = height >= 500 ? 18 : height >= 350 ? 12 : 7;
+  const verticalGap = height >= 500 ? 28 : height >= 350 ? 20 : 12;
+  const header = height >= 500 ? 44 : height >= 350 ? 34 : 26;
+  const summary = height >= 500 ? 76 : height >= 350 ? 52 : 42;
+  const footer = height >= 500 ? 30 : height >= 350 ? 22 : 18;
+  const designedRowHeight = height >= 500 ? 160 : height >= 350 ? 84 : 58;
   const cardWidth = (width - horizontalPadding - cardGap) / 2;
-  const rowHeight = (height - verticalPadding - verticalGap - header - summary - footer) / 2;
+  const availableRowHeight = (height - verticalPadding - verticalGap - header - summary - footer) / 2;
   assert.ok(cardWidth >= 50, `ancho insuficiente ${width}×${height}`);
-  assert.ok(rowHeight >= 40, `alto insuficiente ${width}×${height}`);
+  assert.ok(designedRowHeight <= availableRowHeight, `las filas se desbordan en ${width}×${height}`);
 }
 
 assert.equal(authorizedAlexaWidgetRequest({ authorization: 'Bearer abc' }, 'abc'), true);

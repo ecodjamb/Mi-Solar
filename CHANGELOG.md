@@ -1,5 +1,7 @@
 # Mi Solar v8.79.8
 
+- El widget Alexa v1.0.15 corrige el desborde observado en el Echo Show 11: fija alturas para 328×552 dp, mantiene visibles las cuatro tarjetas y reduce las cifras solo lo necesario para evitar cortes.
+- La composición recupera la identidad de Mi Solar con tarjetas verde, violeta, batería y red, resumen diario compacto y animación discreta de los flujos activos.
 - El widget Alexa v1.0.14 agrega movimiento APL discreto a los flujos activos de solar, consumo, batería y red, sin reducir el tamaño de los indicadores.
 - La potencia de red se fuerza a `0 W` cuando el inversor informa `statusGrid = 0`, evitando repetir erróneamente el consumo de la casa.
 - La versión canónica, el manifiesto, la vista APL, la Lambda y el icono de galería quedan sincronizados en v1.0.14.
