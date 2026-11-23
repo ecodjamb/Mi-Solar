@@ -154,6 +154,46 @@ async function rememberTargetSafely(envelope) {
   }
 }
 
+async function rememberResolvedTargetSafely(target) {
+  const deviceId = target && target.type === 'DEVICES' && Array.isArray(target.items)
+    ? target.items[0]
+    : null;
+  const userId = target && target.type === 'USER' ? target.id : null;
+  if (!deviceId && !userId) return;
+  const names = {};
+  const values = { ':updatedAt': new Date().toISOString() };
+  const updates = ['widgetTargetUpdatedAt = :updatedAt'];
+  if (deviceId) {
+    names['#widgetDeviceId'] = 'widgetDeviceId';
+    values[':widgetDeviceId'] = deviceId;
+    updates.push('#widgetDeviceId = :widgetDeviceId');
+  }
+  if (userId) {
+    names['#widgetUserId'] = 'widgetUserId';
+    values[':widgetUserId'] = userId;
+    updates.push('#widgetUserId = :widgetUserId');
+  }
+  const params = {
+    TableName: CREDENTIALS_TABLE,
+    Key: { id: CREDENTIALS_KEY },
+    UpdateExpression: `SET ${updates.join(', ')}`,
+    ExpressionAttributeValues: values
+  };
+  if (Object.keys(names).length) params.ExpressionAttributeNames = names;
+  try {
+    await documentClient.update(params).promise();
+    console.log('MiSolar: destino resuelto de Data Store guardado', {
+      hasDeviceId: Boolean(deviceId),
+      hasUserId: Boolean(userId)
+    });
+  } catch (error) {
+    console.error('MiSolar: no fue posible guardar el destino resuelto', {
+      name: String(error && error.name || 'Error'),
+      message: String(error && error.message || 'Error sin detalle').slice(0, 180)
+    });
+  }
+}
+
 function generatedTodayKwh(site) {
   return (Array.isArray(site && site.history) ? site.history : []).reduce((total, row) => {
     const hours = Math.max(0, number(row && row.aggregateHours));
@@ -342,6 +382,7 @@ async function syncTarget(target) {
     return null;
   }
   try {
+    await rememberResolvedTargetSafely(target);
     const snapshot = await fetchSnapshot();
     const result = await writeDataStore(snapshot, target);
     const deliveryTypes = Array.isArray(result && result.results)
