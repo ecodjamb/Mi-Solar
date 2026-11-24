@@ -27,7 +27,13 @@ async function createMovementCompatibly(session, payload, idempotencyKey) {
     const snapshot = await familyDb('dashboard', { user_id: session.user.id, admin: isAdmin(session) });
     const existing = (snapshot?.movements || []).find((movement) => movement.movement_type === marker);
     if (existing) return { record: existing, duplicate: true, compatibility: true };
-    return await familyDb('movement_create', { ...payload, movement_type: marker });
+    const created = await familyDb('movement_create', { ...payload, movement_type: marker });
+    const record = created?.record || created;
+    if (record?.id && record.status === 'pending') {
+      const approved = await familyDb('movement_review', { movement_id: Number(record.id), decision: 'approved', reviewed_by: session.user.id, note: 'Registro automático: las cuentas corrientes familiares se reflejan al guardar.' });
+      return created?.record ? { ...created, record: approved || record } : (approved || record);
+    }
+    return created;
   }
 }
 
@@ -182,10 +188,9 @@ export async function createExpenseMovement(session, input) {
     if (attachment) payload.attachment = attachment;
     created = await createMovementOnce(session, payload, idempotencyKey);
     if(created?.duplicate){if(attachment)await removeStored(attachment.storage_path);return created;}
-    const pendingRow = created?.record || created;
-    const selfDepositByAdmin = isAdmin(session) && income > 0 && input.depositorUserId === session.user.id;
-    if (selfDepositByAdmin && pendingRow?.id && pendingRow.status === 'pending') {
-      const approved = await familyDb('movement_review', { movement_id: Number(pendingRow.id), decision: 'approved', reviewed_by: session.user.id, note: 'Aprobación automática: movimiento ingresado por superadministrador.' });
+    const createdRow = created?.record || created;
+    if (createdRow?.id && createdRow.status === 'pending') {
+      const approved = await familyDb('movement_review', { movement_id: Number(createdRow.id), decision: 'approved', reviewed_by: session.user.id, note: 'Registro automático: reflejado al guardar.' });
       if (approved) created = created?.record ? { ...created, record: approved } : approved;
     }
   } catch (error) { if (attachment) await removeStored(attachment.storage_path);throw error; }
@@ -195,15 +200,6 @@ export async function createExpenseMovement(session, input) {
   const admins = await adminUsers();
   const recipients = new Set([input.depositorUserId,input.recipientUserId,...admins.map((user) => user.id)]);
   await Promise.all([...recipients].map((userId) => notify(userId, automaticallyApproved ? 'expense_approved' : 'expense_pending', automaticallyApproved ? (income > 0 ? 'Depósito registrado' : 'Gasto registrado') : (income > 0 ? 'Depósito pendiente' : 'Gasto pendiente'), automaticallyApproved ? `${input.detail}: aplicado al saldo.` : `${input.detail}: requiere revisión.`, 'expense_movement', movementRow?.id)));
-  if (expense > 0 && !isAdmin(session)) {
-    await Promise.allSettled(admins.map((admin) => sendFamilyPushThrottled(
-      admin.id,
-      'expense_pending_admin',
-      '🧾 Nuevo gasto familiar pendiente',
-      `${session.user.display_name || session.user.username} ingresó “${input.detail}”.`,
-      { url: '/?page=family', type: 'expense_pending', movementId: movementRow?.id }
-    )));
-  }
   return created;
 }
 

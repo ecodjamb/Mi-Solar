@@ -1,7 +1,7 @@
 import { siteProfile } from '../utils/site';
 import { api } from './api';
 
-export type RadiationDay={date:string;shortwaveKwhM2:number;weatherCode?:number;precipitationSumMm?:number;sunrise?:string;sunset?:string};
+export type RadiationDay={date:string;shortwaveKwhM2:number;weatherCode?:number;precipitationSumMm?:number;temperatureMin?:number;temperatureMax?:number;sunrise?:string;sunset?:string};
 export type RadiationHour={time:string;shortwaveWm2:number;cloudCover?:number;precipitation?:number;temperature?:number;windSpeed?:number;weatherCode?:number;isDay?:number};
 export type WeatherData={
  temperature?:number;humidity?:number;weatherCode?:number;windSpeed?:number;isDay?:number;
@@ -32,6 +32,8 @@ function normalizeOpenMeteo(payload:any, provider='Open-Meteo directo'):WeatherD
   shortwaveKwhM2:Number(payload.daily?.shortwave_radiation_sum?.[i]||0)/3.6,
   weatherCode:Number(payload.daily?.weather_code?.[i]||0),
   precipitationSumMm:Number(payload.daily?.precipitation_sum?.[i]||0),
+  temperatureMin:Number(payload.daily?.temperature_2m_min?.[i]),
+  temperatureMax:Number(payload.daily?.temperature_2m_max?.[i]),
   sunrise:payload.daily?.sunrise?.[i],
   sunset:payload.daily?.sunset?.[i]
  }));
@@ -47,7 +49,7 @@ async function directOpenMeteo(lat:number,lon:number):Promise<WeatherData>{
  url.searchParams.set('latitude',String(lat));url.searchParams.set('longitude',String(lon));
  url.searchParams.set('current','temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day,cloud_cover,precipitation');
  url.searchParams.set('hourly','shortwave_radiation,cloud_cover,precipitation,temperature_2m,wind_speed_10m,weather_code,is_day');
- url.searchParams.set('daily','sunrise,sunset,shortwave_radiation_sum,weather_code,precipitation_sum');
+ url.searchParams.set('daily','sunrise,sunset,shortwave_radiation_sum,weather_code,precipitation_sum,temperature_2m_min,temperature_2m_max');
  url.searchParams.set('past_days','90');url.searchParams.set('forecast_days','14');url.searchParams.set('timezone','America/Santiago');
  const response=await fetch(url.toString(),{headers:{Accept:'application/json'}});
  if(!response.ok)throw new Error(`Open-Meteo directo HTTP ${response.status}`);

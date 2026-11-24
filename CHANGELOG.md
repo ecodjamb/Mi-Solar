@@ -1,3 +1,9 @@
+# Mi Solar v8.80.0
+
+- Radiación muestra temperatura actual, mínima y máxima del día; cada día próximo incorpora sus temperaturas mínima y máxima de Open-Meteo.
+- El modelo estacional explicita las fechas de cada estación, actualiza los rangos de producción de El Arrayán para la instalación vigente de 10,54 kWp y valoriza el ahorro mensual promedio con la tarifa configurada.
+- Mis gastos contabiliza ingresos y gastos inmediatamente, con o sin fotografía; se retiran los controles de aprobación de movimientos de cuenta corriente y se conserva la auditoría, edición administrativa y anulación.
+
 # Mi Solar v8.79.9
 
 - Inicio y Enel valorizan ahora el ahorro desde una única fuente canónica: la producción fotovoltaica real respaldada de PV1 + PV2.

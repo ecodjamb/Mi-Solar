@@ -1,4 +1,4 @@
-# Mi Solar v8.79.9
+# Mi Solar v8.80.0
 
 Mi Solar es la aplicación canónica. Alexa, el widget y cualquier otra integración son complementos de solo consumo y no pueden sustituir, versionar ni desplegar por separado la aplicación principal. La estructura, las versiones y el proceso automático de publicación se definen en [Arquitectura y publicación](docs/ARQUITECTURA-Y-PUBLICACION.md).
 

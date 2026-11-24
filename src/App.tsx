@@ -854,7 +854,7 @@ export default function App(){
       </section></Suspense>}
 
       <Suspense fallback={<section className="panel route-loading"><strong>Cargando sección…</strong><small>Se mostrará de inmediato el contenido guardado.</small></section>}>
-        {page==='solar'&&<SolarForecastPage actual={projectionActual} hourlyActual={history} liveData={validatedRealtime} weather={weather} model={solarModel} legacyModel={legacySolarModel} deviceSn={selected} siteLabel={siteLabel} siteKey={profile.key} storedForecast={storedForecast} energyProvider={source}/>}
+        {page==='solar'&&<SolarForecastPage actual={projectionActual} hourlyActual={history} liveData={validatedRealtime} weather={weather} model={solarModel} legacyModel={legacySolarModel} deviceSn={selected} siteLabel={siteLabel} siteKey={profile.key} storedForecast={storedForecast} energyProvider={source} tariff={tariff}/>}
 
         {page==='ai'&&allowedMenus.ai&&<AiChatPage siteId={selectedProviderSite?.id} siteLabel={siteLabel} provider={source}/>}
 

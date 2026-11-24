@@ -10,6 +10,9 @@ const serverSites=readFileSync(new URL('../server/siteProfiles.js',import.meta.u
 const specificYield=readFileSync(new URL('../src/utils/specificYield.ts',import.meta.url),'utf8');
 const yieldCard=readFileSync(new URL('../src/components/SpecificYieldCard.tsx',import.meta.url),'utf8');
 const pvBar=readFileSync(new URL('../src/components/PvAccumulatedBar.tsx',import.meta.url),'utf8');
+const forecast=readFileSync(new URL('../src/components/SolarForecastPage.tsx',import.meta.url),'utf8');
+const weatherService=readFileSync(new URL('../src/services/weather.ts',import.meta.url),'utf8');
+const solarModel=readFileSync(new URL('../src/utils/solarForecast.ts',import.meta.url),'utf8');
 
 assert.doesNotMatch(app,/label="Producción solar"/,'Inicio no debe duplicar la potencia solar instantánea.');
 assert.doesNotMatch(app,/label="Consumo" value=\{watts/,'Inicio no debe duplicar el consumo instantáneo.');
@@ -56,5 +59,10 @@ assert.doesNotMatch(app,/todayRadiationKwhM2\*\(installedWp\/1000\)/,'Inicio no 
 assert.match(flow,/Producción prevista para hoy · configuración actual/);
 assert.match(pvBar,/Producción prevista hoy · configuración actual/);
 assert.match(yieldCard,/Referencia teórica de \{reference\.periodLabel\}/);
+assert.match(forecast,/Mín\. \/ máx\. de hoy/);
+assert.match(forecast,/Temperatura:/);
+assert.match(forecast,/Ahorro mensual promedio/);
+assert.match(solarModel,/1 jun\. – 31 ago\./);
+assert.match(weatherService,/temperature_2m_min,temperature_2m_max/);
 
 console.log('home summary and local weather tests: ok');

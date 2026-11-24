@@ -126,6 +126,8 @@ function normalizeOpenMeteo(payload) {
     shortwaveKwhM2: Number(payload.daily?.shortwave_radiation_sum?.[i] || 0) / 3.6,
     weatherCode: Number(payload.daily?.weather_code?.[i] || 0),
     precipitationSumMm: Number(payload.daily?.precipitation_sum?.[i] || 0),
+    temperatureMin: Number(payload.daily?.temperature_2m_min?.[i]),
+    temperatureMax: Number(payload.daily?.temperature_2m_max?.[i]),
     sunrise: payload.daily?.sunrise?.[i],
     sunset: payload.daily?.sunset?.[i]
   }));
@@ -152,7 +154,7 @@ async function openMeteo(lat, lon) {
   url.searchParams.set('longitude', String(lon));
   url.searchParams.set('current', 'temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day,cloud_cover,precipitation');
   url.searchParams.set('hourly', 'shortwave_radiation,cloud_cover,precipitation,temperature_2m,wind_speed_10m,weather_code,is_day');
-  url.searchParams.set('daily', 'sunrise,sunset,shortwave_radiation_sum,weather_code,precipitation_sum');
+  url.searchParams.set('daily', 'sunrise,sunset,shortwave_radiation_sum,weather_code,precipitation_sum,temperature_2m_min,temperature_2m_max');
   url.searchParams.set('past_days', '90');
   url.searchParams.set('forecast_days', '14');
   url.searchParams.set('timezone', 'America/Santiago');
@@ -497,7 +499,7 @@ export default async function handler(req, res) {
       } catch (cause) {
         archiveError = cause instanceof Error ? cause.message : 'No fue posible comprobar el archivo permanente.';
       }
-      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.79.9', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveSeriesAuthorized, pollPolicyAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
+      return sendJson(res, 200, { ok: true, service: 'mi-solar-vercel-backend', version: '8.80.0', archiveConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && process.env.MISOLAR_DB_KEY), archiveAuthorized, archiveSeriesAuthorized, pollPolicyAuthorized, archiveError, aiConfigured: Boolean(process.env.OPENAI_API_KEY), tuyaConfigured: tuyaConfiguration().configured, automationConfigured: Boolean(process.env.CRON_SECRET && process.env.AUTOMATION_CREDENTIALS_KEY), pushConfigured: push.configured, pushKeyValid: push.valid, time: new Date().toISOString() });
     }
 
     if (method === 'POST' && route === 'automation/run') {
