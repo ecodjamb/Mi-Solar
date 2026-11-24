@@ -1,3 +1,7 @@
+# Mi Solar v8.80.1
+
+- Corrige el manejo de temperaturas no disponibles en una respuesta meteorológica: ya no se muestran como 0 °C y se usa la serie horaria disponible.
+
 # Mi Solar v8.80.0
 
 - Radiación muestra temperatura actual, mínima y máxima del día; cada día próximo incorpora sus temperaturas mínima y máxima de Open-Meteo.

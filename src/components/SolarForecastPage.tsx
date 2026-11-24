@@ -81,7 +81,10 @@ function weatherDayPosition(value?: string) {
 const clp=(value:number)=>new Intl.NumberFormat('es-CL',{style:'currency',currency:'CLP',maximumFractionDigits:0}).format(value);
 function temperatureRange(day:RadiationDay|undefined,hours:NonNullable<WeatherData['hourly']>){
   const values=hours.map(hour=>Number(hour.temperature)).filter(Number.isFinite);
-  const min=Number(day?.temperatureMin),max=Number(day?.temperatureMax);
+  // The API can serialise an unavailable temperature as null.  Do not turn it
+  // into a misleading 0 °C; fall back to the hourly observations instead.
+  const min=day?.temperatureMin==null?Number.NaN:Number(day.temperatureMin);
+  const max=day?.temperatureMax==null?Number.NaN:Number(day.temperatureMax);
   return {min:Number.isFinite(min)?min:(values.length?Math.min(...values):null),max:Number.isFinite(max)?max:(values.length?Math.max(...values):null)};
 }
 function average(range:[number,number]){return(range[0]+range[1])/2;}
