@@ -1,3 +1,7 @@
+# Mi Solar v8.80.2
+
+- Monitor calcula solar acumulado, energía desde red y carga/entrega de batería con la cobertura horaria real de cada bloque respaldado, igual que el acumulado canónico de Mi Solar.
+
 # Mi Solar v8.80.1
 
 - Corrige el manejo de temperaturas no disponibles en una respuesta meteorológica: ya no se muestran como 0 °C y se usa la serie horaria disponible.

@@ -239,7 +239,16 @@ export function dedupeRows(rows:HistoryRow[]){
 }
 export function integrate(rows:HistoryRow[], selector:(r:HistoryRow)=>number){
   const aggregated=rows.some(row=>Number(row.aggregateSamples||0)>0);
-  if(aggregated)return dedupeRows(rows).reduce((wh,row)=>{const hours=Number(row.aggregateHours||1);const coverage=hours===1?Math.min(1,Math.max(1,Number(row.aggregateSamples||12))/12):hours;return wh+Math.max(0,selector(row))*coverage},0)/1000;
+  if(aggregated)return dedupeRows(rows).reduce((wh,row)=>{
+    // Las filas agregadas ya contienen potencia promedio y duración efectiva
+    // del bloque. Dividir otra vez por la cantidad de muestras reducía 12 veces
+    // cada hora completa y dejaba a Monitor por debajo del acumulado canónico.
+    const reportedHours=Number(row.aggregateHours);
+    const coverage=Number.isFinite(reportedHours)&&reportedHours>0
+      ? reportedHours
+      : Math.min(1,Math.max(1,Number(row.aggregateSamples||12))/12);
+    return wh+Math.max(0,selector(row))*coverage;
+  },0)/1000;
   const pts=dedupeRows(rows).map(r=>({t:rowTimestamp(r),p:Math.max(0,selector(r))})).filter((x):x is {t:Date;p:number}=>Boolean(x.t)).sort((a,b)=>a.t.getTime()-b.t.getTime());
   if(pts.length<2) return 0;
   const intervals:number[]=[]; for(let i=1;i<pts.length;i++){const h=(pts[i].t.getTime()-pts[i-1].t.getTime())/36e5;if(h>0&&h<=1)intervals.push(h);}

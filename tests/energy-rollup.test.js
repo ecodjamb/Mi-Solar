@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {readArchiveSeries} from '../server/archive.js';
+const energy=readFileSync(new URL('../src/utils/energy.ts',import.meta.url),'utf8');
 const originalFetch=global.fetch;
 const previous={...process.env};
 process.env.SUPABASE_URL='https://database.invalid';
@@ -16,6 +18,8 @@ global.fetch=async(url,options)=>{
  }]),{status:200});
 };
 try{
+ assert.match(energy,/const coverage=Number\.isFinite\(reportedHours\)&&reportedHours>0[\s\S]*\? reportedHours/,'un bloque horario agregado debe conservar su cobertura completa');
+ assert.doesNotMatch(energy,/hours===1\?Math\.min\(1,Math\.max\(1,Number\(row\.aggregateSamples\|\|12\)\/12\):hours/,'no se debe dividir nuevamente una hora ya agregada por sus muestras');
  for(const resolution of ['hour','day']){
   const result=await readArchiveSeries('site:2','2026-11-02T03:00:00Z','2026-11-03T03:00:00Z',resolution);
   assert.equal(result.rows[0].aggregateHours,0.75,'retain actual coverage, not a whole hour/day');
